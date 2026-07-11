@@ -1,0 +1,18 @@
+{
+  "name": "DIY Business Control",
+  "short_name": "DIY Control",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f6fa",
+  "theme_color": "#102c4e",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

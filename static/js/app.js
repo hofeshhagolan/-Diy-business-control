@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
 let isExpenseSaving = false;
 let initialSessionChecked = false;
+let captureMode = "single";
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
 
@@ -249,15 +250,30 @@ async function loadLookups(){
   ];
 
   for(const [table,id] of lookups){
-    const {data} = await sb.from(table)
-      .select("id,name")
+    const {data,error} = await sb.from(table)
+      .select("id,name,parent_id,sort_order")
       .eq("user_id",userId)
       .eq("is_active",true)
       .order("sort_order");
 
-    $(id).innerHTML =
-      '<option value="">ללא בחירה</option>' +
-      (data || []).map(x => `<option value="${x.id}">${x.name}</option>`).join("");
+    if(error){
+      setStatus($(id), `שגיאה בטעינת ${table}`, "error");
+      $(id).innerHTML = '<option value="">לא ניתן לטעון</option>';
+      continue;
+    }
+
+    const items = data || [];
+    const hasParent = items.some(item => item.parent_id);
+    const html = hasParent
+      ? buildNestedOptions(items)
+      : '<option value="" data-name="">ללא בחירה</option>' + items.map(x => `<option value="${x.id}" data-name="${x.name}">${x.name}</option>`).join("");
+
+    if(!items.length && (table === "payment_sources" || table === "payment_methods")){
+      setStatus($("expenseStatus"), `לא נמצאו אפשרויות פעילות בטבלת ${table}. יש לעדכן בטבלאות ה-Supabase.`, "error");
+      $(id).innerHTML = '<option value="" data-name="">אין אפשרויות זמינות</option>';
+    } else {
+      $(id).innerHTML = html;
+    }
   }
 
   const {data:settings} = await sb.from("business_settings")
@@ -270,6 +286,29 @@ async function loadLookups(){
     $("zProject").value = settings.default_project_id || "";
     $("expenseAccountingType").value = settings.default_accounting_type_id || "";
   }
+}
+
+function buildNestedOptions(items){
+  const tree = items.reduce((acc,item)=>{
+    acc[item.parent_id || "root"] = acc[item.parent_id || "root"] || [];
+    acc[item.parent_id || "root"].push(item);
+    return acc;
+  }, {});
+
+  const build = (parentId, level = 0) => {
+    const children = tree[parentId] || [];
+    return children
+      .sort((a,b)=>a.sort_order - b.sort_order)
+      .map(item => {
+        const prefix = "— ".repeat(level);
+        return `
+          <option value="${item.id}">${prefix}${item.name}</option>
+          ${build(item.id, level + 1) || ""}
+        `;
+      }).join("");
+  };
+
+  return '<option value="">ללא בחירה</option>' + build("root");
 }
 
 async function loadDashboard(){
@@ -464,8 +503,10 @@ document.querySelectorAll("[data-action]").forEach(button => {
 function openAction(action){
   $("quickAddDialog").close();
 
-  if(action === "expense") $("expenseDialog").showModal();
-  else if(action === "z"){
+  if(action === "expense"){
+    resetExpenseDialogState();
+    $("expenseDialog").showModal();
+  } else if(action === "z"){
     $("zDate").value = today();
     $("zDialog").showModal();
   }else{
@@ -523,9 +564,7 @@ function removeSelectedFile(index){
   if(index < 0 || index >= selectedFiles.length) return;
   selectedFiles.splice(index,1);
   if(!selectedFiles.length){
-    $("cameraInput").value = "";
-    $("browseInput").value = "";
-    setStatus($("expenseStatus"), "", "");
+    resetExpenseDialogState();
   } else {
     setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, "ok");
   }
@@ -534,12 +573,47 @@ function removeSelectedFile(index){
 
 function updateFiles(input){
   selectedFiles = Array.from(input.files || []);
-  setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, selectedFiles.length ? "ok" : "");
+  const message = selectedFiles.length
+    ? `${selectedFiles.length} קבצים נבחרו`
+    : "לא נבחרו קבצים.";
+  setStatus($("expenseStatus"), message, selectedFiles.length ? "ok" : "");
   renderSelectedFiles();
+  if(selectedFiles.length > 1){
+    captureMode = "multi";
+    $("captureModeToggle").textContent = "מצב צילום: קבצים מרובים";
+  } else {
+    captureMode = "single";
+    $("captureModeToggle").textContent = "מצב צילום: חשבונית אחת";
+  }
 }
 
 $("cameraInput").onchange = event => updateFiles(event.currentTarget);
 $("browseInput").onchange = event => updateFiles(event.currentTarget);
+
+$("captureModeToggle").onclick = () => {
+  captureMode = captureMode === "single" ? "multi" : "single";
+  $("captureModeToggle").textContent = captureMode === "single"
+    ? "מצב צילום: חשבונית אחת"
+    : "מצב צילום: קבצים מרובים";
+};
+
+$("expensePaymentMethod").onchange = () => {
+  const selectedText = $("expensePaymentMethod").selectedOptions[0]?.textContent?.trim() || "";
+  const showDueDate = selectedText.includes("צ'ק דחוי");
+  $("expenseDueDateLabel").classList.toggle("hidden", !showDueDate);
+};
+
+function resetExpenseDialogState(){
+  selectedFiles = [];
+  $("cameraInput").value = "";
+  $("browseInput").value = "";
+  captureMode = "single";
+  $("captureModeToggle").textContent = "מצב צילום: חשבונית אחת";
+  $("expenseDueDateLabel").classList.add("hidden");
+  $("expenseDueDate").value = "";
+  renderSelectedFiles();
+  setStatus($("expenseStatus"), "", "");
+}
 
 $("analyzeButton").onclick = async () => {
   if(!selectedFiles.length){
@@ -567,7 +641,7 @@ $("analyzeButton").onclick = async () => {
   if(result.multiple_invoices){
     setStatus(
       $("expenseStatus"),
-      "נמצאה יותר מחשבונית אחת. צלמי כל חשבונית בנפרד.",
+      "נמצאה יותר מחשבונית אחת. בחרי מצב צילום קבצים מרובים או צלמי כל חשבונית בנפרד.",
       "error"
     );
     return;
@@ -651,7 +725,8 @@ $("expenseForm").onsubmit = async event => {
     payment_method_id:$("expensePaymentMethod").value || null,
     gross_ils:gross,
     net_ils:net,
-    vat_ils:vat
+    vat_ils:vat,
+    due_date:$("expenseDueDate").value || null
   };
 
   const {data:expense,error} = await sb.from("expenses")

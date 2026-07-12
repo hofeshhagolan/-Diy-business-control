@@ -158,6 +158,11 @@
       <button id="analyzeButton" class="secondary" type="button">חלצי נתונים עם AI</button>
     </div>
 
+    <div class="capture-mode">
+      <button id="captureModeToggle" class="secondary" type="button">מצב צילום: חשבונית אחת</button>
+      <div id="captureModeLabel" class="capture-mode-label">העלאת קבצים מרובים מורה על מספר דפים או מספר חשבוניות.</div>
+    </div>
+
     <div id="expenseFilePreview" class="file-preview">
       <div class="file-preview-empty">לא נבחרו קבצים.</div>
     </div>
@@ -175,6 +180,7 @@
       <label>פרויקט<select id="expenseProject"></select></label>
       <label>מקור תשלום<select id="expensePaymentSource"></select></label>
       <label>אמצעי תשלום<select id="expensePaymentMethod"></select></label>
+      <label id="expenseDueDateLabel" class="wide hidden">תאריך פדיון צ'ק דחוי<input id="expenseDueDate" type="date"></label>
       <label class="wide">שירות / מוצר<input id="expenseDescription"></label>
       <label class="wide">הערות<textarea id="expenseNotes"></textarea></label>
       <button type="submit" class="primary wide">שמרי חשבונית בהוצאות</button>

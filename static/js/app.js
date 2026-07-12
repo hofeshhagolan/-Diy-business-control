@@ -251,7 +251,7 @@ async function loadLookups(){
 
   for(const [table,id] of lookups){
     const {data,error} = await sb.from(table)
-      .select("id,name,parent_id,sort_order")
+      .select("id,name")
       .eq("user_id",userId)
       .eq("is_active",true)
       .order("sort_order");
@@ -263,17 +263,7 @@ async function loadLookups(){
     }
 
     const items = data || [];
-    const hasParent = items.some(item => item.parent_id);
-    const html = hasParent
-      ? buildNestedOptions(items)
-      : '<option value="" data-name="">ללא בחירה</option>' + items.map(x => `<option value="${x.id}" data-name="${x.name}">${x.name}</option>`).join("");
-
-    if(!items.length && (table === "payment_sources" || table === "payment_methods")){
-      setStatus($("expenseStatus"), `לא נמצאו אפשרויות פעילות בטבלת ${table}. יש לעדכן בטבלאות ה-Supabase.`, "error");
-      $(id).innerHTML = '<option value="" data-name="">אין אפשרויות זמינות</option>';
-    } else {
-      $(id).innerHTML = html;
-    }
+    $(id).innerHTML = '<option value="">ללא בחירה</option>' + items.map(x => `<option value="${x.id}">${x.name}</option>`).join("");
   }
 
   const {data:settings} = await sb.from("business_settings")
@@ -286,29 +276,6 @@ async function loadLookups(){
     $("zProject").value = settings.default_project_id || "";
     $("expenseAccountingType").value = settings.default_accounting_type_id || "";
   }
-}
-
-function buildNestedOptions(items){
-  const tree = items.reduce((acc,item)=>{
-    acc[item.parent_id || "root"] = acc[item.parent_id || "root"] || [];
-    acc[item.parent_id || "root"].push(item);
-    return acc;
-  }, {});
-
-  const build = (parentId, level = 0) => {
-    const children = tree[parentId] || [];
-    return children
-      .sort((a,b)=>a.sort_order - b.sort_order)
-      .map(item => {
-        const prefix = "— ".repeat(level);
-        return `
-          <option value="${item.id}">${prefix}${item.name}</option>
-          ${build(item.id, level + 1) || ""}
-        `;
-      }).join("");
-  };
-
-  return '<option value="">ללא בחירה</option>' + build("root");
 }
 
 async function loadDashboard(){
@@ -597,20 +564,12 @@ $("captureModeToggle").onclick = () => {
     : "מצב צילום: קבצים מרובים";
 };
 
-$("expensePaymentMethod").onchange = () => {
-  const selectedText = $("expensePaymentMethod").selectedOptions[0]?.textContent?.trim() || "";
-  const showDueDate = selectedText.includes("צ'ק דחוי");
-  $("expenseDueDateLabel").classList.toggle("hidden", !showDueDate);
-};
-
 function resetExpenseDialogState(){
   selectedFiles = [];
   $("cameraInput").value = "";
   $("browseInput").value = "";
   captureMode = "single";
   $("captureModeToggle").textContent = "מצב צילום: חשבונית אחת";
-  $("expenseDueDateLabel").classList.add("hidden");
-  $("expenseDueDate").value = "";
   renderSelectedFiles();
   setStatus($("expenseStatus"), "", "");
 }
@@ -725,8 +684,7 @@ $("expenseForm").onsubmit = async event => {
     payment_method_id:$("expensePaymentMethod").value || null,
     gross_ils:gross,
     net_ils:net,
-    vat_ils:vat,
-    due_date:$("expenseDueDate").value || null
+    vat_ils:vat
   };
 
   const {data:expense,error} = await sb.from("expenses")

@@ -170,3 +170,4 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             status_code=502,
             detail=f"שגיאה בחילוץ הנתונים: {str(exc)[:220]}",
         ) from exc
+

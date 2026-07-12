@@ -15,6 +15,10 @@
 body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
 button,input,select,textarea{font:inherit}
 .hidden{display:none!important}
+.loading{min-height:100vh;display:grid;place-items:center;padding:22px;background:var(--bg);color:var(--text)}
+.loading-wrap{display:grid;place-items:center;gap:14px;text-align:center}
+.loading-spinner{width:52px;height:52px;border:6px solid rgba(16,44,78,.12);border-top-color:var(--brand);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .auth{min-height:100vh;display:grid;place-items:center;padding:22px;background:linear-gradient(145deg,#102c4ef8,#1f4f82ee);color:#fff}
 .auth-wrap{width:min(460px,100%)}
 .brand{text-align:center;margin-bottom:18px}
@@ -71,6 +75,16 @@ dialog::backdrop{background:#07182a99}
 .file-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .file-actions label{border:1px solid var(--brand);color:var(--brand);padding:9px 12px;border-radius:10px}
 .file-actions input{display:none}
+.file-preview{margin-top:14px;display:grid;gap:10px}
+.file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
+.file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
+.file-preview-card{display:flex;align-items:center;justify-content:center;border-radius:14px;min-height:100px;overflow:hidden}
+.file-preview-card.image{padding:6px;background:#f8fbff}
+.file-preview-card.image img{max-width:100%;max-height:100px;object-fit:contain;border-radius:12px}
+.file-preview-card.pdf{flex-direction:column;padding:14px;background:#eef3f8;color:var(--brand);font-weight:800}
+.file-preview-icon{font-size:1rem;letter-spacing:.1em}
+.file-preview-meta{font-size:.9rem;word-break:break-word}
+.file-remove{position:absolute;top:8px;left:8px;border:0;background:rgba(16,44,78,.1);color:var(--brand);width:28px;height:28px;border-radius:999px;cursor:pointer;font-weight:700}
 .empty{color:var(--muted);padding:12px 0}
 @media(max-width:760px){
   .snapshot{grid-template-columns:1fr 1fr}

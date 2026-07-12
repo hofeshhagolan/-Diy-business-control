@@ -1,6 +1,44 @@
 const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
 let isExpenseSaving = false;
+let initialSessionChecked = false;
+const ACTIVE_VIEW_KEY = "activeView";
+const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
+
+const showLoading = () => {
+  $("loadingScreen")?.classList.remove("hidden");
+  $("authScreen")?.classList.add("hidden");
+  $("appShell")?.classList.add("hidden");
+};
+
+const hideLoading = () => $("loadingScreen")?.classList.add("hidden");
+
+const getSavedViewId = () => {
+  try {
+    const viewId = sessionStorage.getItem(ACTIVE_VIEW_KEY);
+    return AVAILABLE_VIEWS.includes(viewId) ? viewId : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveActiveViewId = viewId => {
+  if(!AVAILABLE_VIEWS.includes(viewId)) return;
+  try { sessionStorage.setItem(ACTIVE_VIEW_KEY, viewId); } catch {}
+};
+
+const clearSavedViewId = () => {
+  try { sessionStorage.removeItem(ACTIVE_VIEW_KEY); } catch {}
+};
+
+const activateView = viewId => {
+  const target = AVAILABLE_VIEWS.includes(viewId) ? viewId : "homeView";
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === target));
+  document.querySelectorAll(".bottom-nav button").forEach(button => {
+    button.classList.toggle("active", button.dataset.view === target);
+  });
+  saveActiveViewId(target);
+};
 
 const money = n => new Intl.NumberFormat("he-IL", {
   style:"currency", currency:"ILS", maximumFractionDigits:0
@@ -25,6 +63,7 @@ const yearEnd = year => `${year}-12-31`;
 function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `status ${type}`; }
 
 async function init(){
+  showLoading();
   try{
     const response = await fetch("/api/config");
     const config = await response.json();
@@ -32,13 +71,14 @@ async function init(){
 
     sb = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
 
-    const {data:{session:current}} = await sb.auth.getSession();
-    session = current;
-
-    sb.auth.onAuthStateChange(async(_,next)=>{
+    sb.auth.onAuthStateChange(async(_, next) => {
+      if(!initialSessionChecked) return;
       session = next;
       if(next) await enterApp(); else showAuth();
     });
+
+    const {data:{session:current}} = await sb.auth.getSession();
+    session = current;
 
     if(session) await enterApp(); else showAuth();
 
@@ -47,6 +87,10 @@ async function init(){
     }
   }catch(error){
     setStatus($("loginStatus"), error.message, "error");
+    if(!session) showAuth();
+  } finally {
+    initialSessionChecked = true;
+    hideLoading();
   }
 }
 
@@ -66,6 +110,7 @@ async function enterApp(){
   userId = session.user.id;
   $("authScreen").classList.add("hidden");
   $("appShell").classList.remove("hidden");
+  activateView(getSavedViewId() || "homeView");
 
   await loadBusiness();
   await loadLookups();
@@ -185,6 +230,7 @@ $("logoutButton").onclick = async () => {
 
   session = null;
   userId = null;
+  clearSavedViewId();
   showAuth();
 
   if(error){
@@ -402,13 +448,7 @@ async function loadEmployees(){
 }
 
 document.querySelectorAll(".bottom-nav button").forEach(button => {
-  button.onclick = () => {
-    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-    $(button.dataset.view).classList.add("active");
-
-    document.querySelectorAll(".bottom-nav button").forEach(b => b.classList.remove("active"));
-    button.classList.add("active");
-  };
+  button.onclick = () => activateView(button.dataset.view);
 });
 
 $("quickAddButton").onclick = () => $("quickAddDialog").showModal();

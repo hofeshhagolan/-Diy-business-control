@@ -157,7 +157,22 @@ $("businessForm").onsubmit = async event => {
   setTimeout(() => $("businessDialog").close(), 450);
 };
 
-$("logoutButton").onclick = () => sb.auth.signOut();
+$("logoutButton").onclick = async () => {
+  const result = await sb.auth.signOut().catch(error => ({ error }));
+  const error = result?.error;
+
+  if($("businessDialog") && $("businessDialog").open){
+    $("businessDialog").close();
+  }
+
+  session = null;
+  userId = null;
+  showAuth();
+
+  if(error){
+    setStatus($("businessStatus"), error.message || "שגיאה ביציאה", "error");
+  }
+};
 
 async function loadLookups(){
   const lookups = [

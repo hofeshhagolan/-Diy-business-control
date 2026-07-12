@@ -11,6 +11,16 @@ const monthStart = () => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
 };
 
+const currentYear = () => new Date().getFullYear();
+const getSelectedYear = () => {
+  const yearInput = $("selectedYear") || $("yearSelect");
+  const year = yearInput && yearInput.value ? Number(yearInput.value) : NaN;
+  return Number.isInteger(year) ? year : currentYear();
+};
+
+const yearStart = year => `${year}-01-01`;
+const yearEnd = year => `${year}-12-31`;
+
 function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `status ${type}`; }
 
 async function init(){
@@ -216,11 +226,21 @@ async function loadLookups(){
 }
 
 async function loadDashboard(){
-  const from = monthStart();
+  const year = getSelectedYear();
+  const from = yearStart(year);
+  const to = yearEnd(year);
 
   const [{data:expenses},{data:income}] = await Promise.all([
-    sb.from("expenses").select("gross_ils").eq("user_id",userId).gte("document_date",from),
-    sb.from("daily_z_reports").select("total_income_ils").eq("user_id",userId).gte("report_date",from)
+    sb.from("expenses")
+      .select("gross_ils")
+      .eq("user_id",userId)
+      .gte("document_date",from)
+      .lte("document_date",to),
+    sb.from("daily_z_reports")
+      .select("total_income_ils")
+      .eq("user_id",userId)
+      .gte("report_date",from)
+      .lte("report_date",to)
   ]);
 
   const expenseTotal = (expenses || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);

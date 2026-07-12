@@ -490,7 +490,9 @@ function renderSelectedFiles(){
 
   preview.innerHTML = selectedFiles.map((file,index) => {
     const fileName = file.name || "קובץ";
-    if(file.type === "application/pdf"){
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(fileName);
+
+    if(isPdf){
       return `
         <div class="file-preview-item" data-file-index="${index}">
           <div class="file-preview-card pdf">
@@ -531,13 +533,13 @@ function removeSelectedFile(index){
 }
 
 function updateFiles(input){
-  selectedFiles = [...input.files];
+  selectedFiles = Array.from(input.files || []);
   setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, selectedFiles.length ? "ok" : "");
   renderSelectedFiles();
 }
 
-$("cameraInput").onchange = event => updateFiles(event.target);
-$("browseInput").onchange = event => updateFiles(event.target);
+$("cameraInput").onchange = event => updateFiles(event.currentTarget);
+$("browseInput").onchange = event => updateFiles(event.currentTarget);
 
 $("analyzeButton").onclick = async () => {
   if(!selectedFiles.length){

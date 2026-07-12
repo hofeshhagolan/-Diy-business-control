@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
+let isExpenseSaving = false;
 
 const money = n => new Intl.NumberFormat("he-IL", {
   style:"currency", currency:"ILS", maximumFractionDigits:0
@@ -434,9 +435,65 @@ function openAction(action){
 
 $("profileButton").onclick = () => $("businessDialog").showModal();
 
+function renderSelectedFiles(){
+  const preview = $("expenseFilePreview");
+  if(!preview) return;
+
+  preview.querySelectorAll("img").forEach(img => {
+    if(img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+  });
+
+  if(!selectedFiles.length){
+    preview.innerHTML = `<div class="file-preview-empty">לא נבחרו קבצים.</div>`;
+    return;
+  }
+
+  preview.innerHTML = selectedFiles.map((file,index) => {
+    const fileName = file.name || "קובץ";
+    if(file.type === "application/pdf"){
+      return `
+        <div class="file-preview-item" data-file-index="${index}">
+          <div class="file-preview-card pdf">
+            <div class="file-preview-icon">PDF</div>
+            <div class="file-preview-meta"><strong>${fileName}</strong></div>
+          </div>
+          <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
+        </div>`;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    return `
+      <div class="file-preview-item" data-file-index="${index}">
+        <div class="file-preview-card image">
+          <img src="${previewUrl}" alt="${fileName}">
+        </div>
+        <div class="file-preview-meta"><strong>${fileName}</strong></div>
+        <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
+      </div>`;
+  }).join("");
+
+  preview.querySelectorAll(".file-remove").forEach(button => {
+    button.onclick = () => removeSelectedFile(Number(button.dataset.index));
+  });
+}
+
+function removeSelectedFile(index){
+  if(index < 0 || index >= selectedFiles.length) return;
+  selectedFiles.splice(index,1);
+  if(!selectedFiles.length){
+    $("cameraInput").value = "";
+    $("browseInput").value = "";
+    setStatus($("expenseStatus"), "", "");
+  } else {
+    setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, "ok");
+  }
+  renderSelectedFiles();
+}
+
 function updateFiles(input){
   selectedFiles = [...input.files];
-  setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, "ok");
+  setStatus($("expenseStatus"), `${selectedFiles.length} קבצים נבחרו`, selectedFiles.length ? "ok" : "");
+  renderSelectedFiles();
 }
 
 $("cameraInput").onchange = event => updateFiles(event.target);
@@ -489,13 +546,19 @@ $("analyzeButton").onclick = async () => {
 
 $("expenseForm").onsubmit = async event => {
   event.preventDefault();
+  if(isExpenseSaving) return;
 
-  if(!$("expenseAccountingType").value){
-    setStatus($("expenseStatus"), "סוג חשבונאי הוא שדה חובה", "error");
-    return;
-  }
+  const submitButton = event.target.querySelector('button[type="submit"], button:not([type])');
+  isExpenseSaving = true;
+  if(submitButton) submitButton.disabled = true;
 
-  const gross = Number($("expenseGross").value || 0);
+  try {
+    if(!$("expenseAccountingType").value){
+      setStatus($("expenseStatus"), "סוג חשבונאי הוא שדה חובה", "error");
+      return;
+    }
+
+    const gross = Number($("expenseGross").value || 0);
   const net = Math.round((gross / 1.18) * 100) / 100;
   const vat = Math.round((gross - net) * 100) / 100;
 
@@ -587,6 +650,15 @@ $("expenseForm").onsubmit = async event => {
 
   await Promise.all([loadExpenses(),loadDashboard()]);
   setTimeout(() => $("expenseDialog").close(),650);
+  return;
+  
+} catch(error){
+    console.error(error);
+    setStatus($("expenseStatus"), error?.message || "שגיאה בשמירת ההוצאה", "error");
+  } finally {
+    isExpenseSaving = false;
+    if(submitButton) submitButton.disabled = false;
+  }
 };
 
 $("zForm").onsubmit = async event => {

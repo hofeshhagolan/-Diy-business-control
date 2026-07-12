@@ -29,16 +29,16 @@
       </div>
 
       <form id="loginForm" class="stack">
-        <label>מייל<input id="loginEmail" type="email" required></label>
-        <label>סיסמה<input id="loginPassword" type="password" required></label>
+        <label>מייל<input id="loginEmail" type="email" autocomplete="username" required></label>
+        <label>סיסמה<input id="loginPassword" type="password" autocomplete="current-password" required></label>
         <button class="primary">כניסה</button>
         <button id="forgotPassword" class="text-button" type="button">שכחתי סיסמה</button>
         <div id="loginStatus" class="status"></div>
       </form>
 
       <form id="signupForm" class="stack hidden">
-        <label>מייל<input id="signupEmail" type="email" required></label>
-        <label>סיסמה<input id="signupPassword" type="password" minlength="8" required></label>
+        <label>מייל<input id="signupEmail" type="email" autocomplete="email" required></label>
+        <label>סיסמה<input id="signupPassword" type="password" autocomplete="new-password" minlength="8" required></label>
         <button class="primary">יצירת חשבון</button>
         <div id="signupStatus" class="status"></div>
       </form>

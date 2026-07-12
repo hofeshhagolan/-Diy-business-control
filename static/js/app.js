@@ -40,8 +40,15 @@ async function init(){
 }
 
 function showAuth(){
+  $("loginEmail").value = "";
+  $("loginPassword").value = "";
+  $("signupEmail").value = "";
+  $("signupPassword").value = "";
+  setStatus($("loginStatus"), "", "");
+  setStatus($("signupStatus"), "", "");
   $("authScreen").classList.remove("hidden");
   $("appShell").classList.add("hidden");
+  $("loginEmail").focus();
 }
 
 async function enterApp(){

@@ -539,22 +539,40 @@ function removeSelectedFile(index){
 }
 
 function updateFiles(input){
-  selectedFiles = Array.from(input.files || []);
-  const message = selectedFiles.length
-    ? `${selectedFiles.length} קבצים נבחרו`
-    : "לא נבחרו קבצים.";
-  setStatus($("expenseStatus"), message, selectedFiles.length ? "ok" : "");
-  renderSelectedFiles();
-  if(selectedFiles.length > 1){
-    captureMode = "multi";
-    $("captureModeToggle").textContent = "מצב צילום: קבצים מרובים";
-  } else {
-    captureMode = "single";
-    $("captureModeToggle").textContent = "מצב צילום: חשבונית אחת";
-  }
-}
+    const newFiles = Array.from(input.files || []);
 
-$("cameraInput").onchange = event => updateFiles(event.currentTarget);
+    if(captureMode === "multi"){
+      const existingKeys = new Set(
+        selectedFiles.map(file => `${file.name}-${file.size}-${file.lastModified}`)
+      );
+
+      newFiles.forEach(file => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+        if(!existingKeys.has(key)){
+          selectedFiles.push(file);
+          existingKeys.add(key);
+        }
+      });
+    } else {
+      selectedFiles = newFiles.slice(0, 1);
+    }
+
+    input.value = "";
+
+    const message = selectedFiles.length
+      ? `${selectedFiles.length} קבצים נבחרו`
+      : "לא נבחרו קבצים";
+
+    setStatus(
+      $("expenseStatus"),
+      message,
+      selectedFiles.length ? "ok" : ""
+    );
+
+    renderSelectedFiles();
+  }
+
+  $("cameraInput").onchange = event => updateFiles(event.currentTarget);
 $("browseInput").onchange = event => updateFiles(event.currentTarget);
 
 $("captureModeToggle").onclick = () => {

@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import logging
 import os
 from pathlib import Path
@@ -157,7 +158,29 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
             input=[{"role": "user", "content": content}],
         )
-        return json.loads(response.output_text or "{}")
+        raw_output = (response.output_text or "").strip()
+        logger.info("Raw extraction response: %s", raw_output[:2000])
+
+        if raw_output.startswith("```"):
+            raw_output = re.sub(
+                r"^```(?:json)?\\s*",
+                "",
+                raw_output,
+                flags=re.IGNORECASE,
+            )
+            raw_output = re.sub(r"\\s*```$", "", raw_output)
+
+        start = raw_output.find("{")
+        end = raw_output.rfind("}")
+
+        if start == -1 or end == -1 or end < start:
+            raise json.JSONDecodeError(
+                "No JSON object found",
+                raw_output,
+                0,
+            )
+
+        return json.loads(raw_output[start:end + 1])
     except json.JSONDecodeError as exc:
         logger.exception("Invalid JSON from extraction model")
         raise HTTPException(

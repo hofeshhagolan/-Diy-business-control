@@ -198,6 +198,34 @@ def _normalize_extraction_payload(payload: dict) -> dict:
     return normalized
 
 
+def _build_extraction_result(payload: dict, document_type: str) -> dict:
+    multiple = _to_strict_true(payload.get("multiple_invoices"))
+    return {
+        "extraction_result_version": 1,
+        "document_type": document_type,
+        "extraction_mode": "multiple_detected" if multiple else "single",
+        "normalization": {
+            # Architectural rule: this internal block is always derived from
+            # canonical top-level business fields and is never authoritative.
+            "derived_from_top_level": True,
+            "canonical_business_contract": "top_level_invoice_fields",
+            "top_level_fields": [
+                "multiple_invoices",
+                "supplier",
+                "supplier_registration_number",
+                "document_number",
+                "document_date",
+                "description",
+                "gross_original",
+                "currency_code",
+                "suggested_category",
+                "suggested_accounting_type",
+            ],
+            "normalization_version": 1,
+        },
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -455,6 +483,10 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             "total_pages": len(page_manifest_pages),
         }
         normalized["_operation"] = operation_meta
+        normalized["_extraction_result"] = _build_extraction_result(
+            normalized,
+            normalized_document_type,
+        )
         return normalized
     except json.JSONDecodeError as exc:
         logger.exception("Invalid JSON from extraction model")

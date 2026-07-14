@@ -2,7 +2,6 @@ const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
 let isExpenseSaving = false;
 let initialSessionChecked = false;
-let captureMode = "single";
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
 
@@ -62,6 +61,8 @@ const yearStart = year => `${year}-01-01`;
 const yearEnd = year => `${year}-12-31`;
 
 function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `status ${type}`; }
+
+function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
 
 async function init(){
   showLoading();
@@ -492,7 +493,7 @@ function renderSelectedFiles(){
   });
 
   if(!selectedFiles.length){
-    preview.innerHTML = `<div class="file-preview-empty">לא נבחרו קבצים.</div>`;
+    preview.innerHTML = `<div class="file-preview-empty">לא נבחרו מסמכים.</div>`;
     return;
   }
 
@@ -505,7 +506,6 @@ function renderSelectedFiles(){
         <div class="file-preview-item" data-file-index="${index}">
           <div class="file-preview-card pdf">
             <div class="file-preview-icon">PDF</div>
-            <div class="file-preview-meta"><strong>${fileName}</strong></div>
           </div>
           <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
         </div>`;
@@ -517,7 +517,6 @@ function renderSelectedFiles(){
         <div class="file-preview-card image">
           <img src="${previewUrl}" alt="${fileName}">
         </div>
-        <div class="file-preview-meta"><strong>${fileName}</strong></div>
         <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
       </div>`;
   }).join("");
@@ -538,56 +537,50 @@ function removeSelectedFile(index){
   renderSelectedFiles();
 }
 
-function updateFiles(input){
-    const newFiles = Array.from(input.files || []);
+function updateFiles(input, mode){
+  const newFiles = Array.from(input.files || []);
 
-    if(captureMode === "multi"){
-      const existingKeys = new Set(
-        selectedFiles.map(file => `${file.name}-${file.size}-${file.lastModified}`)
-      );
+  if(mode === "single"){
+    selectedFiles = newFiles.slice(0, 1);
+  } else {
+    const existingKeys = new Set(selectedFiles.map(file => getFileKey(file)));
 
-      newFiles.forEach(file => {
-        const key = `${file.name}-${file.size}-${file.lastModified}`;
-        if(!existingKeys.has(key)){
-          selectedFiles.push(file);
-          existingKeys.add(key);
-        }
-      });
-    } else {
-      selectedFiles = newFiles.slice(0, 1);
-    }
-
-    input.value = "";
-
-    const message = selectedFiles.length
-      ? `${selectedFiles.length} קבצים נבחרו`
-      : "לא נבחרו קבצים";
-
-    setStatus(
-      $("expenseStatus"),
-      message,
-      selectedFiles.length ? "ok" : ""
-    );
-
-    renderSelectedFiles();
+    newFiles.forEach(file => {
+      const key = getFileKey(file);
+      if(!existingKeys.has(key)){
+        selectedFiles.push(file);
+        existingKeys.add(key);
+      }
+    });
   }
 
-  $("cameraInput").onchange = event => updateFiles(event.currentTarget);
-$("browseInput").onchange = event => updateFiles(event.currentTarget);
+  input.value = "";
 
-$("captureModeToggle").onclick = () => {
-  captureMode = captureMode === "single" ? "multi" : "single";
-  $("captureModeToggle").textContent = captureMode === "single"
-    ? "מצב צילום: חשבונית אחת"
-    : "מצב צילום: קבצים מרובים";
-};
+  const message = selectedFiles.length
+    ? `${selectedFiles.length} קבצים נבחרו`
+    : "לא נבחרו קבצים";
+
+  setStatus(
+    $("expenseStatus"),
+    message,
+    selectedFiles.length ? "ok" : ""
+  );
+
+  renderSelectedFiles();
+}
+
+$("singleCameraButton").onclick = () => $("singleCameraInput").click();
+$("multiCameraButton").onclick = () => $("multiCameraInput").click();
+$("browseButton").onclick = () => $("browseInput").click();
+$("singleCameraInput").onchange = event => updateFiles(event.currentTarget, "single");
+$("multiCameraInput").onchange = event => updateFiles(event.currentTarget, "append");
+$("browseInput").onchange = event => updateFiles(event.currentTarget, "append");
 
 function resetExpenseDialogState(){
   selectedFiles = [];
-  $("cameraInput").value = "";
+  $("singleCameraInput").value = "";
+  $("multiCameraInput").value = "";
   $("browseInput").value = "";
-  captureMode = "single";
-  $("captureModeToggle").textContent = "מצב צילום: חשבונית אחת";
   renderSelectedFiles();
   setStatus($("expenseStatus"), "", "");
 }
@@ -598,7 +591,11 @@ $("analyzeButton").onclick = async () => {
     return;
   }
 
-  setStatus($("expenseStatus"), "קוראת את החשבונית…");
+  const progressMessage = selectedFiles.length === 1
+    ? "מחלצת נתונים מהחשבונית..."
+    : "מחלצת נתונים מהחשבוניות...";
+
+  setStatus($("expenseStatus"), progressMessage);
 
   const formData = new FormData();
   selectedFiles.forEach(file => formData.append("files",file));

@@ -72,11 +72,13 @@ dialog::backdrop{background:#07182a99}
 .modal-body{padding:18px;max-height:82vh;overflow:auto}
 .action-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .action-grid button{padding:18px;border:1px solid #c8d4df;background:#fff;border-radius:14px;color:var(--brand);font-weight:800}
-.file-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-.file-actions label{border:1px solid var(--brand);color:var(--brand);padding:9px 12px;border-radius:10px}
+.file-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.file-actions button{border:1px solid var(--brand);color:var(--brand);padding:9px 12px;border-radius:10px;background:#fff}
 .file-actions input{display:none}
-.capture-mode{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
-.capture-mode-label{color:var(--muted);font-size:.92rem}
+.expense-actions{display:grid;gap:10px;margin-top:14px}
+.expense-processing-btn{border-radius:12px;padding:12px 14px;font-weight:800}
+.expense-queue-btn{background:#f7f9fc;border-color:#a7b7c7;color:var(--brand)}
+.expense-action-btn[disabled]{opacity:.65;cursor:not-allowed}
 .file-preview{margin-top:14px;display:grid;gap:10px}
 .file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
 .file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}

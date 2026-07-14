@@ -153,18 +153,21 @@
   <div class="modal-head"><strong>הוצאה חדשה</strong><button data-close>✕</button></div>
   <div class="modal-body">
     <div class="file-actions">
-      <label>📷 מצלמה<input id="cameraInput" type="file" accept="image/*" capture="environment" multiple></label>
-      <label>🗂️ עיון<input id="browseInput" type="file" accept="image/*,application/pdf" multiple></label>
-      <button id="analyzeButton" class="secondary" type="button">חלצי נתונים עם AI</button>
-    </div>
-
-    <div class="capture-mode">
-      <button id="captureModeToggle" class="secondary" type="button">מצב צילום: חשבונית אחת</button>
-      <div id="captureModeLabel" class="capture-mode-label">העלאת קבצים מרובים מורה על מספר דפים או מספר חשבוניות.</div>
+      <button id="singleCameraButton" class="secondary" type="button">צילום חשבונית</button>
+      <button id="multiCameraButton" class="secondary" type="button">צילום מס' מסמכים</button>
+      <button id="browseButton" class="secondary" type="button">עיון</button>
+      <input id="singleCameraInput" type="file" accept="image/*" capture="environment">
+      <input id="multiCameraInput" type="file" accept="image/*" capture="environment">
+      <input id="browseInput" type="file" accept="image/*,application/pdf" multiple>
     </div>
 
     <div id="expenseFilePreview" class="file-preview">
-      <div class="file-preview-empty">לא נבחרו קבצים.</div>
+      <div class="file-preview-empty">לא נבחרו מסמכים.</div>
+    </div>
+
+    <div class="expense-actions">
+      <button id="analyzeButton" class="primary expense-processing-btn" type="button">חלצי נתונים ובדקי חשבוניות</button>
+      <button id="queueButton" class="secondary expense-processing-btn expense-queue-btn" type="button" disabled>שמרי חשבוניות לבדיקה מאוחר יותר</button>
     </div>
 
     <div id="expenseStatus" class="status"></div>

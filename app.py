@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import io
 import json
 import re
 import logging
@@ -12,6 +14,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -78,6 +82,46 @@ def _normalize_contract_version(value: str) -> str:
 
 def _normalize_document_type(value: str) -> str:
     return str(value or "invoice").strip().lower().replace("-", "_")
+
+
+def _count_pdf_pages(raw_pdf: bytes, filename: str) -> int:
+    try:
+        reader = PdfReader(io.BytesIO(raw_pdf), strict=False)
+        if reader.is_encrypted:
+            decrypt_result = reader.decrypt("")
+            if decrypt_result == 0:
+                raise ValueError(
+                    f"לא ניתן לפענח את קובץ ה-PDF {filename or ''}: הקובץ מוצפן"
+                )
+
+        page_count = len(reader.pages)
+        if page_count <= 0:
+            raise ValueError(
+                f"לא ניתן לקרוא את קובץ ה-PDF {filename or ''}: לא נמצאו עמודים"
+            )
+
+        return page_count
+    except ValueError:
+        raise
+    except PdfReadError as exc:
+        raise ValueError(
+            f"לא ניתן לקרוא את קובץ ה-PDF {filename or ''}: הקובץ פגום או לא נתמך"
+        ) from exc
+    except Exception as exc:
+        raise ValueError(
+            f"לא ניתן לקרוא את קובץ ה-PDF {filename or ''}: שגיאה בקריאת ה-PDF"
+        ) from exc
+
+
+def _is_pdf_upload(mime_type: str, filename: str, raw: bytes) -> bool:
+    normalized_mime = str(mime_type or "").strip().lower()
+    normalized_name = str(filename or "").strip().lower()
+
+    by_mime = normalized_mime.startswith("application/pdf")
+    by_name = normalized_name.endswith(".pdf")
+    by_signature = b"%PDF-" in raw[:1024]
+
+    return by_mime or by_name or by_signature
 
 
 def _normalize_extraction_payload(payload: dict) -> dict:
@@ -197,6 +241,11 @@ async def analyze_invoice(
 
     normalized_operation_source = str(operation_source or "web").strip() or "web"
     normalized_operation_id = str(operation_id or "").strip() or str(uuid4())
+
+    page_manifest_uploads = []
+    page_manifest_pages = []
+    global_page_index = 0
+
     operation_meta = {
         "id": normalized_operation_id,
         "source": normalized_operation_source,
@@ -232,7 +281,7 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
         }
     ]
 
-    for upload in files:
+    for upload_index, upload in enumerate(files):
         raw = await upload.read()
         if not raw:
             continue
@@ -244,10 +293,45 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             )
 
         mime_type = upload.content_type or "application/octet-stream"
-        encoded = base64.b64encode(raw).decode("ascii")
-        data_url = f"data:{mime_type};base64,{encoded}"
+        is_pdf_upload = _is_pdf_upload(mime_type, upload.filename or "", raw)
+        effective_mime_type = "application/pdf" if is_pdf_upload else mime_type
+        digest = hashlib.sha256(raw).hexdigest()
+        upload_identity = f"upload_{upload_index + 1:03d}_{digest[:12]}"
+        if is_pdf_upload:
+            try:
+                page_count = _count_pdf_pages(raw, upload.filename or "invoice.pdf")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        else:
+            page_count = 1
 
-        if mime_type == "application/pdf":
+        page_manifest_uploads.append(
+            {
+                "upload_index": upload_index,
+                "upload_id": upload_identity,
+                "filename": upload.filename or "",
+                "mime_type": effective_mime_type,
+                "sha256": digest,
+                "page_count": page_count,
+            }
+        )
+
+        for page_number_in_upload in range(1, page_count + 1):
+            global_page_index += 1
+            page_manifest_pages.append(
+                {
+                    "page_id": f"{upload_identity}_page_{page_number_in_upload:04d}",
+                    "global_page_index": global_page_index,
+                    "upload_index": upload_index,
+                    "upload_id": upload_identity,
+                    "page_number_in_upload": page_number_in_upload,
+                }
+            )
+
+        encoded = base64.b64encode(raw).decode("ascii")
+        data_url = f"data:{effective_mime_type};base64,{encoded}"
+
+        if is_pdf_upload:
             content.append(
                 {
                     "type": "input_file",
@@ -255,7 +339,7 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
                     "file_data": data_url,
                 }
             )
-        elif mime_type.startswith("image/"):
+        elif effective_mime_type.startswith("image/"):
             content.append(
                 {
                     "type": "input_image",
@@ -266,7 +350,7 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"סוג הקובץ {mime_type} אינו נתמך",
+                detail=f"סוג הקובץ {effective_mime_type} אינו נתמך",
             )
 
     try:
@@ -300,6 +384,11 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
         parsed = json.loads(raw_output[start:end + 1])
         normalized = _normalize_extraction_payload(parsed)
         normalized["_contract_version"] = normalized_contract_version
+        operation_meta["page_manifest"] = {
+            "uploads": page_manifest_uploads,
+            "pages": page_manifest_pages,
+            "total_pages": len(page_manifest_pages),
+        }
         normalized["_operation"] = operation_meta
         return normalized
     except json.JSONDecodeError as exc:

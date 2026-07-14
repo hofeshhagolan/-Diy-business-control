@@ -3,6 +3,7 @@ import json
 import re
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -19,6 +20,79 @@ logger = logging.getLogger("diy-business-control")
 
 app = FastAPI(title="DIY Business Control")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+ALLOWED_CURRENCIES = {"ILS", "USD", "EUR", "GBP"}
+SINGLE_INVOICE_DEFAULTS = {
+    "multiple_invoices": False,
+    "supplier": "",
+    "supplier_registration_number": "",
+    "document_number": "",
+    "document_date": "",
+    "description": "",
+    "gross_original": 0,
+    "currency_code": "ILS",
+    "suggested_category": "",
+    "suggested_accounting_type": "",
+}
+
+
+def _to_number(value) -> float:
+    try:
+        if value in (None, ""):
+            return 0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _to_iso_date_or_empty(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+        return text
+    except ValueError:
+        return ""
+
+
+def _to_strict_true(value) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str) and value.strip().lower() == "true":
+        return True
+    return False
+
+
+def _normalize_extraction_payload(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("Extraction payload must be a JSON object")
+
+    if _to_strict_true(payload.get("multiple_invoices")):
+        return {"multiple_invoices": True}
+
+    normalized = dict(SINGLE_INVOICE_DEFAULTS)
+    normalized["supplier"] = str(payload.get("supplier") or "").strip()
+    normalized["supplier_registration_number"] = str(
+        payload.get("supplier_registration_number") or ""
+    ).strip()
+    normalized["document_number"] = str(payload.get("document_number") or "").strip()
+    normalized["document_date"] = _to_iso_date_or_empty(payload.get("document_date"))
+    normalized["description"] = str(payload.get("description") or "").strip()
+    normalized["gross_original"] = _to_number(payload.get("gross_original"))
+
+    currency = str(payload.get("currency_code") or "").strip().upper()
+    normalized["currency_code"] = currency if currency in ALLOWED_CURRENCIES else "ILS"
+
+    normalized["suggested_category"] = str(
+        payload.get("suggested_category") or ""
+    ).strip()
+    normalized["suggested_accounting_type"] = str(
+        payload.get("suggested_accounting_type") or ""
+    ).strip()
+
+    return normalized
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -180,12 +254,19 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
                 0,
             )
 
-        return json.loads(raw_output[start:end + 1])
+        parsed = json.loads(raw_output[start:end + 1])
+        return _normalize_extraction_payload(parsed)
     except json.JSONDecodeError as exc:
         logger.exception("Invalid JSON from extraction model")
         raise HTTPException(
             status_code=502,
             detail="התקבלה תשובה לא תקינה ממנוע החילוץ",
+        ) from exc
+    except ValueError as exc:
+        logger.exception("Invalid extraction payload format")
+        raise HTTPException(
+            status_code=502,
+            detail=f"מבנה תשובת חילוץ לא תקין: {str(exc)[:220]}",
         ) from exc
     except Exception as exc:
         logger.exception("Invoice extraction failed")

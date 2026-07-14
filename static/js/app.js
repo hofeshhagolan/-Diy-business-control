@@ -64,6 +64,45 @@ function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `
 
 function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
 
+function normalizeMultipleInvoicesFlag(value){
+  if(value === true) return true;
+  if(typeof value === "string" && value.trim().toLowerCase() === "true") return true;
+  return false;
+}
+
+function sanitizeSingleInvoiceResult(result){
+  if(!result || typeof result !== "object") return null;
+  if(normalizeMultipleInvoicesFlag(result.multiple_invoices)) return null;
+
+  const asText = value => String(value || "").trim();
+  const asNumber = value => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const rawDate = asText(result.document_date);
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : "";
+
+  const rawCurrency = asText(result.currency_code).toUpperCase();
+  const currency = ["ILS","USD","EUR","GBP"].includes(rawCurrency)
+    ? rawCurrency
+    : "ILS";
+
+  const grossOriginal = asNumber(result.gross_original);
+
+  return {
+    supplier:asText(result.supplier),
+    supplier_registration_number:asText(result.supplier_registration_number),
+    document_number:asText(result.document_number),
+    document_date:validDate,
+    description:asText(result.description),
+    gross_original:grossOriginal,
+    currency_code:currency,
+    suggested_category:asText(result.suggested_category),
+    suggested_accounting_type:asText(result.suggested_accounting_type)
+  };
+}
+
 async function init(){
   showLoading();
   try{
@@ -612,7 +651,7 @@ $("analyzeButton").onclick = async () => {
     return;
   }
 
-  if(result.multiple_invoices){
+  if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
     setStatus(
       $("expenseStatus"),
       "נמצאה יותר מחשבונית אחת. בחרי מצב צילום קבצים מרובים או צלמי כל חשבונית בנפרד.",
@@ -621,14 +660,20 @@ $("analyzeButton").onclick = async () => {
     return;
   }
 
-  $("expenseSupplier").value = result.supplier || "";
-  $("expenseSupplierReg").value = result.supplier_registration_number || "";
-  $("expenseDocumentNumber").value = result.document_number || "";
-  $("expenseDate").value = result.document_date || "";
-  $("expenseDescription").value = result.description || "";
+  const singleInvoice = sanitizeSingleInvoiceResult(result);
+  if(!singleInvoice){
+    setStatus($("expenseStatus"), "מבנה תשובת החילוץ לא תקין", "error");
+    return;
+  }
 
-  if(result.currency_code === "ILS"){
-    $("expenseGross").value = result.gross_original || "";
+  $("expenseSupplier").value = singleInvoice.supplier;
+  $("expenseSupplierReg").value = singleInvoice.supplier_registration_number;
+  $("expenseDocumentNumber").value = singleInvoice.document_number;
+  $("expenseDate").value = singleInvoice.document_date;
+  $("expenseDescription").value = singleInvoice.description;
+
+  if(singleInvoice.currency_code === "ILS"){
+    $("expenseGross").value = singleInvoice.gross_original || "";
   }
 
   setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");

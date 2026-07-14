@@ -64,6 +64,103 @@ function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `
 
 function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
 
+function getScanOperationId(){
+  if(window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function sanitizeStorageFilename(originalFilename){
+  const rawName = String(originalFilename || "").trim();
+  const stripped = rawName.replace(/[\\/]+/g, " ").normalize("NFKC");
+  const lastDot = stripped.lastIndexOf(".");
+
+  let baseName = lastDot > 0 ? stripped.slice(0, lastDot) : stripped;
+  let extension = lastDot > 0 ? stripped.slice(lastDot) : "";
+
+  const sanitizePart = value => value
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^[._-]+|[._-]+$/g, "");
+
+  baseName = sanitizePart(baseName);
+  extension = sanitizePart(extension);
+  if(extension && !extension.startsWith(".")) extension = `.${extension}`;
+
+  const safeName = `${baseName || "file"}${extension}`;
+  return safeName || "file";
+}
+
+function buildScanStoragePath(operationId, uploadIndex, originalFilename){
+  const orderPrefix = String(uploadIndex + 1).padStart(3, "0");
+  const safeFilename = sanitizeStorageFilename(originalFilename);
+  return {
+    safeFilename,
+    storagePath: `${userId}/scans/${operationId}/${orderPrefix}-${safeFilename}`
+  };
+}
+
+async function cleanupUploadedScanFiles(paths){
+  if(!paths.length) return;
+
+  const {error} = await sb.storage
+    .from("invoice-documents")
+    .remove(paths);
+
+  if(error){
+    console.warn("Failed to clean up incomplete scan uploads", error);
+  }
+}
+
+async function computeFileSha256(file){
+  if(!window.crypto?.subtle){
+    return null;
+  }
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(byte => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+async function uploadScanFilesBeforeAnalyze(files, operationId){
+  const uploadedScanFiles = [];
+
+  try {
+    for(let uploadIndex = 0; uploadIndex < files.length; uploadIndex++){
+      const file = files[uploadIndex];
+      const sha256 = await computeFileSha256(file);
+      const {safeFilename, storagePath} = buildScanStoragePath(operationId, uploadIndex, file.name);
+      const upload = await sb.storage
+        .from("invoice-documents")
+        .upload(storagePath, file, {contentType:file.type || "application/octet-stream", upsert:false});
+
+      if(upload.error){
+        throw new Error(upload.error.message || "שגיאה בהעלאת קובץ הסריקה");
+      }
+
+      uploadedScanFiles.push({
+        upload_index: uploadIndex,
+        storage_path: storagePath,
+        original_filename: file.name,
+        safe_filename: safeFilename,
+        mime_type: file.type || "application/octet-stream",
+        size_bytes: file.size,
+        sha256,
+        storage_metadata_version: 1
+      });
+    }
+  } catch(error){
+    await cleanupUploadedScanFiles(uploadedScanFiles.map(item => item.storage_path));
+    throw error;
+  }
+
+  return uploadedScanFiles;
+}
+
 function normalizeMultipleInvoicesFlag(value){
   if(value === true) return true;
   if(typeof value === "string" && value.trim().toLowerCase() === "true") return true;
@@ -642,44 +739,58 @@ $("analyzeButton").onclick = async () => {
   formData.append("contract_version","1");
   formData.append("operation_source","web");
 
-  const response = await fetch("/api/analyze-invoice",{
-    method:"POST",
-    body:formData
-  });
+  const operationId = getScanOperationId();
 
-  const result = await response.json();
+  try {
+    const uploadedScanFiles = await uploadScanFilesBeforeAnalyze(selectedFiles, operationId);
+    formData.append("operation_id",operationId);
+    formData.append("storage_metadata_json", JSON.stringify({
+      storage_metadata_version: 1,
+      files: uploadedScanFiles
+    }));
 
-  if(!response.ok){
-    setStatus($("expenseStatus"), result.detail || "שגיאה בחילוץ", "error");
-    return;
+    const response = await fetch("/api/analyze-invoice",{
+      method:"POST",
+      body:formData
+    });
+
+    const result = await response.json();
+
+    if(!response.ok){
+      setStatus($("expenseStatus"), result.detail || "שגיאה בחילוץ", "error");
+      return;
+    }
+
+    if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
+      setStatus(
+        $("expenseStatus"),
+        "נמצאה יותר מחשבונית אחת. בחרי מצב צילום קבצים מרובים או צלמי כל חשבונית בנפרד.",
+        "error"
+      );
+      return;
+    }
+
+    const singleInvoice = sanitizeSingleInvoiceResult(result);
+    if(!singleInvoice){
+      setStatus($("expenseStatus"), "מבנה תשובת החילוץ לא תקין", "error");
+      return;
+    }
+
+    $("expenseSupplier").value = singleInvoice.supplier;
+    $("expenseSupplierReg").value = singleInvoice.supplier_registration_number;
+    $("expenseDocumentNumber").value = singleInvoice.document_number;
+    $("expenseDate").value = singleInvoice.document_date;
+    $("expenseDescription").value = singleInvoice.description;
+
+    if(singleInvoice.currency_code === "ILS"){
+      $("expenseGross").value = singleInvoice.gross_original || "";
+    }
+
+    setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
+  } catch(error){
+    console.error(error);
+    setStatus($("expenseStatus"), error?.message || "שגיאה בחילוץ", "error");
   }
-
-  if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
-    setStatus(
-      $("expenseStatus"),
-      "נמצאה יותר מחשבונית אחת. בחרי מצב צילום קבצים מרובים או צלמי כל חשבונית בנפרד.",
-      "error"
-    );
-    return;
-  }
-
-  const singleInvoice = sanitizeSingleInvoiceResult(result);
-  if(!singleInvoice){
-    setStatus($("expenseStatus"), "מבנה תשובת החילוץ לא תקין", "error");
-    return;
-  }
-
-  $("expenseSupplier").value = singleInvoice.supplier;
-  $("expenseSupplierReg").value = singleInvoice.supplier_registration_number;
-  $("expenseDocumentNumber").value = singleInvoice.document_number;
-  $("expenseDate").value = singleInvoice.document_date;
-  $("expenseDescription").value = singleInvoice.description;
-
-  if(singleInvoice.currency_code === "ILS"){
-    $("expenseGross").value = singleInvoice.gross_original || "";
-  }
-
-  setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
 };
 
 $("expenseForm").onsubmit = async event => {

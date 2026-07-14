@@ -84,6 +84,50 @@ def _normalize_document_type(value: str) -> str:
     return str(value or "invoice").strip().lower().replace("-", "_")
 
 
+def _validate_storage_metadata(payload: dict) -> dict:
+    if payload.get("storage_metadata_version") != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="storage_metadata_version חייב להיות 1",
+        )
+
+    files = payload.get("files")
+    if not isinstance(files, list):
+        raise HTTPException(
+            status_code=400,
+            detail="storage_metadata_json.files חייב להיות מערך",
+        )
+
+    for idx, item in enumerate(files):
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"storage_metadata_json.files[{idx}] חייב להיות אובייקט",
+            )
+
+        if "upload_index" not in item:
+            raise HTTPException(
+                status_code=400,
+                detail=f"storage_metadata_json.files[{idx}].upload_index חסר",
+            )
+
+        storage_path = str(item.get("storage_path") or "").strip()
+        if not storage_path:
+            raise HTTPException(
+                status_code=400,
+                detail=f"storage_metadata_json.files[{idx}].storage_path חסר",
+            )
+
+        original_filename = str(item.get("original_filename") or "").strip()
+        if not original_filename:
+            raise HTTPException(
+                status_code=400,
+                detail=f"storage_metadata_json.files[{idx}].original_filename חסר",
+            )
+
+    return payload
+
+
 def _count_pdf_pages(raw_pdf: bytes, filename: str) -> int:
     try:
         reader = PdfReader(io.BytesIO(raw_pdf), strict=False)
@@ -208,6 +252,7 @@ async def analyze_invoice(
     contract_version: str = Form(CURRENT_CONTRACT_VERSION),
     operation_id: str | None = Form(None),
     operation_source: str = Form("web"),
+    storage_metadata_json: str | None = Form(None),
 ) -> dict:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -242,6 +287,24 @@ async def analyze_invoice(
     normalized_operation_source = str(operation_source or "web").strip() or "web"
     normalized_operation_id = str(operation_id or "").strip() or str(uuid4())
 
+    storage_metadata = None
+    if storage_metadata_json and storage_metadata_json.strip():
+        try:
+            parsed_storage_metadata = json.loads(storage_metadata_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="storage_metadata_json אינו JSON תקין",
+            ) from exc
+
+        if not isinstance(parsed_storage_metadata, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="storage_metadata_json חייב להיות אובייקט JSON",
+            )
+
+        storage_metadata = _validate_storage_metadata(parsed_storage_metadata)
+
     page_manifest_uploads = []
     page_manifest_pages = []
     global_page_index = 0
@@ -251,6 +314,8 @@ async def analyze_invoice(
         "source": normalized_operation_source,
         "document_type": normalized_document_type,
     }
+    if storage_metadata is not None:
+        operation_meta["storage_metadata"] = storage_metadata
 
     content = [
         {

@@ -2,16 +2,6 @@ const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
 let isExpenseSaving = false;
 let initialSessionChecked = false;
-
-// DEBUG: Global error handlers
-console.log('[AUTH DEBUG] Script loaded at', new Date().toISOString());
-window.onerror = (msg, url, lineNo, columnNo, error) => {
-  console.error('[WINDOW ERROR]', {msg, url, lineNo, columnNo, error, stack: error?.stack});
-  return false;
-};
-window.onunhandledrejection = e => {
-  console.error('[PROMISE ERROR]', {reason: e.reason, stack: e.reason?.stack});
-};
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
 
@@ -75,7 +65,6 @@ function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `
 function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
 
 async function init(){
-  console.log('[AUTH DEBUG] init() called');
   showLoading();
   try{
     const response = await fetch("/api/config");
@@ -83,52 +72,31 @@ async function init(){
     if(!response.ok) throw new Error(config.detail || "שגיאת הגדרה");
 
     sb = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
-    console.log('[AUTH DEBUG] Supabase client created');
 
-    sb.auth.onAuthStateChange(async(event, next) => {
-      console.log('[AUTH DEBUG] onAuthStateChange fired', {event, nextExists: !!next, userId: next?.user?.id});
-      if(!initialSessionChecked) {
-        console.log('[AUTH DEBUG] Skipping auth state change (initial check not done)');
-        return;
-      }
+    sb.auth.onAuthStateChange(async(_, next) => {
+      if(!initialSessionChecked) return;
       session = next;
-      if(next) {
-        console.log('[AUTH DEBUG] Session found, entering app');
-        await enterApp();
-      } else {
-        console.log('[AUTH DEBUG] No session, showing auth');
-        showAuth();
-      }
+      if(next) await enterApp(); else showAuth();
     });
 
     const {data:{session:current}} = await sb.auth.getSession();
-    console.log('[AUTH DEBUG] getSession returned', {sessionExists: !!current, userId: current?.user?.id});
     session = current;
 
-    if(session) {
-      console.log('[AUTH DEBUG] Session exists on init, entering app');
-      await enterApp();
-    } else {
-      console.log('[AUTH DEBUG] No session on init, showing auth');
-      showAuth();
-    }
+    if(session) await enterApp(); else showAuth();
 
     if("serviceWorker" in navigator){
       navigator.serviceWorker.register("/service-worker.js").catch(console.error);
     }
   }catch(error){
-    console.error('[AUTH DEBUG] init() error', {message: error.message, stack: error.stack});
     setStatus($("loginStatus"), error.message, "error");
     if(!session) showAuth();
   } finally {
     initialSessionChecked = true;
     hideLoading();
-    console.log('[AUTH DEBUG] init() complete, initialSessionChecked set to true');
   }
 }
 
 function showAuth(){
-  console.log('[AUTH DEBUG] showAuth() called');
   $("loginEmail").value = "";
   $("loginPassword").value = "";
   $("signupEmail").value = "";
@@ -137,23 +105,6 @@ function showAuth(){
   setStatus($("signupStatus"), "", "");
   $("authScreen").classList.remove("hidden");
   $("appShell").classList.add("hidden");
-  
-  // DEBUG: Log form field attributes for password manager compatibility
-  console.log('[AUTH DEBUG] Form field attributes:', {
-    loginEmail: {
-      name: $("loginEmail").getAttribute('name'),
-      autocomplete: $("loginEmail").getAttribute('autocomplete'),
-      type: $("loginEmail").getAttribute('type'),
-      value: $("loginEmail").value
-    },
-    loginPassword: {
-      name: $("loginPassword").getAttribute('name'),
-      autocomplete: $("loginPassword").getAttribute('autocomplete'),
-      type: $("loginPassword").getAttribute('type'),
-      value: $("loginPassword").value
-    }
-  });
-  
   $("loginEmail").focus();
 }
 
@@ -183,71 +134,41 @@ $("signupTab").onclick = () => {
 };
 
 $("loginForm").onsubmit = async event => {
-  console.log('[AUTH DEBUG] LOGIN SUBMIT HANDLER ENTERED');
   event.preventDefault();
-  const email = $("loginEmail").value.trim();
-  const password = $("loginPassword").value;
-  console.log('[AUTH DEBUG] Login form values', {email, emailLength: email.length, passwordLength: password.length});
-  try {
-    const result = await sb.auth.signInWithPassword({email, password});
-    console.log('[AUTH DEBUG] signInWithPassword response', {error: result.error?.message, errorCode: result.error?.status, dataExists: !!result.data});
-    if(result.error) {
-      console.log('[AUTH DEBUG] Login error displayed:', result.error.message);
-      setStatus($("loginStatus"), result.error.message, "error");
-    } else {
-      console.log('[AUTH DEBUG] Login successful');
-    }
-  } catch (ex) {
-    console.error('[AUTH DEBUG] Login exception', {message: ex.message, stack: ex.stack});
-    setStatus($("loginStatus"), ex.message, "error");
-  }
+  const {error} = await sb.auth.signInWithPassword({
+    email:$("loginEmail").value.trim(),
+    password:$("loginPassword").value
+  });
+  if(error) setStatus($("loginStatus"), error.message, "error");
 };
 
 $("signupForm").onsubmit = async event => {
-  console.log('[AUTH DEBUG] SIGNUP SUBMIT HANDLER ENTERED');
   event.preventDefault();
-  const email = $("signupEmail").value.trim();
-  const password = $("signupPassword").value;
-  console.log('[AUTH DEBUG] Signup form values', {email, emailLength: email.length, passwordLength: password.length});
-  try {
-    const result = await sb.auth.signUp({
-      email,
-      password
-    });
-    console.log('[AUTH DEBUG] signUp response', {error: result.error?.message, errorCode: result.error?.status, dataExists: !!result.data});
-    const msg = result.error ? result.error.message : "נשלח מייל לאימות החשבון";
-    const type = result.error ? "error" : "ok";
-    console.log('[AUTH DEBUG] Signup status displayed:', {msg, type});
-    setStatus($("signupStatus"), msg, type);
-  } catch (ex) {
-    console.error('[AUTH DEBUG] Signup exception', {message: ex.message, stack: ex.stack});
-    setStatus($("signupStatus"), ex.message, "error");
-  }
+  const {error} = await sb.auth.signUp({
+    email:$("signupEmail").value.trim(),
+    password:$("signupPassword").value
+  });
+
+  setStatus(
+    $("signupStatus"),
+    error ? error.message : "נשלח מייל לאימות החשבון",
+    error ? "error" : "ok"
+  );
 };
 
 $("forgotPassword").onclick = async () => {
-  console.log('[AUTH DEBUG] FORGOT PASSWORD HANDLER ENTERED');
   const email = $("loginEmail").value.trim();
-  console.log('[AUTH DEBUG] Forgot password email', {email, emailLength: email.length});
-  if(!email) {
-    console.log('[AUTH DEBUG] Forgot password: no email provided');
-    setStatus($("loginStatus"), "הזיני מייל", "error");
-    return;
-  }
+  if(!email) return setStatus($("loginStatus"), "הזיני מייל", "error");
 
-  try {
-    const result = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: location.origin
-    });
-    console.log('[AUTH DEBUG] resetPasswordForEmail response', {error: result.error?.message, errorCode: result.error?.status});
-    const msg = result.error ? result.error.message : "נשלח קישור לאיפוס סיסמה";
-    const type = result.error ? "error" : "ok";
-    console.log('[AUTH DEBUG] Forgot password status displayed:', {msg, type});
-    setStatus($("loginStatus"), msg, type);
-  } catch (ex) {
-    console.error('[AUTH DEBUG] Forgot password exception', {message: ex.message, stack: ex.stack});
-    setStatus($("loginStatus"), ex.message, "error");
-  }
+  const {error} = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: location.origin
+  });
+
+  setStatus(
+    $("loginStatus"),
+    error ? error.message : "נשלח קישור לאיפוס סיסמה",
+    error ? "error" : "ok"
+  );
 };
 
 async function loadBusiness(){

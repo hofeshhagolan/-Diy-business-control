@@ -638,6 +638,9 @@ $("analyzeButton").onclick = async () => {
 
   const formData = new FormData();
   selectedFiles.forEach(file => formData.append("files",file));
+  formData.append("document_type","invoice");
+  formData.append("contract_version","1");
+  formData.append("operation_source","web");
 
   const response = await fetch("/api/analyze-invoice",{
     method:"POST",

@@ -4,10 +4,11 @@ import re
 import logging
 import os
 from datetime import datetime
+from uuid import uuid4
 from pathlib import Path
 from typing import List
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
@@ -22,6 +23,9 @@ app = FastAPI(title="DIY Business Control")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 ALLOWED_CURRENCIES = {"ILS", "USD", "EUR", "GBP"}
+CURRENT_CONTRACT_VERSION = "1"
+SUPPORTED_CONTRACT_VERSIONS = {CURRENT_CONTRACT_VERSION}
+ACTIVE_DOCUMENT_TYPES = {"invoice"}
 SINGLE_INVOICE_DEFAULTS = {
     "multiple_invoices": False,
     "supplier": "",
@@ -63,6 +67,17 @@ def _to_strict_true(value) -> bool:
     if isinstance(value, str) and value.strip().lower() == "true":
         return True
     return False
+
+
+def _normalize_contract_version(value: str) -> str:
+    version = str(value or CURRENT_CONTRACT_VERSION).strip()
+    if not version:
+        return CURRENT_CONTRACT_VERSION
+    return version
+
+
+def _normalize_document_type(value: str) -> str:
+    return str(value or "invoice").strip().lower().replace("-", "_")
 
 
 def _normalize_extraction_payload(payload: dict) -> dict:
@@ -143,7 +158,13 @@ def health() -> dict:
 
 
 @app.post("/api/analyze-invoice")
-async def analyze_invoice(files: List[UploadFile] = File(...)) -> dict:
+async def analyze_invoice(
+    files: List[UploadFile] = File(...),
+    document_type: str = Form("invoice"),
+    contract_version: str = Form(CURRENT_CONTRACT_VERSION),
+    operation_id: str | None = Form(None),
+    operation_source: str = Form("web"),
+) -> dict:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(
@@ -159,6 +180,28 @@ async def analyze_invoice(files: List[UploadFile] = File(...)) -> dict:
             status_code=400,
             detail="ניתן להעלות עד 12 עמודים לחשבונית אחת",
         )
+
+    normalized_document_type = _normalize_document_type(document_type)
+    if normalized_document_type not in ACTIVE_DOCUMENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="סוג מסמך לא נתמך",
+        )
+
+    normalized_contract_version = _normalize_contract_version(contract_version)
+    if normalized_contract_version not in SUPPORTED_CONTRACT_VERSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="גרסת חוזה בקשה לא נתמכת",
+        )
+
+    normalized_operation_source = str(operation_source or "web").strip() or "web"
+    normalized_operation_id = str(operation_id or "").strip() or str(uuid4())
+    operation_meta = {
+        "id": normalized_operation_id,
+        "source": normalized_operation_source,
+        "document_type": normalized_document_type,
+    }
 
     content = [
         {
@@ -255,7 +298,10 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             )
 
         parsed = json.loads(raw_output[start:end + 1])
-        return _normalize_extraction_payload(parsed)
+        normalized = _normalize_extraction_payload(parsed)
+        normalized["_contract_version"] = normalized_contract_version
+        normalized["_operation"] = operation_meta
+        return normalized
     except json.JSONDecodeError as exc:
         logger.exception("Invalid JSON from extraction model")
         raise HTTPException(

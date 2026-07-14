@@ -167,6 +167,80 @@ function normalizeMultipleInvoicesFlag(value){
   return false;
 }
 
+function buildScanBatchRpcInput(extractionResult){
+  const operation = extractionResult && extractionResult._operation;
+  const pageManifest = operation && operation.page_manifest;
+  const storageMetadata = operation && operation.storage_metadata;
+
+  if(!pageManifest || !Array.isArray(pageManifest.pages) || !Array.isArray(pageManifest.uploads)){
+    return null;
+  }
+
+  if(!storageMetadata || !Array.isArray(storageMetadata.files)){
+    return null;
+  }
+
+  const uploadByIndex = new Map();
+  pageManifest.uploads.forEach(upload => {
+    if(upload && Number.isInteger(upload.upload_index)){
+      uploadByIndex.set(upload.upload_index, upload);
+    }
+  });
+
+  const storageByIndex = new Map();
+  storageMetadata.files.forEach(file => {
+    if(file && Number.isInteger(file.upload_index)){
+      storageByIndex.set(file.upload_index, file);
+    }
+  });
+
+  const pages = [];
+  for(const page of pageManifest.pages){
+    if(!page || !Number.isInteger(page.upload_index)) return null;
+
+    const storageFile = storageByIndex.get(page.upload_index);
+    const uploadMeta = uploadByIndex.get(page.upload_index);
+
+    if(!storageFile || !storageFile.storage_path) return null;
+
+    const pageId = String(page.page_id || "").trim();
+    const globalPageIndex = Number(page.global_page_index);
+    const pageNumber = Number(page.page_number_in_upload);
+    const uploadIndex = Number(page.upload_index);
+
+    if(!pageId || !Number.isInteger(globalPageIndex) || globalPageIndex <= 0) return null;
+    if(!Number.isInteger(uploadIndex) || uploadIndex < 0) return null;
+    if(!Number.isInteger(pageNumber) || pageNumber <= 0) return null;
+
+    const sha256 = storageFile.sha256 || uploadMeta?.sha256 || null;
+
+    pages.push({
+      page_id: pageId,
+      upload_index: uploadIndex,
+      global_page_index: globalPageIndex,
+      sha256,
+      storage_path: storageFile.storage_path,
+      original_filename: storageFile.original_filename || uploadMeta?.filename || "",
+      mime_type: storageFile.mime_type || uploadMeta?.mime_type || "application/octet-stream",
+      page_number: pageNumber
+    });
+  }
+
+  pages.sort((a,b) => a.global_page_index - b.global_page_index);
+  if(!pages.length) return null;
+
+  return {
+    p_extraction_mode: "all",
+    p_items: [
+      {
+        item_order: 1,
+        selected_for_extraction: true,
+        pages
+      }
+    ]
+  };
+}
+
 function sanitizeSingleInvoiceResult(result){
   if(!result || typeof result !== "object") return null;
   if(normalizeMultipleInvoicesFlag(result.multiple_invoices)) return null;
@@ -773,6 +847,28 @@ $("analyzeButton").onclick = async () => {
     const singleInvoice = sanitizeSingleInvoiceResult(result);
     if(!singleInvoice){
       setStatus($("expenseStatus"), "מבנה תשובת החילוץ לא תקין", "error");
+      return;
+    }
+
+    const rpcInput = buildScanBatchRpcInput(result);
+    if(!rpcInput){
+      setStatus($("expenseStatus"), "חסר מידע סריקה לשמירה אטומית", "error");
+      return;
+    }
+
+    const {data:batchResult, error:batchError} = await sb.rpc(
+      "persist_invoice_scan_batch_atomic",
+      rpcInput
+    );
+
+    if(batchError){
+      setStatus($("expenseStatus"), batchError.message || "שגיאה בשמירת סריקה", "error");
+      return;
+    }
+
+    const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
+    if(!batchRow || !batchRow.batch_id){
+      setStatus($("expenseStatus"), "תשובת שמירת הסריקה אינה תקינה", "error");
       return;
     }
 

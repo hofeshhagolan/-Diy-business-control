@@ -570,7 +570,7 @@ async function loadExpenses(){
       </tr>
       ${(data || []).map(row => `
         <tr>
-          <td><button class="eye" data-expense="${row.id}">👁</button></td>
+          <td><button class="eye" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
           <td>${row.document_date || ""}</td>
           <td>${money(row.gross_ils)}</td>
           <td>${row.supplier_name_snapshot || ""}</td>

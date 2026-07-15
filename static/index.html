@@ -56,7 +56,7 @@
 <section id="appShell" class="app hidden">
   <header class="topbar">
     <strong id="businessTitle">העסק שלי</strong>
-    <button id="profileButton">👤</button>
+    <button id="profileButton" aria-label="פרופיל העסק">👤</button>
   </header>
 
   <main>
@@ -128,7 +128,7 @@
     </section>
   </main>
 
-  <button id="quickAddButton" class="fab">+</button>
+  <button id="quickAddButton" class="fab" aria-label="הוספת פעולה מהירה">+</button>
 
   <nav class="bottom-nav">
     <button class="active" data-view="homeView"><span class="icon">🏠</span>בית</button>
@@ -140,7 +140,7 @@
 </section>
 
 <dialog id="quickAddDialog">
-  <div class="modal-head"><strong>מה תרצי להוסיף?</strong><button data-close>✕</button></div>
+  <div class="modal-head"><strong>מה תרצי להוסיף?</strong><button data-close aria-label="סגירת חלון הוספה מהירה">✕</button></div>
   <div class="modal-body action-grid">
     <button data-action="expense">📷 הוצאה חדשה</button>
     <button data-action="z">💰 דו״ח Z</button>
@@ -150,7 +150,7 @@
 </dialog>
 
 <dialog id="expenseDialog">
-  <div class="modal-head"><strong>הוצאה חדשה</strong><button data-close>✕</button></div>
+  <div class="modal-head"><strong>הוצאה חדשה</strong><button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button></div>
   <div class="modal-body">
     <div class="file-actions">
       <button id="singleCameraButton" class="secondary" type="button">צילום חשבונית</button>
@@ -191,7 +191,7 @@
 </dialog>
 
 <dialog id="zDialog">
-  <div class="modal-head"><strong>דו״ח Z</strong><button data-close>✕</button></div>
+  <div class="modal-head"><strong>דו״ח Z</strong><button data-close aria-label="סגירת חלון דו״ח Z">✕</button></div>
   <div class="modal-body">
     <form id="zForm" class="form-grid">
       <label>תאריך<input id="zDate" type="date" required></label>
@@ -204,7 +204,7 @@
 </dialog>
 
 <dialog id="businessDialog">
-  <div class="modal-head"><strong>העסק שלי</strong><button data-close>✕</button></div>
+  <div class="modal-head"><strong>העסק שלי</strong><button data-close aria-label="סגירת חלון פרטי העסק">✕</button></div>
   <div class="modal-body">
     <form id="businessForm" class="form-grid">
       <label>שם העסק<input id="businessName" required></label>

@@ -14,6 +14,13 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
 button,input,select,textarea{font:inherit}
+
+/* Consistent visible keyboard focus across interactive controls. */
+:where(button,input,select,textarea,a[href],[role="tab"]):focus-visible{
+  outline:3px solid #0b63ce;
+  outline-offset:2px;
+  box-shadow:0 0 0 2px #fff;
+}
 .hidden{display:none!important}
 .loading{min-height:100vh;display:grid;place-items:center;padding:22px;background:var(--bg);color:var(--text)}
 .loading-wrap{display:grid;place-items:center;gap:14px;text-align:center}
@@ -90,6 +97,13 @@ dialog::backdrop{background:#07182a99}
 .file-preview-meta{font-size:.9rem;word-break:break-word}
 .file-remove{position:absolute;top:8px;left:8px;border:0;background:rgba(16,44,78,.1);color:var(--brand);width:28px;height:28px;border-radius:999px;cursor:pointer;font-weight:700}
 .empty{color:var(--muted);padding:12px 0}
+
+/* Touch target hardening for compact controls. */
+.tabs button,.ai-tabs button{min-height:44px}
+.topbar button,.modal-head button{min-width:36px;min-height:36px}
+.bottom-nav button{min-height:44px}
+.eye{min-width:32px;min-height:32px}
+.file-remove{width:32px;height:32px}
 @media(max-width:760px){
   .snapshot{grid-template-columns:1fr 1fr}
   .quick{grid-template-columns:1fr 1fr}

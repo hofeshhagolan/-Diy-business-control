@@ -30,12 +30,12 @@
       <p>ניהול כספי העסק והקשר עם רואה החשבון — פשוט, נוח ובשליטה מלאה שלך.</p>
     </div>
     <div class="panel">
-      <div class="tabs">
-        <button id="loginTab" class="active">כניסה</button>
-        <button id="signupTab">יצירת חשבון</button>
+      <div class="tabs" role="tablist" aria-label="כניסה ויצירת חשבון">
+        <button id="loginTab" class="active" role="tab" aria-selected="true" aria-controls="loginForm" tabindex="0">כניסה</button>
+        <button id="signupTab" role="tab" aria-selected="false" aria-controls="signupForm" tabindex="-1">יצירת חשבון</button>
       </div>
 
-      <form id="loginForm" class="stack">
+      <form id="loginForm" class="stack" role="tabpanel" aria-labelledby="loginTab">
         <label>מייל<input name="email" id="loginEmail" type="email" autocomplete="username" required></label>
         <label>סיסמה<input name="password" id="loginPassword" type="password" autocomplete="current-password" required></label>
         <button class="primary">כניסה</button>
@@ -43,7 +43,7 @@
         <div id="loginStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       </form>
 
-      <form id="signupForm" class="stack hidden">
+      <form id="signupForm" class="stack hidden" role="tabpanel" aria-labelledby="signupTab">
         <label>מייל<input name="email" id="signupEmail" type="email" autocomplete="email" required></label>
         <label>סיסמה<input name="password" id="signupPassword" type="password" autocomplete="new-password" minlength="8" required></label>
         <button class="primary">יצירת חשבון</button>
@@ -119,12 +119,12 @@
 
     <section id="alView" class="view">
       <h2>AL</h2>
-      <div class="ai-tabs">
-        <button id="insightsTab" class="active">תובנות AL</button>
-        <button id="chatTab">שיחה עם AL</button>
+      <div class="ai-tabs" role="tablist" aria-label="AL">
+        <button id="insightsTab" class="active" role="tab" aria-selected="true" aria-controls="insightsPane" tabindex="0">תובנות AL</button>
+        <button id="chatTab" role="tab" aria-selected="false" aria-controls="chatPane" tabindex="-1">שיחה עם AL</button>
       </div>
-      <div id="insightsPane" class="card"><div id="insightsList"></div></div>
-      <div id="chatPane" class="card hidden"><div class="empty">הצ׳אט יחובר לאחר שיצטברו נתונים אמיתיים.</div></div>
+      <div id="insightsPane" class="card" role="tabpanel" aria-labelledby="insightsTab"><div id="insightsList"></div></div>
+      <div id="chatPane" class="card hidden" role="tabpanel" aria-labelledby="chatTab"><div class="empty">הצ׳אט יחובר לאחר שיצטברו נתונים אמיתיים.</div></div>
     </section>
   </main>
 

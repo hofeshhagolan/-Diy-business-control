@@ -474,19 +474,89 @@ async function enterApp(){
   await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees()]);
 }
 
-$("loginTab").onclick = () => {
-  $("loginForm").classList.remove("hidden");
-  $("signupForm").classList.add("hidden");
-  $("loginTab").classList.add("active");
-  $("signupTab").classList.remove("active");
-};
+function setTabSelection(tabs, activeTabId){
+  tabs.forEach(tab => {
+    const isActive = tab.id === activeTabId;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    tab.setAttribute("tabindex", isActive ? "0" : "-1");
+  });
+}
 
-$("signupTab").onclick = () => {
-  $("signupForm").classList.remove("hidden");
-  $("loginForm").classList.add("hidden");
-  $("signupTab").classList.add("active");
-  $("loginTab").classList.remove("active");
-};
+function setAuthTab(activeTabId){
+  const showLogin = activeTabId !== "signupTab";
+  $("loginForm").classList.toggle("hidden", !showLogin);
+  $("signupForm").classList.toggle("hidden", showLogin);
+  setTabSelection([$("loginTab"), $("signupTab")], showLogin ? "loginTab" : "signupTab");
+}
+
+function setAlTab(activeTabId){
+  const showInsights = activeTabId !== "chatTab";
+  $("insightsPane").classList.toggle("hidden", !showInsights);
+  $("chatPane").classList.toggle("hidden", showInsights);
+  setTabSelection([$("insightsTab"), $("chatTab")], showInsights ? "insightsTab" : "chatTab");
+}
+
+function setupManualTablist(tabIds, activateTab){
+  const tabs = tabIds.map(id => $(id)).filter(Boolean);
+  if(tabs.length < 2) return;
+
+  const tablist = tabs[0].closest('[role="tablist"]');
+  if(!tablist || tablist.dataset.keyboardBound === "true") return;
+  tablist.dataset.keyboardBound = "true";
+
+  const isRtl = () => {
+    const direction = tablist ? getComputedStyle(tablist).direction : document.dir || "ltr";
+    return direction === "rtl";
+  };
+
+  const focusTabAt = index => {
+    const nextIndex = (index + tabs.length) % tabs.length;
+    tabs[nextIndex].focus();
+  };
+
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => activateTab(tab.id));
+    tab.addEventListener("keydown", event => {
+      const currentIndex = tabs.indexOf(tab);
+      if(currentIndex === -1) return;
+
+      if(event.key === "ArrowRight"){
+        event.preventDefault();
+        focusTabAt(currentIndex + (isRtl() ? -1 : 1));
+        return;
+      }
+
+      if(event.key === "ArrowLeft"){
+        event.preventDefault();
+        focusTabAt(currentIndex + (isRtl() ? 1 : -1));
+        return;
+      }
+
+      if(event.key === "Home"){
+        event.preventDefault();
+        focusTabAt(0);
+        return;
+      }
+
+      if(event.key === "End"){
+        event.preventDefault();
+        focusTabAt(tabs.length - 1);
+        return;
+      }
+
+      if(event.key === "Enter" || event.key === " "){
+        event.preventDefault();
+        activateTab(tab.id);
+      }
+    });
+  });
+}
+
+setupManualTablist(["loginTab","signupTab"], setAuthTab);
+setupManualTablist(["insightsTab","chatTab"], setAlTab);
+setAuthTab($("signupTab").classList.contains("active") ? "signupTab" : "loginTab");
+setAlTab($("chatTab").classList.contains("active") ? "chatTab" : "insightsTab");
 
 $("loginForm").onsubmit = async event => {
   event.preventDefault();
@@ -1194,20 +1264,6 @@ $("zForm").onsubmit = async event => {
 
   await Promise.all([loadZReports(),loadDashboard()]);
   setTimeout(() => $("zDialog").close(),650);
-};
-
-$("insightsTab").onclick = () => {
-  $("insightsPane").classList.remove("hidden");
-  $("chatPane").classList.add("hidden");
-  $("insightsTab").classList.add("active");
-  $("chatTab").classList.remove("active");
-};
-
-$("chatTab").onclick = () => {
-  $("chatPane").classList.remove("hidden");
-  $("insightsPane").classList.add("hidden");
-  $("chatTab").classList.add("active");
-  $("insightsTab").classList.remove("active");
 };
 
 init();

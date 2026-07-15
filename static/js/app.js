@@ -60,6 +60,9 @@ const getSelectedYear = () => {
 const yearStart = year => `${year}-01-01`;
 const yearEnd = year => `${year}-12-31`;
 
+const FIELD_ERROR_CLASS = "field-error-message";
+const AUDITED_VALIDATION_FORM_IDS = ["loginForm","signupForm","expenseForm","zForm","businessForm"];
+
 function setStatus(el,msg,type=""){
   if(!el) return;
 
@@ -76,6 +79,129 @@ function setStatus(el,msg,type=""){
 
   el.setAttribute("aria-atomic","true");
   el.textContent = msg || "";
+}
+
+function getFieldErrorId(field){
+  const base = field.id || field.name;
+  if(!base) return "";
+  const formId = field.form?.id || "form";
+  return `${formId}-${base}-error`;
+}
+
+function isValidatableControl(field){
+  return (
+    (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement)
+    && field.willValidate
+  );
+}
+
+function getValidatableFields(form){
+  if(!form) return [];
+  return Array.from(form.elements || []).filter(isValidatableControl);
+}
+
+function linkFieldDescription(field, descriptionId){
+  if(!descriptionId) return;
+  const tokens = new Set((field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+  tokens.add(descriptionId);
+  field.setAttribute("aria-describedby", Array.from(tokens).join(" "));
+}
+
+function unlinkFieldDescription(field, descriptionId){
+  if(!descriptionId) return;
+  const tokens = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+  const next = tokens.filter(token => token !== descriptionId);
+  if(next.length){
+    field.setAttribute("aria-describedby", next.join(" "));
+  } else {
+    field.removeAttribute("aria-describedby");
+  }
+}
+
+function ensureFieldErrorElement(field){
+  const errorId = getFieldErrorId(field);
+  if(!errorId) return null;
+
+  let errorEl = $(errorId);
+  if(!errorEl){
+    errorEl = document.createElement("div");
+    errorEl.id = errorId;
+    errorEl.className = "status error " + FIELD_ERROR_CLASS;
+
+    const host = field.closest("label") || field;
+    host.insertAdjacentElement("afterend", errorEl);
+  }
+
+  return errorEl;
+}
+
+function setFieldInvalid(field, message){
+  if(!field) return;
+
+  const errorEl = ensureFieldErrorElement(field);
+  const text = String(message || field.validationMessage || "ערך לא תקין").trim();
+
+  field.setAttribute("aria-invalid", "true");
+
+  if(errorEl){
+    errorEl.textContent = text;
+    linkFieldDescription(field, errorEl.id);
+  }
+}
+
+function clearFieldInvalid(field){
+  if(!field) return;
+
+  field.removeAttribute("aria-invalid");
+
+  const errorId = getFieldErrorId(field);
+  if(!errorId) return;
+
+  unlinkFieldDescription(field, errorId);
+  const errorEl = $(errorId);
+  if(errorEl){
+    errorEl.remove();
+  }
+}
+
+function clearFormFieldValidation(form){
+  if(!form) return;
+  getValidatableFields(form).forEach(clearFieldInvalid);
+}
+
+function setupFieldValidationAccessibility(){
+  AUDITED_VALIDATION_FORM_IDS.forEach(formId => {
+    const form = $(formId);
+    if(!form) return;
+    if(form.dataset.fieldValidationBound === "true") return;
+    form.dataset.fieldValidationBound = "true";
+
+    form.addEventListener("invalid", event => {
+      const field = event.target;
+      if(!isValidatableControl(field)) return;
+
+      setFieldInvalid(field, field.validationMessage);
+
+      if(form.dataset.invalidFocusHandled !== "true"){
+        form.dataset.invalidFocusHandled = "true";
+        requestAnimationFrame(() => field.focus());
+        setTimeout(() => {
+          form.dataset.invalidFocusHandled = "false";
+        }, 0);
+      }
+    }, true);
+
+    const clearOnValid = event => {
+      const field = event.target;
+      if(!isValidatableControl(field)) return;
+      if(field.validity.valid){
+        clearFieldInvalid(field);
+      }
+    };
+
+    form.addEventListener("input", clearOnValid, true);
+    form.addEventListener("change", clearOnValid, true);
+  });
 }
 
 function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
@@ -291,6 +417,7 @@ function sanitizeSingleInvoiceResult(result){
 }
 
 async function init(){
+  setupFieldValidationAccessibility();
   showLoading();
   try{
     const response = await fetch("/api/config");
@@ -323,6 +450,8 @@ async function init(){
 }
 
 function showAuth(){
+  clearFormFieldValidation($("loginForm"));
+  clearFormFieldValidation($("signupForm"));
   $("loginEmail").value = "";
   $("loginPassword").value = "";
   $("signupEmail").value = "";
@@ -361,6 +490,7 @@ $("signupTab").onclick = () => {
 
 $("loginForm").onsubmit = async event => {
   event.preventDefault();
+  clearFormFieldValidation(event.target);
   const {error} = await sb.auth.signInWithPassword({
     email:$("loginEmail").value.trim(),
     password:$("loginPassword").value
@@ -370,6 +500,7 @@ $("loginForm").onsubmit = async event => {
 
 $("signupForm").onsubmit = async event => {
   event.preventDefault();
+  clearFormFieldValidation(event.target);
   const {error} = await sb.auth.signUp({
     email:$("signupEmail").value.trim(),
     password:$("signupPassword").value
@@ -383,8 +514,24 @@ $("signupForm").onsubmit = async event => {
 };
 
 $("forgotPassword").onclick = async () => {
-  const email = $("loginEmail").value.trim();
-  if(!email) return setStatus($("loginStatus"), "הזיני מייל", "error");
+  const emailField = $("loginEmail");
+  const email = emailField.value.trim();
+
+  if(!email){
+    setFieldInvalid(emailField, "הזיני מייל");
+    emailField.focus();
+    setStatus($("loginStatus"), "", "");
+    return;
+  }
+
+  if(!emailField.checkValidity()){
+    setFieldInvalid(emailField, emailField.validationMessage || "יש להזין מייל תקין");
+    emailField.focus();
+    setStatus($("loginStatus"), "", "");
+    return;
+  }
+
+  clearFieldInvalid(emailField);
 
   const {error} = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: location.origin
@@ -423,6 +570,7 @@ function fillBusinessForm(){
 
 $("businessForm").onsubmit = async event => {
   event.preventDefault();
+  clearFormFieldValidation(event.target);
 
   const payload = {
     user_id:userId,
@@ -908,6 +1056,7 @@ $("analyzeButton").onclick = async () => {
 $("expenseForm").onsubmit = async event => {
   event.preventDefault();
   if(isExpenseSaving) return;
+  clearFormFieldValidation(event.target);
 
   const submitButton = event.target.querySelector('button[type="submit"], button:not([type])');
   isExpenseSaving = true;
@@ -915,7 +1064,9 @@ $("expenseForm").onsubmit = async event => {
 
   try {
     if(!$("expenseAccountingType").value){
-      setStatus($("expenseStatus"), "סוג חשבונאי הוא שדה חובה", "error");
+      setFieldInvalid($("expenseAccountingType"), "סוג חשבונאי הוא שדה חובה");
+      $("expenseAccountingType").focus();
+      setStatus($("expenseStatus"), "", "");
       return;
     }
 
@@ -1024,6 +1175,7 @@ $("expenseForm").onsubmit = async event => {
 
 $("zForm").onsubmit = async event => {
   event.preventDefault();
+  clearFormFieldValidation(event.target);
 
   const {error} = await sb.from("daily_z_reports").insert({
     user_id:userId,

@@ -793,25 +793,29 @@ async function loadExpenses(){
   }
 
   $("expensesTable").innerHTML = `
-    <table>
-      <tr>
-        <th>👁</th>
-        <th>תאריך</th>
-        <th>סכום</th>
-        <th>ספק</th>
-        <th>סוג חשבונאי</th>
-        <th>מקור תשלום</th>
-      </tr>
-      ${(data || []).map(row => `
+    <table aria-label="טבלת הוצאות">
+      <thead>
         <tr>
-          <td><button class="eye" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
-          <td>${row.document_date || ""}</td>
-          <td>${money(row.gross_ils)}</td>
-          <td>${row.supplier_name_snapshot || ""}</td>
-          <td>${row.accounting_types?.name || ""}</td>
-          <td>${row.payment_sources?.name || ""}</td>
+          <th scope="col" aria-label="פעולות צפייה במסמכים">👁</th>
+          <th scope="col">תאריך</th>
+          <th scope="col">סכום</th>
+          <th scope="col">ספק</th>
+          <th scope="col">סוג חשבונאי</th>
+          <th scope="col">מקור תשלום</th>
         </tr>
-      `).join("")}
+      </thead>
+      <tbody>
+        ${(data || []).map(row => `
+          <tr>
+            <td><button class="eye" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
+            <td>${row.document_date || ""}</td>
+            <td>${money(row.gross_ils)}</td>
+            <td>${row.supplier_name_snapshot || ""}</td>
+            <td>${row.accounting_types?.name || ""}</td>
+            <td>${row.payment_sources?.name || ""}</td>
+          </tr>
+        `).join("")}
+      </tbody>
     </table>
   `;
 
@@ -859,15 +863,19 @@ async function loadZReports(){
   }
 
   $("zTable").innerHTML = (data || []).length ? `
-    <table>
-      <tr><th>תאריך</th><th>הכנסות</th><th>פרויקט</th></tr>
-      ${(data || []).map(row => `
-        <tr>
-          <td>${row.report_date}</td>
-          <td>${money(row.total_income_ils)}</td>
-          <td>${row.projects?.name || ""}</td>
-        </tr>
-      `).join("")}
+    <table aria-label="טבלת דו״חות Z">
+      <thead>
+        <tr><th scope="col">תאריך</th><th scope="col">הכנסות</th><th scope="col">פרויקט</th></tr>
+      </thead>
+      <tbody>
+        ${(data || []).map(row => `
+          <tr>
+            <td>${row.report_date}</td>
+            <td>${money(row.total_income_ils)}</td>
+            <td>${row.projects?.name || ""}</td>
+          </tr>
+        `).join("")}
+      </tbody>
     </table>
   ` : "אין עדיין דו״חות Z";
 }
@@ -884,16 +892,20 @@ async function loadEmployees(){
   }
 
   $("employeesTable").innerHTML = (data || []).length ? `
-    <table>
-      <tr><th>שם</th><th>סוג העסקה</th><th>שכר</th><th>פעילה</th></tr>
-      ${(data || []).map(row => `
-        <tr>
-          <td>${row.full_name}</td>
-          <td>${row.employment_type === "hourly" ? "שעתי" : "חודשי"}</td>
-          <td>${row.employment_type === "hourly" ? money(row.hourly_rate)+"/שעה" : money(row.monthly_salary)}</td>
-          <td>${row.is_active ? "כן" : "לא"}</td>
-        </tr>
-      `).join("")}
+    <table aria-label="טבלת צוות">
+      <thead>
+        <tr><th scope="col">שם</th><th scope="col">סוג העסקה</th><th scope="col">שכר</th><th scope="col">פעילה</th></tr>
+      </thead>
+      <tbody>
+        ${(data || []).map(row => `
+          <tr>
+            <td>${row.full_name}</td>
+            <td>${row.employment_type === "hourly" ? "שעתי" : "חודשי"}</td>
+            <td>${row.employment_type === "hourly" ? money(row.hourly_rate)+"/שעה" : money(row.monthly_salary)}</td>
+            <td>${row.is_active ? "כן" : "לא"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
     </table>
   ` : "אין עדיין עובדות";
 }

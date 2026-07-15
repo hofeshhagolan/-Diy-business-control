@@ -60,7 +60,23 @@ const getSelectedYear = () => {
 const yearStart = year => `${year}-01-01`;
 const yearEnd = year => `${year}-12-31`;
 
-function setStatus(el,msg,type=""){ el.textContent = msg || ""; el.className = `status ${type}`; }
+function setStatus(el,msg,type=""){
+  if(!el) return;
+
+  const statusType = type === "error" ? "error" : type === "ok" ? "ok" : "";
+  el.className = `status ${statusType}`.trim();
+
+  if(statusType === "error"){
+    el.setAttribute("role","alert");
+    el.setAttribute("aria-live","assertive");
+  } else {
+    el.setAttribute("role","status");
+    el.setAttribute("aria-live","polite");
+  }
+
+  el.setAttribute("aria-atomic","true");
+  el.textContent = msg || "";
+}
 
 function getFileKey(file){ return `${file.name}-${file.size}-${file.lastModified}`; }
 

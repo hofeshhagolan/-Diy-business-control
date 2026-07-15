@@ -17,7 +17,7 @@
 
 <section id="loadingScreen" class="loading hidden">
   <div class="loading-wrap">
-    <strong>טוען...</strong>
+    <strong role="status" aria-live="polite" aria-atomic="true">טוען...</strong>
     <div class="loading-spinner" aria-hidden="true"></div>
   </div>
 </section>
@@ -40,14 +40,14 @@
         <label>סיסמה<input name="password" id="loginPassword" type="password" autocomplete="current-password" required></label>
         <button class="primary">כניסה</button>
         <button id="forgotPassword" class="text-button" type="button">שכחתי סיסמה</button>
-        <div id="loginStatus" class="status"></div>
+        <div id="loginStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       </form>
 
       <form id="signupForm" class="stack hidden">
         <label>מייל<input name="email" id="signupEmail" type="email" autocomplete="email" required></label>
         <label>סיסמה<input name="password" id="signupPassword" type="password" autocomplete="new-password" minlength="8" required></label>
         <button class="primary">יצירת חשבון</button>
-        <div id="signupStatus" class="status"></div>
+        <div id="signupStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       </form>
     </div>
   </div>
@@ -71,7 +71,7 @@
 
       <div class="card insight">
         <h3>🤖 תובנת AL</h3>
-        <div id="homeInsight">טוענת תמונת מצב…</div>
+        <div id="homeInsight" role="status" aria-live="polite" aria-atomic="true">טוענת תמונת מצב…</div>
       </div>
 
       <div class="card">
@@ -170,7 +170,7 @@
       <button id="queueButton" class="secondary expense-processing-btn expense-queue-btn" type="button" disabled>שמרי חשבוניות לבדיקה מאוחר יותר</button>
     </div>
 
-    <div id="expenseStatus" class="status"></div>
+    <div id="expenseStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <form id="expenseForm" class="form-grid" style="margin-top:14px">
       <label>תאריך<input id="expenseDate" type="date"></label>
@@ -198,7 +198,7 @@
       <label>סך הכנסות<input id="zTotal" type="number" min="0" step=".01" required></label>
       <label>פרויקט<select id="zProject"></select></label>
       <button class="primary wide">שמרי דו״ח Z</button>
-      <div id="zStatus" class="status wide"></div>
+      <div id="zStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>
 </dialog>
@@ -216,7 +216,7 @@
       <label class="wide">כתובת<input id="businessAddress"></label>
       <button class="primary wide">שמרי פרטי עסק</button>
       <button id="logoutButton" class="secondary wide" type="button">יציאה</button>
-      <div id="businessStatus" class="status wide"></div>
+      <div id="businessStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>
 </dialog>

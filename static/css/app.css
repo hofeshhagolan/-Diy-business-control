@@ -100,6 +100,11 @@ dialog::backdrop{background:#07182a99}
 .review-document-panel iframe{width:100%;min-height:420px;border:0;background:#fff}
 .review-document-state{margin:0;color:var(--muted);padding:12px;text-align:center}
 .review-document-state.error{color:#9f2f2f}
+.review-item-nav{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+.review-item-nav button{min-height:40px}
+.review-item-nav-back{border:0;background:transparent;color:var(--brand2);font-weight:800;cursor:pointer;padding:0 8px;text-decoration:underline;text-underline-offset:2px}
+.review-item-nav-back:disabled{opacity:.5;cursor:not-allowed}
+.review-item-nav-position{grid-column:1/-1;margin:0;color:var(--muted);font-weight:700;text-align:center}
 .file-preview{margin-top:14px;display:grid;gap:10px}
 .file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
 .file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
@@ -125,4 +130,7 @@ dialog::backdrop{background:#07182a99}
   .wide{grid-column:1}
   .review-document-panel{min-height:260px}
   .review-document-panel iframe{min-height:260px}
+  .review-item-nav{grid-template-columns:1fr 1fr}
+  .review-item-nav-back{grid-column:1/-1;order:3;text-align:center}
+  .review-item-nav-position{order:4}
 }

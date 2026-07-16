@@ -68,20 +68,28 @@
    - Verification: Static checks passed; runtime end-to-end UI verification deferred to the next appropriate deployed/integration test point.
 
 12. [User-visible] Add bottom invoice navigation on review screen (previous, back to list text action, next, position indicator).
-   - Status: Pending
+   - Status: Done
+   - Result: Added bottom navigation to the single-invoice review screen using the already loaded ordered review rows as the single in-memory source for current position and adjacent-item navigation; previous/next open only the adjacent review-row item with first/last boundary disabling, back-to-list returns to the existing Task 9 review list without refetch, and the position indicator displays `חשבונית X מתוך Y`.
+   - Verification: Static checks passed; runtime end-to-end UI verification deferred to the next appropriate deployed/integration test point.
 
 13. [User-visible] Implement save-current-invoice action that creates exactly one expense and marks the current item as saved.
-   - Status: Pending
+   - Status: Done
+   - Result: Added an atomic current-invoice save flow that creates exactly one expense for the active review item, links that exact scan item to the saved expense, blocks duplicate saves, and preserves the existing non-review single-invoice save path unchanged.
+   - Verification: Migration applied successfully in Supabase; static checks passed; runtime end-to-end save verification deferred to the next real multi-invoice workflow test because it requires creating a real expense.
 
 14. [User-visible] Implement remove-from-pending and immediate open-next behavior after successful save, with proper end-of-queue handling.
-   - Status: Pending
+   - Status: Done
+   - Result: Added local post-save removal of the saved review item, immediate open-next-by-former-index behavior when a row exists at that position, fallback to the existing pending review list when no next row exists, and clean empty-queue handling when no pending rows remain.
+   - Verification: Static checks passed; runtime end-to-end verification deferred to the next real multi-invoice workflow test.
 
 15. [User-visible] Review state synchronization after each successful save:
 - refresh pending review queue
 - update counters immediately
 - keep navigation indices consistent
 - block reopening already-saved invoices
-   - Status: Pending
+   - Status: Done
+   - Result: Added persisted pending-queue reconciliation after every successful review-item save while keeping Task 14 responsible for the immediate local remove/open-next transition. The existing ordered `expenseReviewRows` remains the single in-memory source; reconciliation refreshes it from persisted unsaved items, keeps the active context and `חשבונית X מתוך Y` navigation position synchronized, and prevents already-saved invoices from being reopened.
+   - Verification: Static checks passed; runtime end-to-end multi-invoice workflow verification deferred to the next appropriate real workflow test.
 
 16. [User-visible] Add fullscreen viewer entry from the large review image/document.
    - Status: Pending

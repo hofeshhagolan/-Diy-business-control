@@ -6,6 +6,7 @@ let currentScanOperationId = null;
 let currentScanSelectionSignature = "";
 let activeExpenseReviewContext = null;
 let expenseReviewLoadToken = 0;
+let expenseReviewRows = [];
 const fileSha256Cache = new WeakMap();
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
@@ -603,6 +604,7 @@ function hideExpenseReviewContext(){
   label.textContent = "";
   if(documentTitle) documentTitle.textContent = "";
   renderExpenseReviewDocumentState({message:"בחרי חשבונית להצגת המסמך."});
+  updateExpenseReviewNavigation();
 }
 
 function clearExpenseInvoiceDerivedFields(){
@@ -677,6 +679,112 @@ function setActiveExpenseReviewContext(context){
   label.textContent = context.label;
   if(documentTitle) documentTitle.textContent = context.label;
   section.classList.remove("hidden");
+  updateExpenseReviewNavigation();
+}
+
+function getActiveExpenseReviewRowIndex(){
+  if(!activeExpenseReviewContext?.scanItemId) return -1;
+  return expenseReviewRows.findIndex(
+    row => row.scanItemId === activeExpenseReviewContext.scanItemId
+  );
+}
+
+function updateExpenseReviewNavigation(){
+  const prevButton = $("expenseReviewNavPrev");
+  const backButton = $("expenseReviewBackToList");
+  const nextButton = $("expenseReviewNavNext");
+  const position = $("expenseReviewPosition");
+  if(!prevButton || !backButton || !nextButton || !position) return;
+
+  const total = expenseReviewRows.length;
+  const activeIndex = getActiveExpenseReviewRowIndex();
+  const hasActive = activeIndex >= 0;
+
+  prevButton.disabled = !hasActive || activeIndex <= 0;
+  nextButton.disabled = !hasActive || activeIndex >= (total - 1);
+  backButton.disabled = total === 0;
+
+  position.textContent = hasActive
+    ? `חשבונית ${activeIndex + 1} מתוך ${total}`
+    : "";
+}
+
+function navigateExpenseReviewByOffset(offset){
+  if(!Number.isInteger(offset) || !offset || !expenseReviewRows.length) return;
+  const activeIndex = getActiveExpenseReviewRowIndex();
+  if(activeIndex < 0) return;
+
+  const targetIndex = activeIndex + offset;
+  if(targetIndex < 0 || targetIndex >= expenseReviewRows.length) return;
+
+  openExpenseReviewItem(expenseReviewRows[targetIndex]);
+}
+
+function returnToExpenseReviewList(){
+  if(!expenseReviewRows.length) return;
+
+  expenseReviewLoadToken += 1;
+  activeExpenseReviewContext = null;
+  hideExpenseReviewContext();
+  renderExpenseReviewList(expenseReviewRows);
+}
+
+function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
+  const savedIndex = expenseReviewRows.findIndex(row => row.scanItemId === savedScanItemId);
+  if(savedIndex < 0){
+    throw new Error("לא נמצאה החשבונית שנשמרה ברשימת הבדיקה");
+  }
+
+  const remainingRows = expenseReviewRows.filter(row => row.scanItemId !== savedScanItemId);
+  const nextRow = remainingRows[savedIndex] || null;
+
+  expenseReviewRows = remainingRows;
+
+  if(activeExpenseReviewContext?.scanItemId === savedScanItemId){
+    activeExpenseReviewContext = null;
+  }
+
+  if(!nextRow){
+    hideExpenseReviewContext();
+    renderExpenseReviewList(remainingRows);
+    return;
+  }
+
+  renderExpenseReviewList(remainingRows);
+  openExpenseReviewItem(nextRow);
+}
+
+async function reconcileExpenseReviewRowsAfterSave(batchId){
+  if(!batchId) return;
+
+  const activeScanItemId = activeExpenseReviewContext?.scanItemId || null;
+  const reconciledRows = await loadBatchReviewListRows(batchId);
+  expenseReviewRows = reconciledRows;
+
+  if(!reconciledRows.length){
+    activeExpenseReviewContext = null;
+    hideExpenseReviewContext();
+    renderExpenseReviewList(reconciledRows);
+    return;
+  }
+
+  const hasActivePendingRow = activeScanItemId
+    ? reconciledRows.some(row => row.scanItemId === activeScanItemId)
+    : false;
+
+  if(hasActivePendingRow){
+    if(!$("expenseReviewList")?.classList.contains("hidden")){
+      renderExpenseReviewList(reconciledRows);
+      return;
+    }
+
+    updateExpenseReviewNavigation();
+    return;
+  }
+
+  activeExpenseReviewContext = null;
+  hideExpenseReviewContext();
+  renderExpenseReviewList(reconciledRows);
 }
 
 async function loadExpenseReviewItemData(row, loadToken){
@@ -739,14 +847,22 @@ async function loadExpenseReviewItemData(row, loadToken){
 async function openExpenseReviewItem(row){
   if(!row || !row.scanItemId || !row.batchId || !Number.isInteger(row.itemOrder)) return;
 
+  const pendingRow = expenseReviewRows.find(candidate => candidate.scanItemId === row.scanItemId);
+  if(expenseReviewRows.length && !pendingRow){
+    setStatus($("expenseStatus"), "החשבונית כבר נשמרה ואינה זמינה לבדיקה.", "error");
+    return;
+  }
+
+  const targetRow = pendingRow || row;
+
   expenseReviewLoadToken += 1;
   const loadToken = expenseReviewLoadToken;
 
   setActiveExpenseReviewContext({
-    batchId: row.batchId,
-    scanItemId: row.scanItemId,
-    itemOrder: row.itemOrder,
-    label: row.label
+    batchId: targetRow.batchId,
+    scanItemId: targetRow.scanItemId,
+    itemOrder: targetRow.itemOrder,
+    label: targetRow.label
   });
 
   hideExpenseReviewList();
@@ -755,7 +871,7 @@ async function openExpenseReviewItem(row){
   renderExpenseReviewDocumentState({message:"טוען מסמך חשבונית..."});
 
   try {
-    await loadExpenseReviewItemData(row, loadToken);
+    await loadExpenseReviewItemData(targetRow, loadToken);
   } catch(error){
     if(loadToken !== expenseReviewLoadToken) return;
     console.error(error);
@@ -772,9 +888,12 @@ function renderExpenseReviewList(rows){
   const tableHost = $("expenseReviewListTable");
   if(!section || !tableHost) return;
 
-  if(!rows.length){
+  expenseReviewRows = Array.isArray(rows) ? rows : [];
+
+  if(!expenseReviewRows.length){
     section.classList.remove("hidden");
     tableHost.innerHTML = "אין חשבוניות להצגה.";
+    updateExpenseReviewNavigation();
     return;
   }
 
@@ -788,7 +907,7 @@ function renderExpenseReviewList(rows){
         </tr>
       </thead>
       <tbody>
-        ${rows.map(row => `
+        ${expenseReviewRows.map(row => `
           <tr data-scan-item-id="${row.scanItemId}" data-batch-id="${row.batchId}" data-item-order="${row.itemOrder}">
             <td><button type="button" class="review-row-open" data-open-review-item="${row.scanItemId}">${row.label}</button></td>
             <td>${row.capturedAt}</td>
@@ -802,13 +921,14 @@ function renderExpenseReviewList(rows){
   tableHost.querySelectorAll("[data-open-review-item]").forEach(button => {
     button.onclick = () => {
       const scanItemId = button.getAttribute("data-open-review-item") || "";
-      const targetRow = rows.find(row => row.scanItemId === scanItemId);
+      const targetRow = expenseReviewRows.find(row => row.scanItemId === scanItemId);
       if(!targetRow) return;
       openExpenseReviewItem(targetRow);
     };
   });
 
   section.classList.remove("hidden");
+  updateExpenseReviewNavigation();
 }
 
 async function loadBatchReviewListRows(batchId){
@@ -818,6 +938,7 @@ async function loadBatchReviewListRows(batchId){
     .select("id,item_order,invoice_scan_batches!inner(completed_at)")
     .eq("user_id", userId)
     .eq("batch_id", batchId)
+    .is("saved_expense_id", null)
     .order("item_order", {ascending:true});
 
   if(itemsError){
@@ -1474,6 +1595,7 @@ function resetExpenseDialogState(){
   resetScanOperationId();
   expenseReviewLoadToken += 1;
   activeExpenseReviewContext = null;
+  expenseReviewRows = [];
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
@@ -1592,6 +1714,10 @@ $("analyzeButton").onclick = async () => {
   }
 };
 
+$("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
+$("expenseReviewNavNext").onclick = () => navigateExpenseReviewByOffset(1);
+$("expenseReviewBackToList").onclick = () => returnToExpenseReviewList();
+
 $("expenseForm").onsubmit = async event => {
   event.preventDefault();
   if(isExpenseSaving) return;
@@ -1663,19 +1789,91 @@ $("expenseForm").onsubmit = async event => {
     vat_ils:vat
   };
 
-  const {data:expense,error} = await sb.from("expenses")
-    .insert(payload)
-    .select("id")
-    .single();
+  const reviewContextSnapshot = activeExpenseReviewContext?.enteredFromReviewList
+    ? {
+        batchId: activeExpenseReviewContext.batchId,
+        scanItemId: activeExpenseReviewContext.scanItemId
+      }
+    : null;
 
-  if(error){
-    setStatus($("expenseStatus"), error.message, "error");
-    return;
+  let expenseId = null;
+  let reviewQueueSyncError = "";
+
+  if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
+    const {data:saveResult, error:saveError} = await sb.rpc(
+      "save_current_invoice_expense_atomic",
+      {
+        p_scan_item_id: reviewContextSnapshot.scanItemId,
+        p_batch_id: reviewContextSnapshot.batchId,
+        p_expense: {
+          supplier_id: payload.supplier_id,
+          supplier_name_snapshot: payload.supplier_name_snapshot,
+          supplier_registration_snapshot: payload.supplier_registration_snapshot,
+          document_date: payload.document_date,
+          document_number: payload.document_number,
+          description: payload.description,
+          notes: payload.notes,
+          category_id: payload.category_id,
+          accounting_type_id: payload.accounting_type_id,
+          project_id: payload.project_id,
+          payment_source_id: payload.payment_source_id,
+          payment_method_id: payload.payment_method_id,
+          gross_ils: payload.gross_ils,
+          net_ils: payload.net_ils,
+          vat_ils: payload.vat_ils
+        }
+      }
+    );
+
+    if(saveError){
+      const duplicateSave = saveError.code === "23505";
+      setStatus(
+        $("expenseStatus"),
+        duplicateSave ? "החשבונית הזו כבר נשמרה." : (saveError.message || "שגיאה בשמירת החשבונית"),
+        "error"
+      );
+      return;
+    }
+
+    const saveRow = Array.isArray(saveResult) ? saveResult[0] : saveResult;
+    if(!saveRow?.expense_id){
+      setStatus($("expenseStatus"), "תשובת שמירת החשבונית אינה תקינה", "error");
+      return;
+    }
+
+    expenseId = saveRow.expense_id;
+
+    try {
+      removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
+    } catch(uiError){
+      console.error(uiError);
+      setStatus($("expenseStatus"), uiError?.message || "שגיאה בעדכון רשימת החשבוניות", "error");
+      return;
+    }
+
+    try {
+      await reconcileExpenseReviewRowsAfterSave(reviewContextSnapshot.batchId);
+    } catch(syncError){
+      console.error(syncError);
+      reviewQueueSyncError = "החשבונית נשמרה, אך סנכרון רשימת החשבוניות נכשל.";
+    }
+  } else {
+    const {data:expense,error} = await sb.from("expenses")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if(error){
+      setStatus($("expenseStatus"), error.message, "error");
+      return;
+    }
+
+    expenseId = expense.id;
   }
 
   for(let i=0;i<selectedFiles.length;i++){
     const file = selectedFiles[i];
-    const path = `${userId}/${expense.id}/${String(i+1).padStart(3,"0")}-${file.name}`;
+    const path = `${userId}/${expenseId}/${String(i+1).padStart(3,"0")}-${file.name}`;
 
     const upload = await sb.storage
       .from("invoice-documents")
@@ -1684,7 +1882,7 @@ $("expenseForm").onsubmit = async event => {
     if(!upload.error){
       await sb.from("expense_documents").insert({
         user_id:userId,
-        expense_id:expense.id,
+        expense_id:expenseId,
         storage_path:path,
         original_filename:file.name,
         mime_type:file.type,
@@ -1697,7 +1895,11 @@ $("expenseForm").onsubmit = async event => {
 
   event.target.reset();
   selectedFiles = [];
-  setStatus($("expenseStatus"), "החשבונית נשמרה", "ok");
+  setStatus(
+    $("expenseStatus"),
+    reviewQueueSyncError || "החשבונית נשמרה",
+    reviewQueueSyncError ? "error" : "ok"
+  );
 
   await Promise.all([loadExpenses(),loadDashboard()]);
   setTimeout(() => $("expenseDialog").close(),650);

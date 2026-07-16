@@ -86,6 +86,20 @@ dialog::backdrop{background:#07182a99}
 .expense-processing-btn{border-radius:12px;padding:12px 14px;font-weight:800}
 .expense-queue-btn{background:#f7f9fc;border-color:#a7b7c7;color:var(--brand)}
 .expense-action-btn[disabled]{opacity:.65;cursor:not-allowed}
+.review-list{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.review-list h3{margin:0 0 10px;color:var(--brand);font-size:1rem}
+.review-list table{min-width:520px}
+.review-row-open{border:0;background:transparent;color:var(--brand2);font-weight:800;padding:0;cursor:pointer;text-align:inherit}
+.review-context{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.review-context h3{margin:0 0 8px;color:var(--brand);font-size:1rem}
+.review-context-label{margin:0;color:var(--text);font-weight:700}
+.review-document-wrap{margin-top:10px;display:grid;gap:8px}
+.review-document-title{margin:0;color:var(--brand);font-weight:700}
+.review-document-panel{border:1px solid var(--line);border-radius:14px;background:#f8fbff;min-height:360px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.review-document-panel img{width:100%;max-height:420px;object-fit:contain;background:#fff}
+.review-document-panel iframe{width:100%;min-height:420px;border:0;background:#fff}
+.review-document-state{margin:0;color:var(--muted);padding:12px;text-align:center}
+.review-document-state.error{color:#9f2f2f}
 .file-preview{margin-top:14px;display:grid;gap:10px}
 .file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
 .file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
@@ -109,4 +123,6 @@ dialog::backdrop{background:#07182a99}
   .quick{grid-template-columns:1fr 1fr}
   .form-grid{grid-template-columns:1fr}
   .wide{grid-column:1}
+  .review-document-panel{min-height:260px}
+  .review-document-panel iframe{min-height:260px}
 }

@@ -172,6 +172,22 @@
 
     <div id="expenseStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
 
+    <section id="expenseReviewList" class="review-list hidden" aria-label="רשימת חשבוניות לבדיקה">
+      <h3>רשימת חשבוניות לבדיקה</h3>
+      <div id="expenseReviewListTable" class="table-wrap">אין חשבוניות להצגה.</div>
+    </section>
+
+    <section id="expenseReviewContext" class="review-context hidden" aria-label="מצב בדיקת חשבונית פעילה">
+      <h3>בדיקת חשבונית פעילה</h3>
+      <p id="expenseReviewContextLabel" class="review-context-label"></p>
+      <div class="review-document-wrap">
+        <p id="expenseReviewDocumentTitle" class="review-document-title"></p>
+        <div id="expenseReviewDocument" class="review-document-panel">
+          <p class="review-document-state">בחרי חשבונית להצגת המסמך.</p>
+        </div>
+      </div>
+    </section>
+
     <form id="expenseForm" class="form-grid" style="margin-top:14px">
       <label>תאריך<input id="expenseDate" type="date"></label>
       <label>סכום כולל בש״ח<input id="expenseGross" type="number" min="0" step=".01"></label>

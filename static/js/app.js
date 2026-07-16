@@ -2,6 +2,11 @@ const $ = id => document.getElementById(id);
 let sb, session, userId, business = {}, selectedFiles = [];
 let isExpenseSaving = false;
 let initialSessionChecked = false;
+let currentScanOperationId = null;
+let currentScanSelectionSignature = "";
+let activeExpenseReviewContext = null;
+let expenseReviewLoadToken = 0;
+const fileSha256Cache = new WeakMap();
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
 
@@ -211,6 +216,24 @@ function getScanOperationId(){
   return `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getOrCreateScanOperationId(selectionSignature){
+  if(!selectionSignature){
+    throw new Error("חסר מזהה תוכן לקבצי הסריקה");
+  }
+
+  if(!currentScanOperationId || currentScanSelectionSignature !== selectionSignature){
+    currentScanOperationId = getScanOperationId();
+    currentScanSelectionSignature = selectionSignature;
+  }
+
+  return currentScanOperationId;
+}
+
+function resetScanOperationId(){
+  currentScanOperationId = null;
+  currentScanSelectionSignature = "";
+}
+
 function sanitizeStorageFilename(originalFilename){
   const rawName = String(originalFilename || "").trim();
   const stripped = rawName.replace(/[\\/]+/g, " ").normalize("NFKC");
@@ -232,13 +255,26 @@ function sanitizeStorageFilename(originalFilename){
   return safeName || "file";
 }
 
-function buildScanStoragePath(operationId, uploadIndex, originalFilename){
+function buildScanStoragePath(operationId, uploadIndex, sha256, originalFilename){
+  if(!sha256){
+    throw new Error("לא ניתן לחשב מזהה תוכן לקובץ הסריקה");
+  }
+
   const orderPrefix = String(uploadIndex + 1).padStart(3, "0");
   const safeFilename = sanitizeStorageFilename(originalFilename);
   return {
     safeFilename,
-    storagePath: `${userId}/scans/${operationId}/${orderPrefix}-${safeFilename}`
+    storagePath: `${userId}/scans/${operationId}/${orderPrefix}-${sha256}`
   };
+}
+
+function isStorageObjectAlreadyExistsError(error){
+  const statusCode = String(error?.statusCode || error?.status || "").trim();
+  const message = String(error?.message || "").trim().toLowerCase();
+
+  return statusCode === "409"
+    || message.includes("already exists")
+    || message.includes("duplicate");
 }
 
 async function cleanupUploadedScanFiles(paths){
@@ -268,20 +304,57 @@ async function computeFileSha256(file){
   }
 }
 
+async function getCachedFileSha256(file){
+  if(!fileSha256Cache.has(file)){
+    fileSha256Cache.set(file, computeFileSha256(file));
+  }
+
+  const sha256 = await fileSha256Cache.get(file);
+  if(!sha256){
+    fileSha256Cache.delete(file);
+  }
+
+  return sha256;
+}
+
+async function buildFileSelectionSignature(files){
+  const parts = [];
+
+  for(const file of files){
+    const sha256 = await getCachedFileSha256(file);
+    if(!sha256){
+      throw new Error("לא ניתן לחשב SHA-256 לקובץ הסריקה");
+    }
+
+    parts.push(sha256);
+  }
+
+  return parts.join("||");
+}
+
 async function uploadScanFilesBeforeAnalyze(files, operationId){
   const uploadedScanFiles = [];
+  const createdStoragePaths = [];
 
   try {
     for(let uploadIndex = 0; uploadIndex < files.length; uploadIndex++){
       const file = files[uploadIndex];
-      const sha256 = await computeFileSha256(file);
-      const {safeFilename, storagePath} = buildScanStoragePath(operationId, uploadIndex, file.name);
+      const sha256 = await getCachedFileSha256(file);
+      if(!sha256){
+        throw new Error("לא ניתן לחשב SHA-256 לקובץ הסריקה");
+      }
+
+      const {safeFilename, storagePath} = buildScanStoragePath(operationId, uploadIndex, sha256, file.name);
       const upload = await sb.storage
         .from("invoice-documents")
         .upload(storagePath, file, {contentType:file.type || "application/octet-stream", upsert:false});
 
       if(upload.error){
-        throw new Error(upload.error.message || "שגיאה בהעלאת קובץ הסריקה");
+        if(!isStorageObjectAlreadyExistsError(upload.error)){
+          throw new Error(upload.error.message || "שגיאה בהעלאת קובץ הסריקה");
+        }
+      } else {
+        createdStoragePaths.push(storagePath);
       }
 
       uploadedScanFiles.push({
@@ -296,7 +369,7 @@ async function uploadScanFilesBeforeAnalyze(files, operationId){
       });
     }
   } catch(error){
-    await cleanupUploadedScanFiles(uploadedScanFiles.map(item => item.storage_path));
+    await cleanupUploadedScanFiles(createdStoragePaths);
     throw error;
   }
 
@@ -313,6 +386,9 @@ function buildScanBatchRpcInput(extractionResult){
   const operation = extractionResult && extractionResult._operation;
   const pageManifest = operation && operation.page_manifest;
   const storageMetadata = operation && operation.storage_metadata;
+  const operationId = String(operation && operation.id || "").trim();
+
+  if(!operationId) return null;
 
   if(!pageManifest || !Array.isArray(pageManifest.pages) || !Array.isArray(pageManifest.uploads)){
     return null;
@@ -371,7 +447,87 @@ function buildScanBatchRpcInput(extractionResult){
   pages.sort((a,b) => a.global_page_index - b.global_page_index);
   if(!pages.length) return null;
 
+  const isGroupedMultiInvoice = normalizeMultipleInvoicesFlag(extractionResult?.multiple_invoices);
+
+  if(isGroupedMultiInvoice){
+    const groupedInvoices = extractionResult?.grouped_invoices;
+    if(!Array.isArray(groupedInvoices) || !groupedInvoices.length){
+      return null;
+    }
+
+    const pageByGlobalIndex = new Map();
+    for(const page of pages){
+      if(pageByGlobalIndex.has(page.global_page_index)) return null;
+      pageByGlobalIndex.set(page.global_page_index, page);
+    }
+
+    const usedGlobalIndexes = new Set();
+    const groupedItems = [];
+
+    for(let groupIndex = 0; groupIndex < groupedInvoices.length; groupIndex++){
+      const group = groupedInvoices[groupIndex];
+      if(!group || typeof group !== "object") return null;
+
+      const extractedData = sanitizeSingleInvoiceResult({
+        multiple_invoices: false,
+        ...group
+      });
+      if(!extractedData) return null;
+
+      const rawIndexes = group.global_page_indexes;
+      if(!Array.isArray(rawIndexes) || !rawIndexes.length) return null;
+
+      const groupPages = [];
+      const groupSeen = new Set();
+
+      for(const rawIndex of rawIndexes){
+        const globalIndex = Number(rawIndex);
+        if(!Number.isInteger(globalIndex) || globalIndex <= 0) return null;
+        if(groupSeen.has(globalIndex)) return null;
+        if(usedGlobalIndexes.has(globalIndex)) return null;
+
+        const page = pageByGlobalIndex.get(globalIndex);
+        if(!page) return null;
+
+        groupSeen.add(globalIndex);
+        usedGlobalIndexes.add(globalIndex);
+        groupPages.push(page);
+      }
+
+      groupPages.sort((a,b) => a.global_page_index - b.global_page_index);
+      if(!groupPages.length) return null;
+
+      groupedItems.push({
+        source_group_index: groupIndex,
+        min_global_page_index: groupPages[0].global_page_index,
+        extracted_data: extractedData,
+        pages: groupPages
+      });
+    }
+
+    if(usedGlobalIndexes.size !== pages.length) return null;
+
+    groupedItems.sort((a,b) => {
+      if(a.min_global_page_index !== b.min_global_page_index){
+        return a.min_global_page_index - b.min_global_page_index;
+      }
+      return a.source_group_index - b.source_group_index;
+    });
+
+    return {
+      p_operation_id: operationId,
+      p_extraction_mode: "all",
+      p_items: groupedItems.map((item,index) => ({
+        item_order: index + 1,
+        selected_for_extraction: true,
+        extracted_data: item.extracted_data,
+        pages: item.pages
+      }))
+    };
+  }
+
   return {
+    p_operation_id: operationId,
     p_extraction_mode: "all",
     p_items: [
       {
@@ -414,6 +570,287 @@ function sanitizeSingleInvoiceResult(result){
     suggested_category:asText(result.suggested_category),
     suggested_accounting_type:asText(result.suggested_accounting_type)
   };
+}
+
+function formatReviewCaptureDateTime(value){
+  if(!value) return "";
+
+  const date = new Date(value);
+  if(Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("he-IL", {
+    dateStyle:"short",
+    timeStyle:"short"
+  }).format(date);
+}
+
+function hideExpenseReviewList(){
+  const section = $("expenseReviewList");
+  const tableHost = $("expenseReviewListTable");
+  if(!section || !tableHost) return;
+
+  section.classList.add("hidden");
+  tableHost.innerHTML = "אין חשבוניות להצגה.";
+}
+
+function hideExpenseReviewContext(){
+  const section = $("expenseReviewContext");
+  const label = $("expenseReviewContextLabel");
+  const documentTitle = $("expenseReviewDocumentTitle");
+  if(!section || !label) return;
+
+  section.classList.add("hidden");
+  label.textContent = "";
+  if(documentTitle) documentTitle.textContent = "";
+  renderExpenseReviewDocumentState({message:"בחרי חשבונית להצגת המסמך."});
+}
+
+function clearExpenseInvoiceDerivedFields(){
+  $("expenseSupplier").value = "";
+  $("expenseSupplierReg").value = "";
+  $("expenseDocumentNumber").value = "";
+  $("expenseDate").value = "";
+  $("expenseDescription").value = "";
+  $("expenseGross").value = "";
+}
+
+function fillExpenseFormFromInvoice(invoice){
+  clearExpenseInvoiceDerivedFields();
+  if(!invoice) return;
+
+  $("expenseSupplier").value = invoice.supplier || "";
+  $("expenseSupplierReg").value = invoice.supplier_registration_number || "";
+  $("expenseDocumentNumber").value = invoice.document_number || "";
+  $("expenseDate").value = invoice.document_date || "";
+  $("expenseDescription").value = invoice.description || "";
+
+  if(invoice.currency_code === "ILS"){
+    $("expenseGross").value = invoice.gross_original || "";
+  }
+}
+
+function renderExpenseReviewDocumentState({message = "", isError = false} = {}){
+  const panel = $("expenseReviewDocument");
+  if(!panel) return;
+
+  panel.innerHTML = "";
+  const text = document.createElement("p");
+  text.className = isError ? "review-document-state error" : "review-document-state";
+  text.textContent = message || "אין מסמך להצגה.";
+  panel.appendChild(text);
+}
+
+function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
+  const panel = $("expenseReviewDocument");
+  if(!panel) return;
+
+  panel.innerHTML = "";
+
+  if(String(mimeType || "").toLowerCase().startsWith("image/")){
+    const image = document.createElement("img");
+    image.src = signedUrl;
+    image.alt = "מסמך חשבונית נבחר";
+    panel.appendChild(image);
+    return;
+  }
+
+  const frame = document.createElement("iframe");
+  frame.src = signedUrl;
+  frame.title = "מסמך חשבונית נבחר";
+  frame.loading = "lazy";
+  panel.appendChild(frame);
+}
+
+function setActiveExpenseReviewContext(context){
+  const section = $("expenseReviewContext");
+  const label = $("expenseReviewContextLabel");
+  const documentTitle = $("expenseReviewDocumentTitle");
+  if(!section || !label) return;
+
+  activeExpenseReviewContext = {
+    batchId: context.batchId,
+    scanItemId: context.scanItemId,
+    itemOrder: context.itemOrder,
+    enteredFromReviewList: true
+  };
+
+  label.textContent = context.label;
+  if(documentTitle) documentTitle.textContent = context.label;
+  section.classList.remove("hidden");
+}
+
+async function loadExpenseReviewItemData(row, loadToken){
+  const isStaleLoad = () => loadToken !== expenseReviewLoadToken;
+
+  const {data:item, error:itemError} = await sb.from("invoice_scan_items")
+    .select("id,batch_id,item_order,extracted_data")
+    .eq("user_id", userId)
+    .eq("batch_id", row.batchId)
+    .eq("id", row.scanItemId)
+    .maybeSingle();
+
+  if(isStaleLoad()) return;
+
+  if(itemError || !item){
+    throw new Error(itemError?.message || "שגיאה בטעינת פרטי החשבונית לבדיקה");
+  }
+
+  const invoiceData = sanitizeSingleInvoiceResult({
+    multiple_invoices: false,
+    ...(item.extracted_data || {})
+  });
+  fillExpenseFormFromInvoice(invoiceData);
+
+  const {data:pages, error:pagesError} = await sb.from("invoice_scan_pages")
+    .select("storage_path,mime_type,global_page_index")
+    .eq("user_id", userId)
+    .eq("scan_item_id", row.scanItemId)
+    .order("global_page_index", {ascending:true});
+
+  if(isStaleLoad()) return;
+
+  if(pagesError){
+    throw new Error(pagesError.message || "שגיאה בטעינת עמודי החשבונית");
+  }
+
+  const orderedPages = pages || [];
+  if(!orderedPages.length){
+    renderExpenseReviewDocumentState({message:"לא נמצאו עמודים לחשבונית זו."});
+    return;
+  }
+
+  const firstPage = orderedPages[0];
+  const {data:signed, error:signError} = await sb.storage
+    .from("invoice-documents")
+    .createSignedUrl(firstPage.storage_path,60);
+
+  if(isStaleLoad()) return;
+
+  if(signError || !signed?.signedUrl){
+    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
+  }
+
+  renderExpenseReviewDocumentFile({
+    signedUrl: signed.signedUrl,
+    mimeType: firstPage.mime_type
+  });
+}
+
+async function openExpenseReviewItem(row){
+  if(!row || !row.scanItemId || !row.batchId || !Number.isInteger(row.itemOrder)) return;
+
+  expenseReviewLoadToken += 1;
+  const loadToken = expenseReviewLoadToken;
+
+  setActiveExpenseReviewContext({
+    batchId: row.batchId,
+    scanItemId: row.scanItemId,
+    itemOrder: row.itemOrder,
+    label: row.label
+  });
+
+  hideExpenseReviewList();
+
+  clearExpenseInvoiceDerivedFields();
+  renderExpenseReviewDocumentState({message:"טוען מסמך חשבונית..."});
+
+  try {
+    await loadExpenseReviewItemData(row, loadToken);
+  } catch(error){
+    if(loadToken !== expenseReviewLoadToken) return;
+    console.error(error);
+    renderExpenseReviewDocumentState({
+      message: "לא ניתן לטעון את מסמך החשבונית.",
+      isError: true
+    });
+    setStatus($("expenseStatus"), error?.message || "שגיאה בטעינת פרטי החשבונית", "error");
+  }
+}
+
+function renderExpenseReviewList(rows){
+  const section = $("expenseReviewList");
+  const tableHost = $("expenseReviewListTable");
+  if(!section || !tableHost) return;
+
+  if(!rows.length){
+    section.classList.remove("hidden");
+    tableHost.innerHTML = "אין חשבוניות להצגה.";
+    return;
+  }
+
+  tableHost.innerHTML = `
+    <table aria-label="טבלת חשבוניות לבדיקה">
+      <thead>
+        <tr>
+          <th scope="col">תווית חשבונית</th>
+          <th scope="col">תאריך/שעת קליטה</th>
+          <th scope="col">מספר עמודים</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr data-scan-item-id="${row.scanItemId}" data-batch-id="${row.batchId}" data-item-order="${row.itemOrder}">
+            <td><button type="button" class="review-row-open" data-open-review-item="${row.scanItemId}">${row.label}</button></td>
+            <td>${row.capturedAt}</td>
+            <td>${row.pageCount}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  tableHost.querySelectorAll("[data-open-review-item]").forEach(button => {
+    button.onclick = () => {
+      const scanItemId = button.getAttribute("data-open-review-item") || "";
+      const targetRow = rows.find(row => row.scanItemId === scanItemId);
+      if(!targetRow) return;
+      openExpenseReviewItem(targetRow);
+    };
+  });
+
+  section.classList.remove("hidden");
+}
+
+async function loadBatchReviewListRows(batchId){
+  if(!batchId) return [];
+
+  const {data:items, error:itemsError} = await sb.from("invoice_scan_items")
+    .select("id,item_order,invoice_scan_batches!inner(completed_at)")
+    .eq("user_id", userId)
+    .eq("batch_id", batchId)
+    .order("item_order", {ascending:true});
+
+  if(itemsError){
+    throw new Error(itemsError.message || "שגיאה בטעינת פריטי חשבוניות לבדיקה");
+  }
+
+  const itemRows = items || [];
+  if(!itemRows.length) return [];
+
+  const itemIds = itemRows.map(item => item.id);
+  const {data:pages, error:pagesError} = await sb.from("invoice_scan_pages")
+    .select("scan_item_id")
+    .eq("user_id", userId)
+    .in("scan_item_id", itemIds);
+
+  if(pagesError){
+    throw new Error(pagesError.message || "שגיאה בטעינת עמודי חשבוניות לבדיקה");
+  }
+
+  const pageCountByItemId = new Map();
+  (pages || []).forEach(page => {
+    const currentCount = pageCountByItemId.get(page.scan_item_id) || 0;
+    pageCountByItemId.set(page.scan_item_id, currentCount + 1);
+  });
+
+  return itemRows.map(item => ({
+    batchId,
+    scanItemId: item.id,
+    itemOrder: item.item_order,
+    label: `חשבונית ${item.item_order}`,
+    capturedAt: formatReviewCaptureDateTime(item.invoice_scan_batches?.completed_at),
+    pageCount: pageCountByItemId.get(item.id) || 0
+  }));
 }
 
 async function init(){
@@ -1034,9 +1471,15 @@ $("browseInput").onchange = event => updateFiles(event.currentTarget, "append");
 
 function resetExpenseDialogState(){
   selectedFiles = [];
+  resetScanOperationId();
+  expenseReviewLoadToken += 1;
+  activeExpenseReviewContext = null;
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
+  clearExpenseInvoiceDerivedFields();
+  hideExpenseReviewList();
+  hideExpenseReviewContext();
   renderSelectedFiles();
   setStatus($("expenseStatus"), "", "");
 }
@@ -1059,9 +1502,9 @@ $("analyzeButton").onclick = async () => {
   formData.append("contract_version","1");
   formData.append("operation_source","web");
 
-  const operationId = getScanOperationId();
-
   try {
+    const selectionSignature = await buildFileSelectionSignature(selectedFiles);
+    const operationId = getOrCreateScanOperationId(selectionSignature);
     const uploadedScanFiles = await uploadScanFilesBeforeAnalyze(selectedFiles, operationId);
     formData.append("operation_id",operationId);
     formData.append("storage_metadata_json", JSON.stringify({
@@ -1082,11 +1525,33 @@ $("analyzeButton").onclick = async () => {
     }
 
     if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
-      setStatus(
-        $("expenseStatus"),
-        "נמצאה יותר מחשבונית אחת. בחרי מצב צילום קבצים מרובים או צלמי כל חשבונית בנפרד.",
-        "error"
+      const rpcInput = buildScanBatchRpcInput(result);
+      if(!rpcInput){
+        setStatus($("expenseStatus"), "מבנה קיבוץ החשבוניות אינו תקין", "error");
+        return;
+      }
+
+      const {data:batchResult, error:batchError} = await sb.rpc(
+        "persist_invoice_scan_batch_atomic",
+        rpcInput
       );
+
+      if(batchError){
+        setStatus($("expenseStatus"), batchError.message || "שגיאה בשמירת הסריקה", "error");
+        return;
+      }
+
+      const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
+      if(!batchRow || !batchRow.batch_id){
+        setStatus($("expenseStatus"), "תשובת שמירת הסריקה אינה תקינה", "error");
+        return;
+      }
+
+      const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
+      hideExpenseReviewContext();
+      activeExpenseReviewContext = null;
+      renderExpenseReviewList(reviewRows);
+      setStatus($("expenseStatus"), "החשבוניות נשמרו לבדיקה. הוצגה רשימת חשבוניות.", "ok");
       return;
     }
 
@@ -1118,15 +1583,7 @@ $("analyzeButton").onclick = async () => {
       return;
     }
 
-    $("expenseSupplier").value = singleInvoice.supplier;
-    $("expenseSupplierReg").value = singleInvoice.supplier_registration_number;
-    $("expenseDocumentNumber").value = singleInvoice.document_number;
-    $("expenseDate").value = singleInvoice.document_date;
-    $("expenseDescription").value = singleInvoice.description;
-
-    if(singleInvoice.currency_code === "ILS"){
-      $("expenseGross").value = singleInvoice.gross_original || "";
-    }
+    fillExpenseFormFromInvoice(singleInvoice);
 
     setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
   } catch(error){

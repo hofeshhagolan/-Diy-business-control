@@ -44,6 +44,31 @@ SINGLE_INVOICE_DEFAULTS = {
 }
 
 
+def _normalize_invoice_fields(payload: dict) -> dict:
+    normalized = dict(SINGLE_INVOICE_DEFAULTS)
+    normalized.pop("multiple_invoices", None)
+    normalized["supplier"] = str(payload.get("supplier") or "").strip()
+    normalized["supplier_registration_number"] = str(
+        payload.get("supplier_registration_number") or ""
+    ).strip()
+    normalized["document_number"] = str(payload.get("document_number") or "").strip()
+    normalized["document_date"] = _to_iso_date_or_empty(payload.get("document_date"))
+    normalized["description"] = str(payload.get("description") or "").strip()
+    normalized["gross_original"] = _to_number(payload.get("gross_original"))
+
+    currency = str(payload.get("currency_code") or "").strip().upper()
+    normalized["currency_code"] = currency if currency in ALLOWED_CURRENCIES else "ILS"
+
+    normalized["suggested_category"] = str(
+        payload.get("suggested_category") or ""
+    ).strip()
+    normalized["suggested_accounting_type"] = str(
+        payload.get("suggested_accounting_type") or ""
+    ).strip()
+
+    return normalized
+
+
 def _to_number(value) -> float:
     try:
         if value in (None, ""):
@@ -173,27 +198,57 @@ def _normalize_extraction_payload(payload: dict) -> dict:
         raise ValueError("Extraction payload must be a JSON object")
 
     if _to_strict_true(payload.get("multiple_invoices")):
-        return {"multiple_invoices": True}
+        grouped_invoices = payload.get("grouped_invoices")
+        if grouped_invoices is None:
+            return {"multiple_invoices": True}
+
+        if not isinstance(grouped_invoices, list) or not grouped_invoices:
+            raise ValueError("grouped_invoices must be a non-empty array")
+
+        normalized_groups = []
+        for group_idx, group in enumerate(grouped_invoices):
+            if not isinstance(group, dict):
+                raise ValueError(
+                    f"grouped_invoices[{group_idx}] must be a JSON object"
+                )
+
+            raw_indexes = group.get("global_page_indexes")
+            if not isinstance(raw_indexes, list) or not raw_indexes:
+                raise ValueError(
+                    f"grouped_invoices[{group_idx}].global_page_indexes must be a non-empty array"
+                )
+
+            normalized_indexes = []
+            for page_idx, raw_value in enumerate(raw_indexes):
+                try:
+                    parsed = int(raw_value)
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        f"grouped_invoices[{group_idx}].global_page_indexes[{page_idx}] must be an integer"
+                    )
+
+                if parsed <= 0:
+                    raise ValueError(
+                        f"grouped_invoices[{group_idx}].global_page_indexes[{page_idx}] must be > 0"
+                    )
+
+                normalized_indexes.append(parsed)
+
+            group_fields = _normalize_invoice_fields(group)
+            normalized_groups.append(
+                {
+                    "global_page_indexes": normalized_indexes,
+                    **group_fields,
+                }
+            )
+
+        return {
+            "multiple_invoices": True,
+            "grouped_invoices": normalized_groups,
+        }
 
     normalized = dict(SINGLE_INVOICE_DEFAULTS)
-    normalized["supplier"] = str(payload.get("supplier") or "").strip()
-    normalized["supplier_registration_number"] = str(
-        payload.get("supplier_registration_number") or ""
-    ).strip()
-    normalized["document_number"] = str(payload.get("document_number") or "").strip()
-    normalized["document_date"] = _to_iso_date_or_empty(payload.get("document_date"))
-    normalized["description"] = str(payload.get("description") or "").strip()
-    normalized["gross_original"] = _to_number(payload.get("gross_original"))
-
-    currency = str(payload.get("currency_code") or "").strip().upper()
-    normalized["currency_code"] = currency if currency in ALLOWED_CURRENCIES else "ILS"
-
-    normalized["suggested_category"] = str(
-        payload.get("suggested_category") or ""
-    ).strip()
-    normalized["suggested_accounting_type"] = str(
-        payload.get("suggested_accounting_type") or ""
-    ).strip()
+    normalized.update(_normalize_invoice_fields(payload))
 
     return normalized
 
@@ -211,6 +266,7 @@ def _build_extraction_result(payload: dict, document_type: str) -> dict:
             "canonical_business_contract": "top_level_invoice_fields",
             "top_level_fields": [
                 "multiple_invoices",
+                "grouped_invoices",
                 "supplier",
                 "supplier_registration_number",
                 "document_number",
@@ -350,22 +406,55 @@ async def analyze_invoice(
             "type": "input_text",
             "text": '''
 את מחלצת נתונים מחשבונית אחת בלבד, ישראלית או זרה.
-אם מופיעות כמה חשבוניות שונות באותם קבצים, החזירי multiple_invoices=true.
+אם מופיעות כמה חשבוניות שונות באותם קבצים, החזירי multiple_invoices=true וגם grouped_invoices.
+grouped_invoices הוא מערך קבוצות עמודים לפי סדר עמודים גלובלי 1..N על פני כל הקבצים.
+כל עמוד חייב להופיע בדיוק פעם אחת באחת הקבוצות.
 קראי את כל העמודים יחד. הסכום הסופי יכול להופיע בעמוד האחרון.
 אין להמציא נתונים.
 
 החזירי JSON בלבד במבנה:
 {
-  "multiple_invoices": false,
-  "supplier": "",
-  "supplier_registration_number": "",
-  "document_number": "",
-  "document_date": "",
-  "description": "",
-  "gross_original": 0,
-  "currency_code": "ILS",
-  "suggested_category": "",
-  "suggested_accounting_type": ""
+    "multiple_invoices": false,
+    "supplier": "",
+    "supplier_registration_number": "",
+    "document_number": "",
+    "document_date": "",
+    "description": "",
+    "gross_original": 0,
+    "currency_code": "ILS",
+    "suggested_category": "",
+    "suggested_accounting_type": ""
+}
+
+או במקרה של כמה חשבוניות:
+{
+    "multiple_invoices": true,
+    "grouped_invoices": [
+        {
+            "global_page_indexes": [1,2],
+            "supplier": "",
+            "supplier_registration_number": "",
+            "document_number": "",
+            "document_date": "",
+            "description": "",
+            "gross_original": 0,
+            "currency_code": "ILS",
+            "suggested_category": "",
+            "suggested_accounting_type": ""
+        },
+        {
+            "global_page_indexes": [3],
+            "supplier": "",
+            "supplier_registration_number": "",
+            "document_number": "",
+            "document_date": "",
+            "description": "",
+            "gross_original": 0,
+            "currency_code": "ILS",
+            "suggested_category": "",
+            "suggested_accounting_type": ""
+        }
+    ]
 }
 
 document_date חייב להיות YYYY-MM-DD או מחרוזת ריקה.

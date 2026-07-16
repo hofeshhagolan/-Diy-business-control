@@ -181,7 +181,10 @@
       <h3>בדיקת חשבונית פעילה</h3>
       <p id="expenseReviewContextLabel" class="review-context-label"></p>
       <div class="review-document-wrap">
-        <p id="expenseReviewDocumentTitle" class="review-document-title"></p>
+        <div class="review-document-head">
+          <p id="expenseReviewDocumentTitle" class="review-document-title"></p>
+          <button id="expenseReviewFullscreenOpen" type="button" class="secondary review-document-fullscreen hidden" aria-label="פתיחת מסמך במסך מלא">מסך מלא</button>
+        </div>
         <div id="expenseReviewDocument" class="review-document-panel">
           <p class="review-document-state">בחרי חשבונית להצגת המסמך.</p>
         </div>
@@ -209,6 +212,28 @@
       <label class="wide">הערות<textarea id="expenseNotes"></textarea></label>
       <button type="submit" class="primary wide">שמרי חשבונית בהוצאות</button>
     </form>
+  </div>
+</dialog>
+
+<dialog id="expenseReviewFullscreenDialog" aria-labelledby="expenseReviewFullscreenTitle">
+  <div class="modal-head">
+    <strong id="expenseReviewFullscreenTitle">מסמך חשבונית במסך מלא</strong>
+    <button id="expenseReviewFullscreenClose" type="button" aria-label="סגירת תצוגת מסך מלא">✕</button>
+  </div>
+  <div class="modal-body review-fullscreen-body">
+    <div id="expenseReviewFullscreenPageNav" class="review-fullscreen-page-nav hidden" aria-label="ניווט עמודי מסמך">
+      <button id="expenseReviewFullscreenPagePrev" type="button" class="secondary" aria-label="העמוד הקודם">העמוד הקודם</button>
+      <p id="expenseReviewFullscreenPagePosition" class="review-fullscreen-page-position" aria-live="polite" aria-atomic="true"></p>
+      <button id="expenseReviewFullscreenPageNext" type="button" class="secondary" aria-label="העמוד הבא">העמוד הבא</button>
+    </div>
+    <div id="expenseReviewFullscreenToolbar" class="review-fullscreen-toolbar hidden" role="toolbar" aria-label="כלי זום למסמך">
+      <button id="expenseReviewFullscreenZoomIn" type="button" class="secondary" aria-label="הגדל מסמך">+</button>
+      <button id="expenseReviewFullscreenZoomOut" type="button" class="secondary" aria-label="הקטן מסמך">-</button>
+      <button id="expenseReviewFullscreenZoomReset" type="button" class="secondary" aria-label="איפוס זום ומיקום המסמך">איפוס</button>
+    </div>
+    <div id="expenseReviewFullscreenContent" class="review-fullscreen-content">
+      <p class="review-document-state">אין מסמך להצגה.</p>
+    </div>
   </div>
 </dialog>
 

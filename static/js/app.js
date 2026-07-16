@@ -7,6 +7,11 @@ let currentScanSelectionSignature = "";
 let activeExpenseReviewContext = null;
 let expenseReviewLoadToken = 0;
 let expenseReviewRows = [];
+let currentExpenseReviewDocument = null;
+let expenseReviewFullscreenOpener = null;
+let currentFullscreenImageState = null;
+let currentExpenseReviewPages = [];
+let currentExpenseReviewPageIndex = 0;
 const fileSha256Cache = new WeakMap();
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
@@ -635,6 +640,7 @@ function renderExpenseReviewDocumentState({message = "", isError = false} = {}){
   const panel = $("expenseReviewDocument");
   if(!panel) return;
 
+  setCurrentExpenseReviewDocument(null);
   panel.innerHTML = "";
   const text = document.createElement("p");
   text.className = isError ? "review-document-state error" : "review-document-state";
@@ -646,6 +652,7 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
   const panel = $("expenseReviewDocument");
   if(!panel) return;
 
+  setCurrentExpenseReviewDocument({signedUrl, mimeType});
   panel.innerHTML = "";
 
   if(String(mimeType || "").toLowerCase().startsWith("image/")){
@@ -661,6 +668,518 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
   frame.title = "מסמך חשבונית נבחר";
   frame.loading = "lazy";
   panel.appendChild(frame);
+}
+
+function clearExpenseReviewPageSelection(){
+  currentExpenseReviewPages = [];
+  currentExpenseReviewPageIndex = 0;
+  updateExpenseReviewFullscreenPageNavigation();
+}
+
+function setExpenseReviewPageSelection(pages, pageIndex = 0){
+  currentExpenseReviewPages = Array.isArray(pages) ? pages : [];
+  currentExpenseReviewPageIndex = currentExpenseReviewPages.length
+    ? Math.min(Math.max(0, pageIndex), currentExpenseReviewPages.length - 1)
+    : 0;
+  updateExpenseReviewFullscreenPageNavigation();
+}
+
+function getCurrentExpenseReviewPage(){
+  return currentExpenseReviewPages[currentExpenseReviewPageIndex] || null;
+}
+
+function updateExpenseReviewFullscreenPageNavigation(){
+  const nav = $("expenseReviewFullscreenPageNav");
+  const prevButton = $("expenseReviewFullscreenPagePrev");
+  const nextButton = $("expenseReviewFullscreenPageNext");
+  const position = $("expenseReviewFullscreenPagePosition");
+  if(!nav || !prevButton || !nextButton || !position) return;
+
+  const total = currentExpenseReviewPages.length;
+  const hasPages = total > 0;
+  const activeIndex = hasPages
+    ? Math.min(Math.max(0, currentExpenseReviewPageIndex), total - 1)
+    : 0;
+
+  nav.classList.toggle("hidden", !hasPages);
+  prevButton.disabled = !hasPages || activeIndex <= 0;
+  nextButton.disabled = !hasPages || activeIndex >= (total - 1);
+  position.textContent = hasPages ? `עמוד ${activeIndex + 1} מתוך ${total}` : "";
+}
+
+function getExpenseReviewPageRenderSequence(){
+  const pages = currentExpenseReviewPages;
+  const index = currentExpenseReviewPageIndex;
+  const itemId = activeExpenseReviewContext?.scanItemId || null;
+
+  return {pages, index, itemId};
+}
+
+async function renderExpenseReviewPageAtIndex(pageIndex){
+  if(!currentExpenseReviewPages.length) return;
+
+  const requestedIndex = Math.min(Math.max(0, pageIndex), currentExpenseReviewPages.length - 1);
+  const requestedPage = currentExpenseReviewPages[requestedIndex];
+  if(!requestedPage || !requestedPage.storage_path){
+    renderExpenseReviewDocumentState({message:"לא נמצאו עמודים לחשבונית זו."});
+    return;
+  }
+
+  const {pages, itemId} = getExpenseReviewPageRenderSequence();
+  currentExpenseReviewPageIndex = requestedIndex;
+  updateExpenseReviewFullscreenPageNavigation();
+  clearFullscreenImageState();
+  const requestedPageIsImage = String(requestedPage.mime_type || "").toLowerCase().startsWith("image/");
+  setFullscreenImageControlsVisible(requestedPageIsImage);
+  if(requestedPageIsImage){
+    resetFullscreenImageState();
+  }
+
+  const {data:signed, error:signError} = await sb.storage
+    .from("invoice-documents")
+    .createSignedUrl(requestedPage.storage_path, 60);
+
+  if(pages !== currentExpenseReviewPages || itemId !== (activeExpenseReviewContext?.scanItemId || null) || requestedIndex !== currentExpenseReviewPageIndex){
+    return;
+  }
+
+  if(signError || !signed?.signedUrl){
+    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
+  }
+
+  renderExpenseReviewDocumentFile({
+    signedUrl: signed.signedUrl,
+    mimeType: requestedPage.mime_type
+  });
+
+  if($("expenseReviewFullscreenDialog")?.open){
+    renderExpenseReviewFullscreenContent();
+  }
+}
+
+function navigateExpenseReviewFullscreenPageByOffset(offset){
+  if(!Number.isInteger(offset) || !offset || !currentExpenseReviewPages.length) return;
+
+  const targetIndex = currentExpenseReviewPageIndex + offset;
+  if(targetIndex < 0 || targetIndex >= currentExpenseReviewPages.length) return;
+
+  void renderExpenseReviewPageAtIndex(targetIndex).catch(error => {
+    console.error(error);
+    renderExpenseReviewDocumentState({
+      message: "לא ניתן לטעון את עמוד החשבונית.",
+      isError: true
+    });
+    setStatus($("expenseStatus"), error?.message || "שגיאה בטעינת עמוד החשבונית", "error");
+  });
+}
+
+async function openExpenseReviewPageAtIndex(pageIndex){
+  await renderExpenseReviewPageAtIndex(pageIndex);
+}
+
+function isFullscreenImageDocument(){
+  return Boolean(currentExpenseReviewDocument?.mimeType && String(currentExpenseReviewDocument.mimeType).toLowerCase().startsWith("image/"));
+}
+
+function createFullscreenImageState(){
+  return {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    pointers: new Map(),
+    dragPointerId: null,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragOriginX: 0,
+    dragOriginY: 0,
+    pinchStartDistance: 0,
+    pinchStartMidpoint: null,
+    pinchStartScale: 1,
+    pinchStartTranslateX: 0,
+    pinchStartTranslateY: 0
+  };
+}
+
+function clearFullscreenImageState(){
+  currentFullscreenImageState = null;
+}
+
+function resetFullscreenImageState(){
+  currentFullscreenImageState = createFullscreenImageState();
+}
+
+function getFullscreenImageToolbar(){
+  return $("expenseReviewFullscreenToolbar");
+}
+
+function getFullscreenImageViewport(){
+  return $("expenseReviewFullscreenViewport");
+}
+
+function getFullscreenImageElement(){
+  return $("expenseReviewFullscreenImage");
+}
+
+function setFullscreenImageControlsVisible(isVisible){
+  const toolbar = getFullscreenImageToolbar();
+  if(!toolbar) return;
+
+  toolbar.classList.toggle("hidden", !isVisible);
+}
+
+function clampFullscreenImageValue(value, min, max){
+  return Math.min(max, Math.max(min, value));
+}
+
+function getFullscreenImageBounds(scale){
+  const viewport = getFullscreenImageViewport();
+  const image = getFullscreenImageElement();
+  if(!viewport || !image || !image.naturalWidth || !image.naturalHeight){
+    return {minX: 0, maxX: 0, minY: 0, maxY: 0};
+  }
+
+  const viewportWidth = viewport.clientWidth;
+  const viewportHeight = viewport.clientHeight;
+  const fitScale = Math.min(
+    viewportWidth / image.naturalWidth,
+    viewportHeight / image.naturalHeight,
+    1
+  );
+  const baseWidth = image.naturalWidth * fitScale;
+  const baseHeight = image.naturalHeight * fitScale;
+  const overflowX = Math.max(0, (baseWidth * scale - viewportWidth) / 2);
+  const overflowY = Math.max(0, (baseHeight * scale - viewportHeight) / 2);
+
+  return {
+    minX: -overflowX,
+    maxX: overflowX,
+    minY: -overflowY,
+    maxY: overflowY
+  };
+}
+
+function clampFullscreenImageTransform(){
+  if(!currentFullscreenImageState) return;
+
+  if(currentFullscreenImageState.scale <= 1){
+    currentFullscreenImageState.scale = 1;
+    currentFullscreenImageState.translateX = 0;
+    currentFullscreenImageState.translateY = 0;
+    return;
+  }
+
+  const bounds = getFullscreenImageBounds(currentFullscreenImageState.scale);
+  currentFullscreenImageState.translateX = clampFullscreenImageValue(
+    currentFullscreenImageState.translateX,
+    bounds.minX,
+    bounds.maxX
+  );
+  currentFullscreenImageState.translateY = clampFullscreenImageValue(
+    currentFullscreenImageState.translateY,
+    bounds.minY,
+    bounds.maxY
+  );
+}
+
+function applyFullscreenImageTransform(){
+  const image = getFullscreenImageElement();
+  if(!image || !currentFullscreenImageState) return;
+
+  clampFullscreenImageTransform();
+  image.style.transform = `translate3d(${currentFullscreenImageState.translateX}px, ${currentFullscreenImageState.translateY}px, 0) scale(${currentFullscreenImageState.scale})`;
+  image.classList.toggle("dragging", Boolean(currentFullscreenImageState.dragPointerId && currentFullscreenImageState.scale > 1));
+}
+
+function zoomFullscreenImageTo(targetScale, focalClientX, focalClientY){
+  if(!currentFullscreenImageState || !isFullscreenImageDocument()) return;
+
+  const viewport = getFullscreenImageViewport();
+  if(!viewport) return;
+
+  const nextScale = clampFullscreenImageValue(targetScale, 1, 4);
+  if(nextScale === 1){
+    currentFullscreenImageState.scale = 1;
+    currentFullscreenImageState.translateX = 0;
+    currentFullscreenImageState.translateY = 0;
+    applyFullscreenImageTransform();
+    return;
+  }
+
+  const rect = viewport.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  const focalX = (focalClientX ?? (rect.left + centerX)) - rect.left - centerX;
+  const focalY = (focalClientY ?? (rect.top + centerY)) - rect.top - centerY;
+  const previousScale = currentFullscreenImageState.scale || 1;
+
+  currentFullscreenImageState.scale = nextScale;
+  currentFullscreenImageState.translateX = focalX - ((focalX - currentFullscreenImageState.translateX) * nextScale / previousScale);
+  currentFullscreenImageState.translateY = focalY - ((focalY - currentFullscreenImageState.translateY) * nextScale / previousScale);
+  applyFullscreenImageTransform();
+}
+
+function zoomFullscreenImageBy(factor, focalClientX, focalClientY){
+  if(!currentFullscreenImageState) return;
+  zoomFullscreenImageTo(currentFullscreenImageState.scale * factor, focalClientX, focalClientY);
+}
+
+function renderExpenseReviewFullscreenImage(){
+  const content = $("expenseReviewFullscreenContent");
+  if(!content) return;
+
+  content.classList.add("image-mode");
+  content.innerHTML = `
+    <div id="expenseReviewFullscreenViewport" class="review-fullscreen-viewport">
+      <img id="expenseReviewFullscreenImage" alt="מסמך חשבונית במסך מלא">
+    </div>
+  `;
+
+  const image = getFullscreenImageElement();
+  if(!image || !currentExpenseReviewDocument?.signedUrl) return;
+
+  image.draggable = false;
+  image.src = currentExpenseReviewDocument.signedUrl;
+  image.addEventListener("load", () => {
+    if(currentFullscreenImageState){
+      applyFullscreenImageTransform();
+    }
+  }, {once: true});
+
+  const viewport = getFullscreenImageViewport();
+  if(!viewport) return;
+
+  viewport.addEventListener("wheel", event => {
+    if(!currentFullscreenImageState) return;
+    event.preventDefault();
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    zoomFullscreenImageBy(factor, event.clientX, event.clientY);
+  }, {passive: false});
+
+  viewport.addEventListener("pointerdown", event => {
+    if(!currentFullscreenImageState) return;
+    if(event.button !== 0) return;
+
+    const state = currentFullscreenImageState;
+    state.pointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+    try { viewport.setPointerCapture(event.pointerId); } catch {}
+
+    if(state.pointers.size === 1){
+      state.dragPointerId = event.pointerId;
+      state.dragStartX = event.clientX;
+      state.dragStartY = event.clientY;
+      state.dragOriginX = state.translateX;
+      state.dragOriginY = state.translateY;
+    }
+
+    if(state.pointers.size >= 2){
+      const points = Array.from(state.pointers.values()).slice(0, 2);
+      const [firstPoint, secondPoint] = points;
+      state.pinchStartDistance = Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y) || 1;
+      state.pinchStartMidpoint = {
+        x: (firstPoint.x + secondPoint.x) / 2,
+        y: (firstPoint.y + secondPoint.y) / 2
+      };
+      state.pinchStartScale = state.scale;
+      state.pinchStartTranslateX = state.translateX;
+      state.pinchStartTranslateY = state.translateY;
+      state.dragPointerId = null;
+    }
+
+    event.preventDefault();
+  });
+
+  viewport.addEventListener("pointermove", event => {
+    if(!currentFullscreenImageState) return;
+    const state = currentFullscreenImageState;
+    if(!state.pointers.has(event.pointerId)) return;
+
+    state.pointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
+
+    if(state.pointers.size >= 2 && state.pinchStartMidpoint){
+      const points = Array.from(state.pointers.values()).slice(0, 2);
+      const [firstPoint, secondPoint] = points;
+      const currentDistance = Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y) || 1;
+      const currentMidpoint = {
+        x: (firstPoint.x + secondPoint.x) / 2,
+        y: (firstPoint.y + secondPoint.y) / 2
+      };
+      const nextScale = clampFullscreenImageValue(
+        state.pinchStartScale * (currentDistance / state.pinchStartDistance),
+        1,
+        4
+      );
+      const rect = viewport.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const startMidX = state.pinchStartMidpoint.x - rect.left - centerX;
+      const startMidY = state.pinchStartMidpoint.y - rect.top - centerY;
+      const currentMidX = currentMidpoint.x - rect.left - centerX;
+      const currentMidY = currentMidpoint.y - rect.top - centerY;
+
+      currentFullscreenImageState.scale = nextScale;
+      currentFullscreenImageState.translateX = currentMidX - ((startMidX - state.pinchStartTranslateX) * nextScale / state.pinchStartScale);
+      currentFullscreenImageState.translateY = currentMidY - ((startMidY - state.pinchStartTranslateY) * nextScale / state.pinchStartScale);
+      applyFullscreenImageTransform();
+      return;
+    }
+
+    if(state.pointers.size === 1 && state.dragPointerId === event.pointerId && state.scale > 1){
+      state.translateX = state.dragOriginX + (event.clientX - state.dragStartX);
+      state.translateY = state.dragOriginY + (event.clientY - state.dragStartY);
+      applyFullscreenImageTransform();
+    }
+  });
+
+  viewport.addEventListener("pointerup", event => {
+    if(!currentFullscreenImageState) return;
+    const state = currentFullscreenImageState;
+    state.pointers.delete(event.pointerId);
+    if(state.dragPointerId === event.pointerId){
+      state.dragPointerId = null;
+    }
+
+    if(state.pointers.size === 0){
+      state.pinchStartMidpoint = null;
+      state.pinchStartDistance = 0;
+      state.pinchStartScale = state.scale;
+      state.pinchStartTranslateX = state.translateX;
+      state.pinchStartTranslateY = state.translateY;
+      state.dragPointerId = null;
+    } else if(state.pointers.size === 1){
+      const [remainingPointerId, remainingPointer] = Array.from(state.pointers.entries())[0];
+      state.dragPointerId = remainingPointerId;
+      state.dragStartX = remainingPointer.x;
+      state.dragStartY = remainingPointer.y;
+      state.dragOriginX = state.translateX;
+      state.dragOriginY = state.translateY;
+      state.pinchStartMidpoint = null;
+      state.pinchStartDistance = 0;
+    }
+
+    try { viewport.releasePointerCapture(event.pointerId); } catch {}
+    applyFullscreenImageTransform();
+  });
+
+  viewport.addEventListener("pointercancel", event => {
+    if(!currentFullscreenImageState) return;
+    currentFullscreenImageState.pointers.delete(event.pointerId);
+    if(currentFullscreenImageState.dragPointerId === event.pointerId){
+      currentFullscreenImageState.dragPointerId = null;
+    }
+    try { viewport.releasePointerCapture(event.pointerId); } catch {}
+    applyFullscreenImageTransform();
+  });
+
+  applyFullscreenImageTransform();
+}
+
+function renderExpenseReviewFullscreenDocument(){
+  const content = $("expenseReviewFullscreenContent");
+  if(!content) return;
+
+  content.classList.remove("image-mode");
+  content.innerHTML = "";
+
+  const frame = document.createElement("iframe");
+  frame.src = currentExpenseReviewDocument?.signedUrl || "";
+  frame.title = "מסמך חשבונית במסך מלא";
+  frame.loading = "lazy";
+  content.appendChild(frame);
+}
+
+function setCurrentExpenseReviewDocument(documentFile){
+  const hasValidDocument = Boolean(documentFile?.signedUrl && documentFile?.mimeType);
+
+  currentExpenseReviewDocument = hasValidDocument
+    ? {signedUrl: documentFile.signedUrl, mimeType: documentFile.mimeType}
+    : null;
+
+  if(!hasValidDocument){
+    clearFullscreenImageState();
+    setFullscreenImageControlsVisible(false);
+  }
+
+  updateExpenseReviewFullscreenEntry();
+  updateExpenseReviewFullscreenPageNavigation();
+
+  if(!currentExpenseReviewDocument){
+    closeExpenseReviewFullscreen({shouldRestoreFocus:false});
+  }
+}
+
+function updateExpenseReviewFullscreenEntry(){
+  const entryButton = $("expenseReviewFullscreenOpen");
+  if(!entryButton) return;
+
+  const hasDocument = Boolean(currentExpenseReviewDocument?.signedUrl && currentExpenseReviewDocument?.mimeType);
+  entryButton.classList.toggle("hidden", !hasDocument);
+  entryButton.disabled = !hasDocument;
+}
+
+function renderExpenseReviewFullscreenContent(){
+  const content = $("expenseReviewFullscreenContent");
+  if(!content) return;
+
+  content.innerHTML = "";
+
+  if(!currentExpenseReviewDocument?.signedUrl || !currentExpenseReviewDocument?.mimeType){
+    setFullscreenImageControlsVisible(false);
+    const text = document.createElement("p");
+    text.className = "review-document-state";
+    text.textContent = "אין מסמך להצגה.";
+    content.appendChild(text);
+    return;
+  }
+
+  if(isFullscreenImageDocument()){
+    setFullscreenImageControlsVisible(true);
+    renderExpenseReviewFullscreenImage();
+    return;
+  }
+
+  setFullscreenImageControlsVisible(false);
+  renderExpenseReviewFullscreenDocument();
+}
+
+function openExpenseReviewFullscreen(){
+  if(!currentExpenseReviewDocument?.signedUrl || !currentExpenseReviewDocument?.mimeType) return;
+
+  const dialog = $("expenseReviewFullscreenDialog");
+  const closeButton = $("expenseReviewFullscreenClose");
+  const entryButton = $("expenseReviewFullscreenOpen");
+  if(!dialog) return;
+
+  expenseReviewFullscreenOpener = entryButton || null;
+  clearFullscreenImageState();
+  if(isFullscreenImageDocument()){
+    resetFullscreenImageState();
+  }
+  renderExpenseReviewFullscreenContent();
+  updateExpenseReviewFullscreenPageNavigation();
+  dialog.showModal();
+  if(closeButton) closeButton.focus();
+}
+
+function closeExpenseReviewFullscreen({shouldRestoreFocus = true} = {}){
+  const dialog = $("expenseReviewFullscreenDialog");
+  if(!dialog) return;
+
+  if(dialog.open) dialog.close();
+
+  clearFullscreenImageState();
+
+  if(
+    shouldRestoreFocus
+    && expenseReviewFullscreenOpener
+    && !expenseReviewFullscreenOpener.disabled
+    && !expenseReviewFullscreenOpener.classList.contains("hidden")
+  ){
+    expenseReviewFullscreenOpener.focus();
+  }
+
+  if(shouldRestoreFocus){
+    expenseReviewFullscreenOpener = null;
+  }
 }
 
 function setActiveExpenseReviewContext(context){
@@ -823,25 +1342,15 @@ async function loadExpenseReviewItemData(row, loadToken){
 
   const orderedPages = pages || [];
   if(!orderedPages.length){
+    clearExpenseReviewPageSelection();
     renderExpenseReviewDocumentState({message:"לא נמצאו עמודים לחשבונית זו."});
     return;
   }
 
-  const firstPage = orderedPages[0];
-  const {data:signed, error:signError} = await sb.storage
-    .from("invoice-documents")
-    .createSignedUrl(firstPage.storage_path,60);
+  setExpenseReviewPageSelection(orderedPages, 0);
+  await openExpenseReviewPageAtIndex(0);
 
   if(isStaleLoad()) return;
-
-  if(signError || !signed?.signedUrl){
-    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
-  }
-
-  renderExpenseReviewDocumentFile({
-    signedUrl: signed.signedUrl,
-    mimeType: firstPage.mime_type
-  });
 }
 
 async function openExpenseReviewItem(row){
@@ -867,6 +1376,7 @@ async function openExpenseReviewItem(row){
 
   hideExpenseReviewList();
 
+  clearExpenseReviewPageSelection();
   clearExpenseInvoiceDerivedFields();
   renderExpenseReviewDocumentState({message:"טוען מסמך חשבונית..."});
 
@@ -1717,6 +2227,36 @@ $("analyzeButton").onclick = async () => {
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
 $("expenseReviewNavNext").onclick = () => navigateExpenseReviewByOffset(1);
 $("expenseReviewBackToList").onclick = () => returnToExpenseReviewList();
+$("expenseReviewFullscreenPagePrev").onclick = () => navigateExpenseReviewFullscreenPageByOffset(-1);
+$("expenseReviewFullscreenPageNext").onclick = () => navigateExpenseReviewFullscreenPageByOffset(1);
+$("expenseReviewFullscreenOpen").onclick = () => openExpenseReviewFullscreen();
+$("expenseReviewFullscreenClose").onclick = () => closeExpenseReviewFullscreen();
+$("expenseReviewFullscreenZoomIn").onclick = () => zoomFullscreenImageBy(1.2);
+$("expenseReviewFullscreenZoomOut").onclick = () => zoomFullscreenImageBy(1 / 1.2);
+$("expenseReviewFullscreenZoomReset").onclick = () => {
+  if(!currentFullscreenImageState) return;
+  currentFullscreenImageState.scale = 1;
+  currentFullscreenImageState.translateX = 0;
+  currentFullscreenImageState.translateY = 0;
+  applyFullscreenImageTransform();
+};
+
+$("expenseReviewFullscreenDialog")?.addEventListener("close", () => {
+  if(
+    expenseReviewFullscreenOpener
+    && !expenseReviewFullscreenOpener.disabled
+    && !expenseReviewFullscreenOpener.classList.contains("hidden")
+  ){
+    expenseReviewFullscreenOpener.focus();
+  }
+
+  expenseReviewFullscreenOpener = null;
+});
+
+$("expenseReviewFullscreenDialog")?.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeExpenseReviewFullscreen();
+});
 
 $("expenseForm").onsubmit = async event => {
   event.preventDefault();

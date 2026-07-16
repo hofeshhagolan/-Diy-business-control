@@ -92,13 +92,19 @@
    - Verification: Static checks passed; runtime end-to-end multi-invoice workflow verification deferred to the next appropriate real workflow test.
 
 16. [User-visible] Add fullscreen viewer entry from the large review image/document.
-   - Status: Pending
+   - Status: Done
+   - Result: Added a fullscreen entry from the current large review document panel that is shown only when a valid document is displayed; fullscreen reuses the same current signed URL for both image (`img`) and PDF/document (`iframe`) rendering, includes an explicit close control, supports Escape-to-close, and manages focus by moving focus into the fullscreen viewer on open and returning it to the fullscreen-entry control on close.
+   - Verification: Static checks passed; runtime fullscreen behavior and Escape/focus behavior deferred to the next appropriate deployed/integration test point.
 
 17. [User-visible] Implement fullscreen zoom/pan interactions.
-   - Status: Pending
+   - Status: Done
+   - Result: Added image-only fullscreen zoom/pan interactions with wheel zoom, mouse and touch drag pan, pinch zoom, 1x–4x clamped zoom bounds, overflow-clamped pan so the image cannot be lost off-screen, and Reset back to 1x and centered while leaving PDF/document iframe behavior unchanged.
+   - Verification: Static checks passed; browser-level runtime verification for wheel, drag, pinch, pan clamping, and reset behavior deferred to the next appropriate deployed/integration test point.
 
 18. [User-visible] Implement fullscreen page navigation constrained to pages of the current invoice item only.
-   - Status: Pending
+   - Status: Done
+   - Result: Added fullscreen page navigation constrained to the current active invoice item, using the deterministically ordered `global_page_index` page list already loaded for that item, with an `עמוד X מתוך Y` indicator, boundary disabling at first/last/single-page states, zoom/pan reset on every page change, and correct image/PDF switching behavior.
+   - Verification: Static checks passed; browser-level runtime verification for fullscreen page navigation, boundary states, zoom reset, and image/PDF switching deferred to the next appropriate deployed/integration test point.
 
 19. [Exception flow] Add low-confidence grouping gate so auto-grouping is blocked below threshold and no invoice items are auto-created.
    - Status: Pending

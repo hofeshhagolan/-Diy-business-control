@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import json
+import math
 import re
 import logging
 import os
@@ -85,7 +86,7 @@ def _normalize_grouping_confidence(value) -> float:
     except (TypeError, ValueError):
         return 0
 
-    if not parsed.isfinite() or parsed < 0 or parsed > 1:
+    if not math.isfinite(parsed) or parsed < 0 or parsed > 1:
         return 0
 
     return parsed

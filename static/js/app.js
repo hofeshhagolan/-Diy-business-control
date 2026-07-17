@@ -23,6 +23,14 @@ const localFileObjectUrls = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
+const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
+  UPLOAD: "upload",
+  PENDING_CHOICE: "pendingChoice",
+  PENDING_REVIEW_LIST: "pendingReviewList",
+  REVIEW_CONTEXT: "reviewContext",
+  MANUAL_GROUPING: "manualGrouping",
+  EXTRACTED_FORM: "extractedForm"
+});
 
 const showLoading = () => {
   $("loadingScreen")?.classList.remove("hidden");
@@ -163,6 +171,63 @@ function hideExpensePendingChoice(){
 
   section.classList.add("hidden");
   summary.textContent = "";
+}
+
+function setExpenseDialogPrimaryState(state){
+  const dialog = $("expenseDialog");
+  if(!dialog) return;
+
+  const fileActions = dialog.querySelector(".file-actions");
+  const filePreview = $("expenseFilePreview");
+  const expenseActions = dialog.querySelector(".expense-actions");
+  const expenseForm = $("expenseForm");
+  const pendingChoice = $("expensePendingChoice");
+  const groupingGate = $("expenseGroupingGate");
+  const manualWorkspace = $("expenseManualGroupingWorkspace");
+  const reviewList = $("expenseReviewList");
+  const reviewContext = $("expenseReviewContext");
+
+  [
+    fileActions,
+    filePreview,
+    expenseActions,
+    expenseForm,
+    pendingChoice,
+    groupingGate,
+    manualWorkspace,
+    reviewList,
+    reviewContext
+  ].forEach(section => section?.classList.add("hidden"));
+
+  setStatus($("expenseStatus"), "", "");
+
+  switch(state){
+    case EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD:
+      fileActions?.classList.remove("hidden");
+      filePreview?.classList.remove("hidden");
+      expenseActions?.classList.remove("hidden");
+      break;
+    case EXPENSE_DIALOG_PRIMARY_STATES.PENDING_CHOICE:
+      pendingChoice?.classList.remove("hidden");
+      break;
+    case EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST:
+      reviewList?.classList.remove("hidden");
+      break;
+    case EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT:
+      reviewContext?.classList.remove("hidden");
+      break;
+    case EXPENSE_DIALOG_PRIMARY_STATES.MANUAL_GROUPING:
+      groupingGate?.classList.remove("hidden");
+      manualWorkspace?.classList.remove("hidden");
+      break;
+    case EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM:
+      expenseForm?.classList.remove("hidden");
+      break;
+    default:
+      break;
+  }
+
+  updateExpenseContinueLaterButtonState();
 }
 
 function showExpensePendingChoice(pendingCount){
@@ -1183,6 +1248,8 @@ function renderExpenseGroupingGate(result){
   const summary = $("expenseGroupingGateSummary");
   if(!section || !summary) return;
 
+  setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.MANUAL_GROUPING);
+
   summary.innerHTML = "";
 
   const groups = Array.isArray(result?.grouped_invoices) ? result.grouped_invoices : [];
@@ -2172,6 +2239,8 @@ async function openExpenseReviewItem(row){
   expenseReviewLoadToken += 1;
   const loadToken = expenseReviewLoadToken;
 
+  setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT);
+
   setActiveExpenseReviewContext({
     batchId: targetRow.batchId,
     scanItemId: targetRow.scanItemId,
@@ -2203,7 +2272,7 @@ function renderExpenseReviewList(rows){
   const tableHost = $("expenseReviewListTable");
   if(!section || !tableHost) return;
 
-  hideExpensePendingChoice();
+  setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST);
   expenseReviewRows = Array.isArray(rows) ? rows : [];
   pendingExpenseEntryRows = expenseReviewRows.slice();
 
@@ -2847,8 +2916,6 @@ document.querySelectorAll("[data-action]").forEach(button => {
 });
 
 async function showExpensePendingEntryChoice(){
-  hideExpensePendingChoice();
-
   try {
     const pendingRows = await loadPendingReviewRows();
     pendingExpenseEntryRows = pendingRows;
@@ -2859,6 +2926,7 @@ async function showExpensePendingEntryChoice(){
       return;
     }
 
+    setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.PENDING_CHOICE);
     showExpensePendingChoice(pendingRows.length);
   } catch(error){
     console.error(error);
@@ -3005,12 +3073,8 @@ function resetExpenseDialogState(){
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
   clearExpenseInvoiceDerivedFields();
-  hideExpensePendingChoice();
-  hideExpenseReviewList();
-  hideExpenseReviewContext();
   renderSelectedFiles();
-  updateExpenseContinueLaterButtonState();
-  setStatus($("expenseStatus"), "", "");
+  setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
 }
 
 $("analyzeButton").onclick = async () => {
@@ -3063,8 +3127,6 @@ $("analyzeButton").onclick = async () => {
         pendingGroupingAnalysisResult = result;
         expenseReviewRows = [];
         activeExpenseReviewContext = null;
-        hideExpenseReviewList();
-        hideExpenseReviewContext();
         renderExpenseGroupingGate(result);
         setStatus($("expenseStatus"), "הקיבוץ האוטומטי לא אמין מספיק. נדרש קיבוץ ידני לפני המשך.", "error");
         return;
@@ -3094,7 +3156,6 @@ $("analyzeButton").onclick = async () => {
 
       const reviewRows = await loadPendingReviewRows();
       clearPendingGroupingAnalysisResult();
-      hideExpenseReviewContext();
       activeExpenseReviewContext = null;
       renderExpenseReviewList(reviewRows);
       void refreshPendingInvoiceCountIndicator();
@@ -3130,6 +3191,7 @@ $("analyzeButton").onclick = async () => {
       return;
     }
 
+    setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM);
     fillExpenseFormFromInvoice(singleInvoice);
     void refreshPendingInvoiceCountIndicator();
 

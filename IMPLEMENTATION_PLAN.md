@@ -121,8 +121,63 @@
    - Result: Implemented deferred review only for already-persisted pending invoices by reusing the existing scan batch/item/page model and `saved_expense_id` pending/saved state, without introducing a parallel system. Pending invoices now resume across all persisted batches and are ordered oldest-first by the existing persisted queue-entry timestamp (`invoice_scan_batches.completed_at`). When pending invoices exist at expense entry, the user is presented with an explicit choice between continuing pending review (`המשיכי חשבוניות ממתינות`) and scanning/adding new invoices. The action `אמשיך לבדוק מאוחר יותר` now exits an already-persisted review flow without any additional persistence. A lightweight pending-invoice count indicator is shown at expense entry points. Unfinished low-confidence/manual-grouping work remains non-persistent and now requires explicit discard confirmation before it can be lost. No persistent manual drafts, backend changes, or database/schema changes were added.
    - Verification: Static checks passed; browser-level runtime verification for cross-batch oldest-first resume ordering, entry choice behavior, continue-later exit behavior, pending-count indicator updates, and manual-grouping discard confirmation is deferred to the next appropriate deployed/integration test point.
 
+21A. [Current gate / follow-up] Complete “אבדוק מאוחר יותר” for single-invoice and multi-invoice workflows using the existing persisted pending-review system.
+   - Status: Pending
+   - Scope:
+   - A single scanned invoice can be persisted for later review even when the user does not review/save it immediately.
+   - Multi-invoice flows continue using the same persisted pending queue.
+   - Do not introduce a parallel deferred-review system.
+   - Later resume uses the same cross-batch pending-review flow created in Task 21.
+   - The flow remains valid when extracted information is incomplete or unavailable.
+   - Acceptance:
+   - “אבדוק מאוחר יותר” works from the real single-invoice flow.
+   - Existing multi-invoice deferred-review behavior remains intact.
+   - No duplicate expense or duplicate pending-queue persistence.
+   - Deferred items survive closing/reopening and appear in the existing pending-review flow.
+   - Gate:
+   - Complete and runtime-verify Task 21A before Task 22 can be signed off.
+   - Do not start Tasks 25–33 until Task 21A and the critical Task 22 gate are closed.
+
+21B. [Integration follow-up] Make expense-dialog primary states mutually exclusive and remove overlapping review UI states.
+   - Status: Done
+   - Result:
+   - Upload, pending choice, review list, active review, manual grouping and single-invoice form states do not incorrectly stack.
+   - State-aware dialog titles were added.
+   - Redundant internal review headings/fullscreen-entry UI were removed while preserving document-tap fullscreen behavior.
+   - Verification:
+   - Runtime phone testing confirmed the original stacked-window defect was resolved sufficiently to continue the review flow.
+   - Remaining small UX refinements are tracked separately in Tasks 25–27.
+   - Verification commits: d20841b486ad9f5d060768e2db5a59132243d7c7, 5b2e3bdb58eb8cd6c771106c929baebe2dfa382f.
+
+21C. [Runtime bugfix] Fix grouping-confidence normalization crash in invoice extraction.
+   - Status: Done
+   - Result:
+   - Replaced invalid Python float `.isfinite()` usage with `math.isfinite(...)`.
+   - Resolved: `'float' object has no attribute 'isfinite'`.
+   - Verification:
+   - Deployed runtime retest confirmed single-invoice extraction completes without this error.
+   - Verification commit: 6e83442aac89c9c61d71b8fedb425c5862179366.
+
 22. [Regression tests] Add end-to-end and targeted regression coverage: single-invoice continuity, multi-invoice happy path, save-current-open-next, viewer constraints, low-confidence manual grouping, deferred/resume, idempotency, and atomic-failure recovery.
    - Status: Pending
+   - Critical runtime verification checklist:
+   - Single-invoice analyze → review → save.
+   - Single-invoice “אבדוק מאוחר יותר” → close → resume.
+   - Multi-invoice high-confidence persistence and review list.
+   - Review-row open and item-specific document/form loading.
+   - Save current → remove from pending → open next → correct end-of-queue behavior.
+   - Fullscreen open/close and focus return.
+   - Fullscreen zoom, pan, reset and page boundaries.
+   - Low-confidence grouping gate.
+   - Manual grouping edits and changed-group re-extraction.
+   - Failure/retry behavior and exact selected-page PDF preview.
+   - Cross-batch pending resume and oldest-first ordering.
+   - Pending-review versus new-scan entry choice.
+   - Pending-count updates.
+   - Manual-grouping discard confirmation.
+   - Idempotency evidence.
+   - Atomic-failure recovery evidence.
+   - Gate: Complete and pass critical Task 22 runtime verification before Tasks 25–33 begin.
 
 23. [Performance validation] Validate and document performance for:
 - large batches (50+ invoices)
@@ -132,9 +187,158 @@
 - fullscreen viewer responsiveness on mobile
 - memory usage during long review sessions
    - Status: Pending
+   - Requirement: Task 23 remains required before the current phase is formally complete.
+   - Gate clarification: It is not automatically a hard blocker before every individual Tasks 25–33 feature slice unless performance testing reveals a concrete blocker.
 
 24. [Quality & Accessibility] Accessibility Audit (Israel Standard 5568 / WCAG AA)
    - Status: Done
    - Completed: 2026-07-15
    - Result: Accessibility-focused improvements were completed in committed history covering keyboard behavior, semantics, validation/error association, announcements, and focus/touch targets.
    - Verification: Confirmed by accessibility commit series fcecc2d, d31d890, 6bf5a82, 0198221, 164c2fe, 4cd222a; no standalone audit report artifact was found in the repository.
+   - Continuity rule: Future UI work must preserve the accessibility improvements completed under Task 24.
+   - Reopen rule: Do not reopen or redefine Task 24 unless a new verified accessibility defect is discovered.
+
+25. [User-visible cleanup] Finalize pending-invoice list presentation for mobile.
+   - Status: Pending
+   - Scope:
+   - Keep title: חשבוניות בבדיקה
+   - Columns: מס' חשבונית, תאריך, שעה
+   - Invoice entries remain clickable with deterministic unique labels such as חשבונית 1, חשבונית 2, etc.
+   - Remove wording based on קליטה.
+   - Reduce dead horizontal space and unnecessary horizontal scrolling.
+
+26. [User-visible cleanup] Finalize active-invoice review navigation and document-first layout.
+   - Status: Pending
+   - Scope:
+   - Keep document at the top.
+   - Keep extracted expense form visible below it.
+   - Tapping document opens the existing fullscreen viewer.
+   - Always show two compact arrows around חשבונית X מתוך Y.
+   - If previous/next is unavailable, keep that arrow visible but light/disabled.
+   - Never hide unavailable arrows.
+   - Avoid large previous/next button containers and duplicate review headings.
+
+27. [Mobile UX] Refine invoice source-picker behavior.
+   - Status: Pending
+   - Scope:
+   - צילום חשבונית → camera-oriented flow.
+   - צילום מס' מסמכים → multi-document capture flow.
+   - עיון → file/gallery browsing without an application-created redundant source chooser where the platform permits.
+   - Reuse existing inputs and handlers.
+   - Do not add another source-selection layer.
+
+28. [Dashboard UX] Make destination-backed dashboard cards clickable as whole cards.
+   - Status: Pending
+   - Rules:
+   - Reuse existing navigation handlers. Do not duplicate routing logic.
+   - הוצאות is clickable because a real destination exists.
+   - פיננסים is clickable because a real destination exists.
+   - תובנות is clickable because a real Insights destination already exists.
+   - הכנסות remains non-clickable until Task 29 creates the dedicated Income screen.
+   - משימות remains non-clickable until a real Tasks screen exists.
+   - לוח שנה / השבוע הקרוב remains non-clickable until a real Calendar screen exists.
+   - Other cards without real destinations remain non-clickable and visually neutral.
+   - Quick-action cards keep their own internal controls and must not be hijacked by card-level navigation.
+   - Verification:
+   - Test whole-card tapping on mobile.
+   - Test keyboard/focus behavior where relevant.
+   - Confirm placeholder cards do not visually imply clickability.
+
+29. [Income architecture] Create a dedicated primary הכנסות screen and keep פיננסים as a higher-level access hub.
+   - Status: Pending
+   - Scope:
+   - Income becomes a primary management screen parallel to Expenses.
+   - Add direct navigation access for הכנסות.
+   - Finance provides clear access to both Income and Expenses.
+   - Do not duplicate full Income and Expense management interfaces inside Finance.
+   - Once the dedicated Income screen exists, make the dashboard הכנסות card clickable and route it there.
+   - Verification:
+   - Direct Income navigation.
+   - Finance → Income.
+   - Finance → Expenses.
+   - Dashboard Income-card navigation after the screen is live.
+
+30. [Income UI] Make the Income list compact and mobile-first, including document-view status.
+   - Status: Pending
+   - Scope:
+   - Reduce unnecessary column width.
+   - Remove dead horizontal space.
+   - Reduce unnecessary horizontal scrolling.
+   - Preserve key business information needed for daily use.
+   - Add a fixed eye/view column for Z-report documents.
+   - Eye remains visible but light/disabled when no document exists.
+   - Eye becomes active when one or more documents exist.
+   - Dependency: Task 31 provides persisted Z-report multi-document attachments.
+
+31. [Income documents] Add multi-file document support for Z reports.
+   - Status: Pending
+   - Scope:
+   - Add צלם דו"ח Z to the Z-report entry flow.
+   - Support multiple files/documents for one Z report.
+   - Reuse existing private file-storage and document-viewer patterns where practical.
+   - Use a normalized one-to-many attachment structure rather than one attachment field on the Z record.
+   - Store file information and ordering needed to reopen and view all documents reliably.
+   - Data impact:
+   - Requires a database migration.
+   - Requires appropriate ownership/security policies.
+   - Verification:
+   - Create a Z report with multiple documents.
+   - Reopen it.
+   - View all attached documents.
+   - Confirm eye active/disabled behavior.
+   - Confirm one user cannot access another user's documents.
+
+32. [Income] Add non-Z income with project-based activity classification and multi-file documents.
+   - Status: Pending
+   - Scope:
+   - `הכנסה חדשה` offers:
+   - דו"ח Z
+   - הכנסה אחרת
+   - Minimum fields for הכנסה אחרת:
+   - Date
+   - Amount
+   - Customer/payer
+   - Income type
+   - Project
+   - Payment method
+   - Reference number
+   - Notes
+   - Also:
+   - Support multiple optional documents.
+   - Use a normalized one-to-many attachment structure.
+   - Reuse the existing Project concept to distinguish restaurant, food cart, lodging and other company activities.
+   - Do not create separate business modules for each activity.
+   - Data impact:
+   - Requires a non-Z income data model.
+   - Requires attachment child records.
+   - Requires ownership/security policies.
+   - Requires related frontend UI.
+   - Verification:
+   - Test at least two different projects/activities.
+   - Create and reopen records.
+   - Verify saved data.
+   - Verify attached-document viewing.
+
+33. [Finance aggregation] Include all approved income sources in financial and dashboard totals.
+   - Status: Pending
+   - Scope:
+   - Income totals include both Z-report income and non-Z income where appropriate.
+   - Dashboard yearly income uses the complete approved income source set.
+   - Profit calculations use the complete approved income source set.
+   - Preserve year filtering/current-year behavior consistently.
+   - Verification:
+   - Test with at least one Z income record and one non-Z income record.
+   - Confirm Income list, yearly Income total and Profit calculation reconcile.
+
+# Current-phase completion rule
+
+- Task 21A and critical Task 22 runtime verification are hard gates before Tasks 25–33.
+- Task 23 remains required current-phase validation and must be completed before the current phase is formally closed.
+- Task 24 remains Done; all new UI work must preserve its accessibility improvements.
+- Calendar, Supplier Card, and Asset Card are intentionally NOT current implementation tasks.
+- After all currently defined and approved work is completed, the next planned product areas are:
+  1. Calendar
+  2. Supplier Card
+  3. Asset Card
+
+These future areas belong to the separate Product Master Context and should not be expanded into implementation tasks yet.

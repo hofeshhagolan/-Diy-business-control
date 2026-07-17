@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PdfReadError
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -206,6 +206,140 @@ def _is_pdf_upload(mime_type: str, filename: str, raw: bytes) -> bool:
     return by_mime or by_name or by_signature
 
 
+def _parse_selected_pages_json(selected_pages_json: str | None) -> dict[int, list[int]] | None:
+    if not selected_pages_json or not selected_pages_json.strip():
+        return None
+
+    try:
+        payload = json.loads(selected_pages_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="selected_pages_json אינו JSON תקין",
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="selected_pages_json חייב להיות אובייקט JSON",
+        )
+
+    uploads = payload.get("uploads")
+    if not isinstance(uploads, list) or not uploads:
+        raise HTTPException(
+            status_code=400,
+            detail="selected_pages_json.uploads חייב להיות מערך לא ריק",
+        )
+
+    normalized: dict[int, list[int]] = {}
+    for idx, item in enumerate(uploads):
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"selected_pages_json.uploads[{idx}] חייב להיות אובייקט",
+            )
+
+        try:
+            upload_index = int(item.get("upload_index"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"selected_pages_json.uploads[{idx}].upload_index חייב להיות מספר שלם",
+            ) from exc
+
+        if upload_index < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"selected_pages_json.uploads[{idx}].upload_index חייב להיות 0 או יותר",
+            )
+
+        raw_page_numbers = item.get("page_numbers_in_upload")
+        if not isinstance(raw_page_numbers, list) or not raw_page_numbers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"selected_pages_json.uploads[{idx}].page_numbers_in_upload חייב להיות מערך לא ריק",
+            )
+
+        normalized_page_numbers: list[int] = []
+        seen_page_numbers: set[int] = set()
+        for page_idx, raw_page_number in enumerate(raw_page_numbers):
+            try:
+                page_number = int(raw_page_number)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"selected_pages_json.uploads[{idx}].page_numbers_in_upload[{page_idx}] "
+                        "חייב להיות מספר שלם"
+                    ),
+                ) from exc
+
+            if page_number <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"selected_pages_json.uploads[{idx}].page_numbers_in_upload[{page_idx}] "
+                        "חייב להיות גדול מ-0"
+                    ),
+                )
+
+            if page_number in seen_page_numbers:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"selected_pages_json.uploads[{idx}].page_numbers_in_upload[{page_idx}] "
+                        "מופיע פעמיים"
+                    ),
+                )
+
+            seen_page_numbers.add(page_number)
+            normalized_page_numbers.append(page_number)
+
+        if upload_index in normalized:
+            raise HTTPException(
+                status_code=400,
+                detail=f"selected_pages_json.uploads[{idx}].upload_index מופיע יותר מפעם אחת",
+            )
+
+        normalized[upload_index] = normalized_page_numbers
+
+    return normalized
+
+
+def _build_pdf_subset(raw_pdf: bytes, filename: str, selected_page_numbers: list[int]) -> bytes:
+    try:
+        reader = PdfReader(io.BytesIO(raw_pdf), strict=False)
+        if reader.is_encrypted:
+            decrypt_result = reader.decrypt("")
+            if decrypt_result == 0:
+                raise ValueError(
+                    f"לא ניתן לפענח את קובץ ה-PDF {filename or ''}: הקובץ מוצפן"
+                )
+
+        writer = PdfWriter()
+        page_count = len(reader.pages)
+        for page_number in selected_page_numbers:
+            if page_number > page_count:
+                raise ValueError(
+                    f"selected_pages_json מכיל עמוד לא קיים בקובץ {filename or ''}"
+                )
+            writer.add_page(reader.pages[page_number - 1])
+
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+    except ValueError:
+        raise
+    except PdfReadError as exc:
+        raise ValueError(
+            f"לא ניתן לקרוא את קובץ ה-PDF {filename or ''}: הקובץ פגום או לא נתמך"
+        ) from exc
+    except Exception as exc:
+        raise ValueError(
+            f"לא ניתן להכין עמודים נבחרים מקובץ ה-PDF {filename or ''}"
+        ) from exc
+
+
 def _normalize_extraction_payload(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Extraction payload must be a JSON object")
@@ -360,6 +494,7 @@ async def analyze_invoice(
     operation_id: str | None = Form(None),
     operation_source: str = Form("web"),
     storage_metadata_json: str | None = Form(None),
+    selected_pages_json: str | None = Form(None),
 ) -> dict:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -411,6 +546,9 @@ async def analyze_invoice(
             )
 
         storage_metadata = _validate_storage_metadata(parsed_storage_metadata)
+
+    selected_pages_by_upload = _parse_selected_pages_json(selected_pages_json)
+    seen_selected_upload_indexes: set[int] = set()
 
     page_manifest_uploads = []
     page_manifest_pages = []
@@ -513,6 +651,24 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
         else:
             page_count = 1
 
+        if selected_pages_by_upload is None:
+            selected_page_numbers = list(range(1, page_count + 1))
+        else:
+            selected_page_numbers = selected_pages_by_upload.get(upload_index, [])
+            if selected_page_numbers:
+                seen_selected_upload_indexes.add(upload_index)
+            else:
+                continue
+
+            for selected_page_number in selected_page_numbers:
+                if selected_page_number > page_count:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"selected_pages_json מכיל עמוד לא קיים בקובץ {upload.filename or ''}"
+                        ),
+                    )
+
         page_manifest_uploads.append(
             {
                 "upload_index": upload_index,
@@ -520,11 +676,11 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
                 "filename": upload.filename or "",
                 "mime_type": effective_mime_type,
                 "sha256": digest,
-                "page_count": page_count,
+                "page_count": len(selected_page_numbers),
             }
         )
 
-        for page_number_in_upload in range(1, page_count + 1):
+        for page_number_in_upload in selected_page_numbers:
             global_page_index += 1
             page_manifest_pages.append(
                 {
@@ -536,7 +692,18 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
                 }
             )
 
-        encoded = base64.b64encode(raw).decode("ascii")
+        upload_raw = raw
+        if is_pdf_upload and len(selected_page_numbers) != page_count:
+            try:
+                upload_raw = _build_pdf_subset(
+                    raw,
+                    upload.filename or "invoice.pdf",
+                    selected_page_numbers,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        encoded = base64.b64encode(upload_raw).decode("ascii")
         data_url = f"data:{effective_mime_type};base64,{encoded}"
 
         if is_pdf_upload:
@@ -559,6 +726,22 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             raise HTTPException(
                 status_code=400,
                 detail=f"סוג הקובץ {effective_mime_type} אינו נתמך",
+            )
+
+    if selected_pages_by_upload is not None:
+        unknown_upload_indexes = sorted(
+            set(selected_pages_by_upload.keys()) - seen_selected_upload_indexes
+        )
+        if unknown_upload_indexes:
+            raise HTTPException(
+                status_code=400,
+                detail="selected_pages_json מכיל upload_index לא קיים",
+            )
+
+        if not page_manifest_pages:
+            raise HTTPException(
+                status_code=400,
+                detail="selected_pages_json לא בחר עמודים לחילוץ",
             )
 
     try:
@@ -621,4 +804,32 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
             status_code=502,
             detail=f"שגיאה בחילוץ הנתונים: {str(exc)[:220]}",
         ) from exc
+
+
+@app.post("/api/manual-grouping-pdf-preview")
+async def manual_grouping_pdf_preview(
+    file: UploadFile = File(...),
+    page_number_in_upload: int = Form(...),
+) -> Response:
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="לא התקבל קובץ PDF לתצוגה")
+
+    mime_type = file.content_type or "application/octet-stream"
+    if not _is_pdf_upload(mime_type, file.filename or "", raw):
+        raise HTTPException(status_code=400, detail="הקובץ שנבחר אינו PDF")
+
+    if page_number_in_upload <= 0:
+        raise HTTPException(status_code=400, detail="page_number_in_upload חייב להיות גדול מ-0")
+
+    try:
+        subset_pdf = _build_pdf_subset(
+            raw,
+            file.filename or "invoice.pdf",
+            [page_number_in_upload],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return Response(content=subset_pdf, media_type="application/pdf")
 

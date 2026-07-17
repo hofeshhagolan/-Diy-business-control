@@ -5,6 +5,8 @@ let initialSessionChecked = false;
 let currentScanOperationId = null;
 let currentScanSelectionSignature = "";
 let pendingGroupingAnalysisResult = null;
+let pendingManualGroupingDraft = null;
+let isManualGroupingConfirming = false;
 let activeExpenseReviewContext = null;
 let expenseReviewLoadToken = 0;
 let expenseReviewRows = [];
@@ -13,7 +15,10 @@ let expenseReviewFullscreenOpener = null;
 let currentFullscreenImageState = null;
 let currentExpenseReviewPages = [];
 let currentExpenseReviewPageIndex = 0;
+let currentManualGroupingPreviewUrl = null;
+let manualGroupingPreviewToken = 0;
 const fileSha256Cache = new WeakMap();
+const localFileObjectUrls = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
@@ -340,6 +345,32 @@ async function buildFileSelectionSignature(files){
   return parts.join("||");
 }
 
+function clearLocalFileObjectUrls(){
+  for(const url of localFileObjectUrls.values()){
+    if(url.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+
+  localFileObjectUrls.clear();
+}
+
+function clearCurrentManualGroupingPreviewUrl(){
+  if(currentManualGroupingPreviewUrl && currentManualGroupingPreviewUrl.startsWith("blob:")){
+    URL.revokeObjectURL(currentManualGroupingPreviewUrl);
+  }
+
+  currentManualGroupingPreviewUrl = null;
+}
+
+function getLocalFileObjectUrl(file){
+  if(!(file instanceof File)) return null;
+
+  if(!localFileObjectUrls.has(file)){
+    localFileObjectUrls.set(file, URL.createObjectURL(file));
+  }
+
+  return localFileObjectUrls.get(file) || null;
+}
+
 async function uploadScanFilesBeforeAnalyze(files, operationId){
   const uploadedScanFiles = [];
   const createdStoragePaths = [];
@@ -632,17 +663,440 @@ function describeGlobalPageIndexes(globalPageIndexes){
   return ranges.join(", ");
 }
 
+function createGlobalPageSignature(globalPageIndexes){
+  return Array.from(new Set(
+    (Array.isArray(globalPageIndexes) ? globalPageIndexes : [])
+      .map(value => Number(value))
+      .filter(value => Number.isInteger(value) && value > 0)
+  )).sort((a,b) => a - b).join(",");
+}
+
+function createManualGroupingDraft(result){
+  const pageManifest = result?._operation?.page_manifest;
+  const pageManifestPages = Array.isArray(pageManifest?.pages) ? pageManifest.pages : [];
+  if(!pageManifestPages.length) return null;
+
+  const uploadByIndex = new Map();
+  (Array.isArray(pageManifest?.uploads) ? pageManifest.uploads : []).forEach(upload => {
+    if(upload && Number.isInteger(upload.upload_index)){
+      uploadByIndex.set(upload.upload_index, upload);
+    }
+  });
+
+  const storageByIndex = new Map();
+  (Array.isArray(result?._operation?.storage_metadata?.files) ? result._operation.storage_metadata.files : []).forEach(file => {
+    if(file && Number.isInteger(file.upload_index)){
+      storageByIndex.set(file.upload_index, file);
+    }
+  });
+
+  const pages = [];
+  for(const rawPage of pageManifestPages){
+    const uploadIndex = Number(rawPage?.upload_index);
+    const globalPageIndex = Number(rawPage?.global_page_index);
+    const pageNumberInUpload = Number(rawPage?.page_number_in_upload);
+
+    if(!Number.isInteger(uploadIndex) || uploadIndex < 0) continue;
+    if(!Number.isInteger(globalPageIndex) || globalPageIndex <= 0) continue;
+    if(!Number.isInteger(pageNumberInUpload) || pageNumberInUpload <= 0) continue;
+
+    const uploadMeta = uploadByIndex.get(uploadIndex) || null;
+    const storageMeta = storageByIndex.get(uploadIndex) || null;
+
+    pages.push({
+      pageId: String(rawPage?.page_id || "").trim(),
+      globalPageIndex,
+      uploadIndex,
+      pageNumberInUpload,
+      originalFilename: storageMeta?.original_filename || uploadMeta?.filename || `קובץ ${uploadIndex + 1}`,
+      mimeType: storageMeta?.mime_type || uploadMeta?.mime_type || "application/octet-stream"
+    });
+  }
+
+  pages.sort((a,b) => a.globalPageIndex - b.globalPageIndex);
+  if(!pages.length) return null;
+
+  const availablePageIndexes = new Set(pages.map(page => page.globalPageIndex));
+  const assignments = {};
+  const assignedPageIndexes = new Set();
+  let nextGroupId = 1;
+
+  const proposedGroups = Array.isArray(result?.grouped_invoices) ? result.grouped_invoices : [];
+  proposedGroups.forEach(group => {
+    const validIndexes = Array.from(new Set(
+      (Array.isArray(group?.global_page_indexes) ? group.global_page_indexes : [])
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0 && availablePageIndexes.has(value) && !assignedPageIndexes.has(value))
+    )).sort((a,b) => a - b);
+
+    if(!validIndexes.length) return;
+
+    const groupId = nextGroupId;
+    nextGroupId += 1;
+    validIndexes.forEach(globalPageIndex => {
+      assignments[globalPageIndex] = groupId;
+      assignedPageIndexes.add(globalPageIndex);
+    });
+  });
+
+  pages.forEach(page => {
+    if(assignedPageIndexes.has(page.globalPageIndex)) return;
+    assignments[page.globalPageIndex] = nextGroupId;
+    nextGroupId += 1;
+  });
+
+  return {
+    pages,
+    assignments,
+    selectedPageGlobalIndex: pages[0].globalPageIndex,
+    nextGroupId
+  };
+}
+
+function getManualGroupingDraftGroups(draft){
+  if(!draft || !Array.isArray(draft.pages)) return [];
+
+  const pagesByGroupId = new Map();
+  draft.pages.forEach(page => {
+    const groupId = Number(draft.assignments?.[page.globalPageIndex]);
+    if(!Number.isInteger(groupId) || groupId <= 0) return;
+
+    if(!pagesByGroupId.has(groupId)){
+      pagesByGroupId.set(groupId, []);
+    }
+
+    pagesByGroupId.get(groupId).push(page);
+  });
+
+  return Array.from(pagesByGroupId.entries())
+    .map(([groupId, groupPages]) => {
+      const pages = groupPages.slice().sort((a,b) => a.globalPageIndex - b.globalPageIndex);
+      return {
+        groupId,
+        pages,
+        pageIndexes: pages.map(page => page.globalPageIndex),
+        signature: createGlobalPageSignature(pages.map(page => page.globalPageIndex)),
+        minGlobalPageIndex: pages[0]?.globalPageIndex || Number.MAX_SAFE_INTEGER
+      };
+    })
+    .sort((a,b) => {
+      if(a.minGlobalPageIndex !== b.minGlobalPageIndex){
+        return a.minGlobalPageIndex - b.minGlobalPageIndex;
+      }
+
+      return a.groupId - b.groupId;
+    });
+}
+
+function getManualGroupingSelectedPage(draft){
+  if(!draft || !Array.isArray(draft.pages)) return null;
+
+  return draft.pages.find(page => page.globalPageIndex === draft.selectedPageGlobalIndex)
+    || draft.pages[0]
+    || null;
+}
+
+function getOriginalGroupingLookup(result){
+  const lookup = new Map();
+  (Array.isArray(result?.grouped_invoices) ? result.grouped_invoices : []).forEach(group => {
+    const signature = createGlobalPageSignature(group?.global_page_indexes);
+    if(!signature || lookup.has(signature)) return;
+    lookup.set(signature, group);
+  });
+  return lookup;
+}
+
+function getManualGroupingLabelByGroupId(groups){
+  const labels = new Map();
+  groups.forEach((group, index) => {
+    labels.set(group.groupId, `חשבונית ${index + 1}`);
+  });
+  return labels;
+}
+
+function validateManualGroupingDraft(draft){
+  if(!draft || !Array.isArray(draft.pages) || !draft.pages.length){
+    return {isValid:false, error:"לא נמצאו עמודים לקיבוץ ידני.", groups:[]};
+  }
+
+  const groups = getManualGroupingDraftGroups(draft);
+  if(!groups.length){
+    return {isValid:false, error:"יש לשייך את כל העמודים לחשבוניות.", groups:[]};
+  }
+
+  const assignedPageIndexes = new Set();
+  for(const group of groups){
+    if(!group.pages.length){
+      return {isValid:false, error:"לא ניתן לאשר קבוצה ריקה.", groups};
+    }
+
+    for(const page of group.pages){
+      if(assignedPageIndexes.has(page.globalPageIndex)){
+        return {isValid:false, error:"כל עמוד חייב להיות משויך פעם אחת בלבד.", groups};
+      }
+
+      assignedPageIndexes.add(page.globalPageIndex);
+    }
+  }
+
+  if(assignedPageIndexes.size !== draft.pages.length){
+    return {isValid:false, error:"יש לשייך כל עמוד לחשבונית אחת.", groups};
+  }
+
+  return {isValid:true, error:"", groups};
+}
+
+async function renderManualGroupingPagePreview(page){
+  const preview = $("expenseManualGroupingPreview");
+  if(!preview) return;
+
+  manualGroupingPreviewToken += 1;
+  const previewToken = manualGroupingPreviewToken;
+  clearCurrentManualGroupingPreviewUrl();
+  preview.innerHTML = "";
+  if(!page){
+    const text = document.createElement("p");
+    text.className = "review-document-state";
+    text.textContent = "בחרי עמוד להצגה.";
+    preview.appendChild(text);
+    return;
+  }
+
+  const file = selectedFiles[page.uploadIndex] || null;
+  const fileUrl = getLocalFileObjectUrl(file);
+  if(!fileUrl){
+    const text = document.createElement("p");
+    text.className = "review-document-state error";
+    text.textContent = "לא ניתן להציג את הקובץ שנבחר לעמוד זה.";
+    preview.appendChild(text);
+    return;
+  }
+
+  const isImage = String(page.mimeType || "").toLowerCase().startsWith("image/");
+  if(isImage){
+    const image = document.createElement("img");
+    image.src = fileUrl;
+    image.alt = `עמוד ${page.globalPageIndex}`;
+    preview.appendChild(image);
+    return;
+  }
+
+  const loading = document.createElement("p");
+  loading.className = "review-document-state";
+  loading.textContent = "טוען את עמוד ה-PDF שנבחר...";
+  preview.appendChild(loading);
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("page_number_in_upload", String(page.pageNumberInUpload));
+
+    const response = await fetch("/api/manual-grouping-pdf-preview", {
+      method: "POST",
+      body: formData
+    });
+
+    const pdfBlob = await response.blob();
+    if(previewToken !== manualGroupingPreviewToken) return;
+
+    if(!response.ok){
+      let errorMessage = "לא ניתן להציג את עמוד ה-PDF שנבחר.";
+      try {
+        const errorPayload = JSON.parse(await pdfBlob.text());
+        errorMessage = errorPayload?.detail || errorMessage;
+      } catch {}
+      throw new Error(errorMessage);
+    }
+
+    currentManualGroupingPreviewUrl = URL.createObjectURL(pdfBlob);
+    preview.innerHTML = "";
+    const frame = document.createElement("iframe");
+    frame.src = currentManualGroupingPreviewUrl;
+    frame.title = `עמוד ${page.globalPageIndex}`;
+    frame.loading = "lazy";
+    preview.appendChild(frame);
+  } catch(error){
+    if(previewToken !== manualGroupingPreviewToken) return;
+    preview.innerHTML = "";
+    const text = document.createElement("p");
+    text.className = "review-document-state error";
+    text.textContent = error?.message || "לא ניתן להציג את עמוד ה-PDF שנבחר.";
+    preview.appendChild(text);
+  }
+}
+
+function renderExpenseManualGroupingWorkspace(){
+  const workspace = $("expenseManualGroupingWorkspace");
+  const pageList = $("expenseManualGroupingPageList");
+  const previewMeta = $("expenseManualGroupingSelectedPageMeta");
+  const assignActions = $("expenseManualGroupingAssignActions");
+  const groupsHost = $("expenseManualGroupingGroups");
+  const confirmButton = $("expenseManualGroupingConfirm");
+  if(!workspace || !pageList || !previewMeta || !assignActions || !groupsHost || !confirmButton) return;
+
+  const result = pendingGroupingAnalysisResult;
+  if(result && !pendingManualGroupingDraft){
+    pendingManualGroupingDraft = createManualGroupingDraft(result);
+  }
+
+  const draft = pendingManualGroupingDraft;
+  if(!result || !draft){
+    workspace.classList.add("hidden");
+    pageList.innerHTML = "";
+    previewMeta.innerHTML = "";
+    assignActions.innerHTML = "";
+    groupsHost.innerHTML = "";
+    confirmButton.disabled = true;
+    renderManualGroupingPagePreview(null);
+    return;
+  }
+
+  workspace.classList.remove("hidden");
+  const groups = getManualGroupingDraftGroups(draft);
+  const groupLabels = getManualGroupingLabelByGroupId(groups);
+  const selectedPage = getManualGroupingSelectedPage(draft);
+  if(selectedPage && draft.selectedPageGlobalIndex !== selectedPage.globalPageIndex){
+    draft.selectedPageGlobalIndex = selectedPage.globalPageIndex;
+  }
+
+  pageList.innerHTML = "";
+  draft.pages.forEach(page => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `grouping-manual-page-button${selectedPage?.globalPageIndex === page.globalPageIndex ? " active" : ""}`;
+    button.disabled = isManualGroupingConfirming;
+    button.onclick = () => {
+      if(!pendingManualGroupingDraft || isManualGroupingConfirming) return;
+      pendingManualGroupingDraft.selectedPageGlobalIndex = page.globalPageIndex;
+      renderExpenseManualGroupingWorkspace();
+    };
+
+    const title = document.createElement("p");
+    title.className = "grouping-manual-page-title";
+    title.textContent = `עמוד ${page.globalPageIndex}`;
+    button.appendChild(title);
+
+    const groupLine = document.createElement("p");
+    groupLine.className = "grouping-manual-page-line";
+    groupLine.textContent = `שייך ל-${groupLabels.get(Number(draft.assignments?.[page.globalPageIndex])) || "לא משויך"}`;
+    button.appendChild(groupLine);
+
+    const fileLine = document.createElement("p");
+    fileLine.className = "grouping-manual-page-line";
+    fileLine.textContent = `${page.originalFilename} | עמוד בקובץ ${page.pageNumberInUpload}`;
+    button.appendChild(fileLine);
+
+    pageList.appendChild(button);
+  });
+
+  void renderManualGroupingPagePreview(selectedPage);
+  previewMeta.innerHTML = "";
+  if(selectedPage){
+    [
+      `עמוד גלובלי: ${selectedPage.globalPageIndex}`,
+      `קובץ מקור: ${selectedPage.originalFilename}`,
+      `עמוד בקובץ: ${selectedPage.pageNumberInUpload}`,
+      `קבוצה נוכחית: ${groupLabels.get(Number(draft.assignments?.[selectedPage.globalPageIndex])) || "לא משויך"}`
+    ].forEach(text => {
+      const line = document.createElement("p");
+      line.className = "grouping-manual-selected-line";
+      line.textContent = text;
+      previewMeta.appendChild(line);
+    });
+  }
+
+  assignActions.innerHTML = "";
+  const assignTitle = document.createElement("p");
+  assignTitle.className = "grouping-manual-selected-line";
+  assignTitle.textContent = "שיוך העמוד הנבחר:";
+  assignActions.appendChild(assignTitle);
+
+  const assignGrid = document.createElement("div");
+  assignGrid.className = "grouping-manual-assign-grid";
+  groups.forEach(group => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.disabled = !selectedPage || isManualGroupingConfirming;
+    button.textContent = `העבירי אל ${groupLabels.get(group.groupId)}`;
+    button.onclick = () => {
+      if(!pendingManualGroupingDraft || !selectedPage || isManualGroupingConfirming) return;
+      pendingManualGroupingDraft.assignments[selectedPage.globalPageIndex] = group.groupId;
+      renderExpenseManualGroupingWorkspace();
+    };
+    assignGrid.appendChild(button);
+  });
+
+  const newGroupButton = document.createElement("button");
+  newGroupButton.type = "button";
+  newGroupButton.className = "secondary";
+  newGroupButton.disabled = !selectedPage || isManualGroupingConfirming;
+  newGroupButton.textContent = "חשבונית חדשה";
+  newGroupButton.onclick = () => {
+    if(!pendingManualGroupingDraft || !selectedPage || isManualGroupingConfirming) return;
+    const newGroupId = pendingManualGroupingDraft.nextGroupId;
+    pendingManualGroupingDraft.nextGroupId += 1;
+    pendingManualGroupingDraft.assignments[selectedPage.globalPageIndex] = newGroupId;
+    renderExpenseManualGroupingWorkspace();
+  };
+  assignGrid.appendChild(newGroupButton);
+  assignActions.appendChild(assignGrid);
+
+  const originalLookup = getOriginalGroupingLookup(result);
+  groupsHost.innerHTML = "";
+  groups.forEach(group => {
+    const item = document.createElement("article");
+    item.className = "grouping-manual-group-item";
+
+    const title = document.createElement("p");
+    title.className = "grouping-manual-group-title";
+    title.textContent = groupLabels.get(group.groupId) || "חשבונית";
+    item.appendChild(title);
+
+    const pagesLine = document.createElement("p");
+    pagesLine.className = "grouping-manual-group-line";
+    pagesLine.textContent = `עמודים: ${describeGlobalPageIndexes(group.pageIndexes)}`;
+    item.appendChild(pagesLine);
+
+    const countLine = document.createElement("p");
+    countLine.className = "grouping-manual-group-line";
+    countLine.textContent = `מספר עמודים: ${group.pageIndexes.length}`;
+    item.appendChild(countLine);
+
+    const extractionLine = document.createElement("p");
+    extractionLine.className = "grouping-manual-group-line";
+    extractionLine.textContent = originalLookup.has(group.signature)
+      ? "נתוני החשבונית הקיימים יישמרו לקבוצה זו."
+      : "נתוני החשבונית יחולצו מחדש לקבוצה זו באישור.";
+    item.appendChild(extractionLine);
+
+    groupsHost.appendChild(item);
+  });
+
+  confirmButton.disabled = isManualGroupingConfirming;
+  confirmButton.textContent = isManualGroupingConfirming
+    ? "מחלצת נתונים וממשיכה לבדיקה..."
+    : "אשרי קיבוץ והמשיכי לבדיקה";
+}
+
 function hideExpenseGroupingGate(){
   const section = $("expenseGroupingGate");
   const summary = $("expenseGroupingGateSummary");
+  const workspace = $("expenseManualGroupingWorkspace");
   if(!section || !summary) return;
 
   section.classList.add("hidden");
   summary.innerHTML = "";
+  if(workspace) workspace.classList.add("hidden");
 }
 
 function clearPendingGroupingAnalysisResult(){
   pendingGroupingAnalysisResult = null;
+  pendingManualGroupingDraft = null;
+  isManualGroupingConfirming = false;
+  manualGroupingPreviewToken += 1;
+  clearCurrentManualGroupingPreviewUrl();
+  clearLocalFileObjectUrls();
   hideExpenseGroupingGate();
 }
 
@@ -700,6 +1154,156 @@ function renderExpenseGroupingGate(result){
   }
 
   section.classList.remove("hidden");
+  renderExpenseManualGroupingWorkspace();
+}
+
+function buildSelectedPagesJsonForManualGroup(group){
+  const uploads = new Map();
+
+  group.pages.forEach(page => {
+    if(!uploads.has(page.uploadIndex)){
+      uploads.set(page.uploadIndex, []);
+    }
+
+    uploads.get(page.uploadIndex).push(page.pageNumberInUpload);
+  });
+
+  return JSON.stringify({
+    uploads: Array.from(uploads.entries())
+      .sort((a,b) => a[0] - b[0])
+      .map(([uploadIndex, pageNumbers]) => ({
+        upload_index: uploadIndex,
+        page_numbers_in_upload: Array.from(new Set(pageNumbers)).sort((a,b) => a - b)
+      }))
+  });
+}
+
+async function reextractManualGroupingGroup(group, groupPosition, totalGroups){
+  const formData = new FormData();
+  selectedFiles.forEach(file => formData.append("files", file));
+  formData.append("document_type", "invoice");
+  formData.append("contract_version", "1");
+  formData.append("operation_source", "web");
+  formData.append("selected_pages_json", buildSelectedPagesJsonForManualGroup(group));
+
+  setStatus(
+    $("expenseStatus"),
+    `מחלצת נתונים לקבוצה ${groupPosition} מתוך ${totalGroups}...`,
+    ""
+  );
+
+  const response = await fetch("/api/analyze-invoice", {
+    method: "POST",
+    body: formData
+  });
+
+  const result = await response.json();
+  if(!response.ok){
+    throw new Error(result?.detail || `שגיאה בחילוץ נתונים לקבוצה ${groupPosition}`);
+  }
+
+  if(normalizeMultipleInvoicesFlag(result?.multiple_invoices)){
+    throw new Error(`בקבוצה ${groupPosition} זוהתה יותר מחשבונית אחת. עדכני את הקיבוץ ונסי שוב.`);
+  }
+
+  const invoiceData = sanitizeSingleInvoiceResult(result);
+  if(!invoiceData){
+    throw new Error(`מבנה תשובת החילוץ לקבוצה ${groupPosition} אינו תקין.`);
+  }
+
+  return invoiceData;
+}
+
+async function confirmManualGroupingAndContinue(){
+  if(isManualGroupingConfirming) return;
+  if(!pendingGroupingAnalysisResult || !pendingManualGroupingDraft){
+    setStatus($("expenseStatus"), "לא נמצא קיבוץ ידני לאישור.", "error");
+    return;
+  }
+
+  const validation = validateManualGroupingDraft(pendingManualGroupingDraft);
+  if(!validation.isValid){
+    setStatus($("expenseStatus"), validation.error || "קיבוץ העמודים אינו תקין.", "error");
+    return;
+  }
+
+  isManualGroupingConfirming = true;
+  renderExpenseManualGroupingWorkspace();
+
+  try {
+    const originalLookup = getOriginalGroupingLookup(pendingGroupingAnalysisResult);
+    const extractedDataBySignature = new Map();
+
+    for(let index = 0; index < validation.groups.length; index++){
+      const group = validation.groups[index];
+      if(originalLookup.has(group.signature)) continue;
+
+      const extractedData = await reextractManualGroupingGroup(
+        group,
+        index + 1,
+        validation.groups.length
+      );
+      extractedDataBySignature.set(group.signature, extractedData);
+    }
+
+    const groupedInvoices = validation.groups.map(group => {
+      const originalGroup = originalLookup.get(group.signature);
+      const extractedData = originalGroup
+        ? sanitizeSingleInvoiceResult({multiple_invoices:false, ...originalGroup})
+        : extractedDataBySignature.get(group.signature) || null;
+
+      if(!extractedData){
+        throw new Error("לא ניתן להשלים את נתוני החשבוניות לאחר הקיבוץ הידני.");
+      }
+
+      return {
+        global_page_indexes: group.pageIndexes.slice(),
+        ...extractedData
+      };
+    });
+
+    const finalResult = {
+      ...pendingGroupingAnalysisResult,
+      multiple_invoices: true,
+      grouped_invoices: groupedInvoices
+    };
+
+    const rpcInput = buildScanBatchRpcInput(finalResult);
+    if(!rpcInput){
+      throw new Error("מבנה הקיבוץ הידני אינו תקין לשמירה.");
+    }
+
+    const {data:batchResult, error:batchError} = await sb.rpc(
+      "persist_invoice_scan_batch_atomic",
+      rpcInput
+    );
+
+    if(batchError){
+      throw new Error(batchError.message || "שגיאה בשמירת החשבוניות לאחר הקיבוץ הידני");
+    }
+
+    const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
+    if(!batchRow || !batchRow.batch_id){
+      throw new Error("תשובת שמירת הסריקה אינה תקינה");
+    }
+
+    const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
+    clearPendingGroupingAnalysisResult();
+    hideExpenseReviewContext();
+    activeExpenseReviewContext = null;
+    renderExpenseReviewList(reviewRows);
+    setStatus($("expenseStatus"), "הקיבוץ הידני נשמר. הוצגה רשימת חשבוניות לבדיקה.", "ok");
+  } catch(error){
+    console.error(error);
+    setStatus(
+      $("expenseStatus"),
+      error?.message || "שגיאה בחילוץ הנתונים לאחר הקיבוץ הידני. לא נשמרו חשבוניות.",
+      "error"
+    );
+  } finally {
+    isManualGroupingConfirming = false;
+    renderExpenseManualGroupingWorkspace();
+  }
 }
 
 function hideExpenseReviewList(){
@@ -2307,7 +2911,7 @@ $("analyzeButton").onclick = async () => {
       }
 
       const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
-  clearPendingGroupingAnalysisResult();
+      clearPendingGroupingAnalysisResult();
       hideExpenseReviewContext();
       activeExpenseReviewContext = null;
       renderExpenseReviewList(reviewRows);
@@ -2367,6 +2971,9 @@ $("expenseReviewFullscreenZoomReset").onclick = () => {
   currentFullscreenImageState.translateX = 0;
   currentFullscreenImageState.translateY = 0;
   applyFullscreenImageTransform();
+};
+$("expenseManualGroupingConfirm").onclick = () => {
+  void confirmManualGroupingAndContinue();
 };
 
 $("expenseReviewFullscreenDialog")?.addEventListener("close", () => {

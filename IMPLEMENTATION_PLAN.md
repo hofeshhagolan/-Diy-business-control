@@ -112,7 +112,9 @@
    - Verification: Static checks passed; runtime browser verification for the high-confidence direct flow and low-confidence blocking behavior deferred to the next appropriate deployed/integration test point.
 
 20. [Exception flow] Implement manual grouping UI and confirmation flow, then persist confirmed grouping and continue into the normal review list flow.
-   - Status: Pending
+   - Status: Done
+   - Result: Added a low-confidence exception flow for manual page grouping without drag-and-drop, allowing pages to be assigned to existing or new invoice groups while removing empty groups automatically, validating the final grouping, reusing extracted data only for exact unchanged groups, re-extracting every changed/split/merged/new group before persistence, preserving the full draft on extraction failure, and then reusing the existing persistence and Task 9 review-list flow after successful confirmation. Manual PDF preview now renders the exact selected page through a backend-generated single-page PDF subset.
+   - Verification: Static checks passed; runtime end-to-end verification of manual grouping, changed-group re-extraction, retry behavior, exact PDF-page preview, persistence, and transition into the review list is deferred to the next appropriate deployed/integration test point.
 
 21. [User-visible, final] Implement deferred review at end: שמרי חשבוניות לבדיקה מאוחר יותר plus resume later from persisted queue.
    - Status: Pending

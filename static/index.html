@@ -176,6 +176,29 @@
       <h3>נדרש קיבוץ ידני</h3>
       <p class="grouping-gate-message">הקיבוץ האוטומטי של החשבוניות אינו אמין מספיק. לא נשמרו קבוצות חשבוניות, ונדרש קיבוץ ידני בשלב הבא.</p>
       <div id="expenseGroupingGateSummary" class="grouping-gate-summary" aria-live="polite" aria-atomic="true"></div>
+      <section id="expenseManualGroupingWorkspace" class="grouping-manual hidden" aria-label="קיבוץ ידני של עמודי חשבוניות">
+        <div class="grouping-manual-layout">
+          <section class="grouping-manual-panel" aria-label="רשימת עמודים">
+            <h4>עמודים</h4>
+            <div id="expenseManualGroupingPageList" class="grouping-manual-page-list"></div>
+          </section>
+          <section class="grouping-manual-panel" aria-label="תצוגת עמוד נבחר">
+            <h4>תצוגת עמוד</h4>
+            <div id="expenseManualGroupingPreview" class="grouping-manual-preview">
+              <p class="review-document-state">בחרי עמוד להצגה.</p>
+            </div>
+            <div id="expenseManualGroupingSelectedPageMeta" class="grouping-manual-selected-meta"></div>
+            <div id="expenseManualGroupingAssignActions" class="grouping-manual-assign-actions"></div>
+          </section>
+        </div>
+        <section class="grouping-manual-panel" aria-label="סיכום קבוצות ידני">
+          <h4>קבוצות סופיות</h4>
+          <div id="expenseManualGroupingGroups" class="grouping-manual-groups"></div>
+        </section>
+        <div class="grouping-manual-footer">
+          <button id="expenseManualGroupingConfirm" type="button" class="primary">אשרי קיבוץ והמשיכי לבדיקה</button>
+        </div>
+      </section>
     </section>
 
     <section id="expenseReviewList" class="review-list hidden" aria-label="רשימת חשבוניות לבדיקה">

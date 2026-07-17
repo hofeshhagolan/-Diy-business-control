@@ -123,16 +123,10 @@ dialog::backdrop{background:#07182a99}
 .grouping-manual-footer{display:flex;justify-content:flex-end}
 .grouping-manual-footer button{min-width:240px}
 .review-list{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
-.review-list h3{margin:0 0 10px;color:var(--brand);font-size:1rem}
 .review-list table{min-width:520px}
 .review-row-open{border:0;background:transparent;color:var(--brand2);font-weight:800;padding:0;cursor:pointer;text-align:inherit}
 .review-context{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
-.review-context h3{margin:0 0 8px;color:var(--brand);font-size:1rem}
-.review-context-label{margin:0;color:var(--text);font-weight:700}
 .review-document-wrap{margin-top:10px;display:grid;gap:8px}
-.review-document-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.review-document-title{margin:0;color:var(--brand);font-weight:700}
-.review-document-fullscreen{padding:8px 10px;min-height:36px;white-space:nowrap}
 .review-document-panel{border:1px solid var(--line);border-radius:14px;background:#f8fbff;min-height:360px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .review-document-panel img{width:100%;max-height:420px;object-fit:contain;background:#fff}
 .review-document-panel iframe{width:100%;min-height:420px;border:0;background:#fff}
@@ -154,9 +148,10 @@ dialog::backdrop{background:#07182a99}
 .review-fullscreen-content iframe{width:min(96vw,1400px);height:calc(100dvh - 80px);border:0;background:#fff}
 .review-item-nav{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
 .review-item-nav button{min-height:40px}
-.review-item-nav-back{border:0;background:transparent;color:var(--brand2);font-weight:800;cursor:pointer;padding:0 8px;text-decoration:underline;text-underline-offset:2px}
+.review-item-nav-arrow{min-width:36px;min-height:36px;padding:0 10px;font-size:1.1rem;font-weight:900;line-height:1}
+.review-item-nav-back{grid-column:1/-1;justify-self:center;border:0;background:transparent;color:var(--brand2);font-weight:800;cursor:pointer;padding:0 8px;text-decoration:underline;text-underline-offset:2px}
 .review-item-nav-back:disabled{opacity:.5;cursor:not-allowed}
-.review-item-nav-position{grid-column:1/-1;margin:0;color:var(--muted);font-weight:700;text-align:center}
+.review-item-nav-position{margin:0;color:var(--muted);font-weight:700;text-align:center}
 .file-preview{margin-top:14px;display:grid;gap:10px}
 .file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
 .file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
@@ -186,14 +181,12 @@ dialog::backdrop{background:#07182a99}
   .grouping-manual-preview iframe{min-height:240px}
   .grouping-manual-footer{justify-content:stretch}
   .grouping-manual-footer button{width:100%;min-width:0}
-  .review-document-head{flex-direction:column;align-items:stretch}
   .review-document-panel{min-height:260px}
   .review-document-panel iframe{min-height:260px}
   .review-fullscreen-page-nav{grid-template-columns:1fr 1fr;gap:8px;padding:12px 12px 0}
   .review-fullscreen-page-position{grid-column:1/-1;order:3}
   .review-fullscreen-toolbar{padding:12px 12px 0}
   .review-fullscreen-content iframe{width:100%;height:calc(100dvh - 120px)}
-  .review-item-nav{grid-template-columns:1fr 1fr}
-  .review-item-nav-back{grid-column:1/-1;order:3;text-align:center}
-  .review-item-nav-position{order:4}
+  .review-item-nav{grid-template-columns:auto 1fr auto}
+  .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}
 }

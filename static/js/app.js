@@ -177,6 +177,8 @@ function setExpenseDialogPrimaryState(state){
   const dialog = $("expenseDialog");
   if(!dialog) return;
 
+  const title = $("expenseDialogTitle");
+
   const fileActions = dialog.querySelector(".file-actions");
   const filePreview = $("expenseFilePreview");
   const expenseActions = dialog.querySelector(".expense-actions");
@@ -200,6 +202,19 @@ function setExpenseDialogPrimaryState(state){
   ].forEach(section => section?.classList.add("hidden"));
 
   setStatus($("expenseStatus"), "", "");
+
+  if(title){
+    const titleByState = {
+      [EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD]: "הוצאה חדשה",
+      [EXPENSE_DIALOG_PRIMARY_STATES.PENDING_CHOICE]: "הוצאה חדשה",
+      [EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST]: "חשבוניות בבדיקה",
+      [EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT]: "בדיקת חשבונית",
+      [EXPENSE_DIALOG_PRIMARY_STATES.MANUAL_GROUPING]: "הוצאה חדשה",
+      [EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM]: "הוצאה חדשה"
+    };
+
+    title.textContent = titleByState[state] || "הוצאה חדשה";
+  }
 
   switch(state){
     case EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD:
@@ -1472,13 +1487,9 @@ function updateExpenseContinueLaterButtonState(){
 
 function hideExpenseReviewContext(){
   const section = $("expenseReviewContext");
-  const label = $("expenseReviewContextLabel");
-  const documentTitle = $("expenseReviewDocumentTitle");
-  if(!section || !label) return;
+  if(!section) return;
 
   section.classList.add("hidden");
-  label.textContent = "";
-  if(documentTitle) documentTitle.textContent = "";
   renderExpenseReviewDocumentState({message:"בחרי חשבונית להצגת המסמך."});
   updateExpenseReviewNavigation();
   updateExpenseContinueLaterButtonState();
@@ -1531,6 +1542,19 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
     const image = document.createElement("img");
     image.src = signedUrl;
     image.alt = "מסמך חשבונית נבחר";
+    image.title = "פתחי במסך מלא";
+    image.style.cursor = "pointer";
+    image.tabIndex = 0;
+    image.addEventListener("click", () => {
+      expenseReviewFullscreenOpener = image;
+      openExpenseReviewFullscreen();
+    });
+    image.addEventListener("keydown", event => {
+      if(event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      expenseReviewFullscreenOpener = image;
+      openExpenseReviewFullscreen();
+    });
     panel.appendChild(image);
     return;
   }
@@ -2021,7 +2045,7 @@ function openExpenseReviewFullscreen(){
   const entryButton = $("expenseReviewFullscreenOpen");
   if(!dialog) return;
 
-  expenseReviewFullscreenOpener = entryButton || null;
+  expenseReviewFullscreenOpener = entryButton || expenseReviewFullscreenOpener || null;
   clearFullscreenImageState();
   if(isFullscreenImageDocument()){
     resetFullscreenImageState();
@@ -2056,9 +2080,7 @@ function closeExpenseReviewFullscreen({shouldRestoreFocus = true} = {}){
 
 function setActiveExpenseReviewContext(context){
   const section = $("expenseReviewContext");
-  const label = $("expenseReviewContextLabel");
-  const documentTitle = $("expenseReviewDocumentTitle");
-  if(!section || !label) return;
+  if(!section) return;
 
   activeExpenseReviewContext = {
     batchId: context.batchId,
@@ -2067,8 +2089,6 @@ function setActiveExpenseReviewContext(context){
     enteredFromReviewList: true
   };
 
-  label.textContent = context.label;
-  if(documentTitle) documentTitle.textContent = context.label;
   section.classList.remove("hidden");
   updateExpenseReviewNavigation();
 }
@@ -2091,6 +2111,15 @@ function updateExpenseReviewNavigation(){
   const activeIndex = getActiveExpenseReviewRowIndex();
   const hasActive = activeIndex >= 0;
 
+  prevButton.textContent = "→";
+  nextButton.textContent = "←";
+  prevButton.setAttribute("aria-label", "חשבונית קודמת");
+  nextButton.setAttribute("aria-label", "חשבונית הבאה");
+  prevButton.title = "חשבונית קודמת";
+  nextButton.title = "חשבונית הבאה";
+
+  prevButton.classList.toggle("hidden", !hasActive || activeIndex <= 0);
+  nextButton.classList.toggle("hidden", !hasActive || activeIndex >= (total - 1));
   prevButton.disabled = !hasActive || activeIndex <= 0;
   nextButton.disabled = !hasActive || activeIndex >= (total - 1);
   backButton.disabled = total === 0;
@@ -2939,8 +2968,18 @@ async function openAction(action){
 
   if(action === "expense"){
     resetExpenseDialogState();
+    const pendingRows = await loadPendingReviewRows();
+    pendingExpenseEntryRows = pendingRows;
+    updateExpensePendingCountIndicator(pendingRows.length);
+
+    if(pendingRows.length){
+      setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.PENDING_CHOICE);
+      showExpensePendingChoice(pendingRows.length);
+    } else {
+      setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
+    }
+
     $("expenseDialog").showModal();
-    await showExpensePendingEntryChoice();
   } else if(action === "z"){
     $("zDate").value = today();
     $("zDialog").showModal();
@@ -3226,17 +3265,10 @@ $("expensePendingContinue").onclick = async () => {
   hideExpenseReviewContext();
   activeExpenseReviewContext = null;
   renderExpenseReviewList(rows);
-  setStatus($("expenseStatus"), "הוצגו חשבוניות ממתינות לבדיקה.", "ok");
 };
 
 $("expensePendingScanNew").onclick = () => {
-  hideExpensePendingChoice();
-  hideExpenseReviewList();
-  hideExpenseReviewContext();
-  activeExpenseReviewContext = null;
-  expenseReviewRows = [];
-  updateExpenseContinueLaterButtonState();
-  setStatus($("expenseStatus"), "", "");
+  resetExpenseDialogState();
 };
 
 $("queueButton").onclick = () => {
@@ -3250,7 +3282,7 @@ $("expenseReviewNavNext").onclick = () => navigateExpenseReviewByOffset(1);
 $("expenseReviewBackToList").onclick = () => returnToExpenseReviewList();
 $("expenseReviewFullscreenPagePrev").onclick = () => navigateExpenseReviewFullscreenPageByOffset(-1);
 $("expenseReviewFullscreenPageNext").onclick = () => navigateExpenseReviewFullscreenPageByOffset(1);
-$("expenseReviewFullscreenOpen").onclick = () => openExpenseReviewFullscreen();
+$("expenseReviewFullscreenOpen")?.addEventListener("click", () => openExpenseReviewFullscreen());
 $("expenseReviewFullscreenClose").onclick = () => closeExpenseReviewFullscreen();
 $("expenseReviewFullscreenZoomIn").onclick = () => zoomFullscreenImageBy(1.2);
 $("expenseReviewFullscreenZoomOut").onclick = () => zoomFullscreenImageBy(1 / 1.2);

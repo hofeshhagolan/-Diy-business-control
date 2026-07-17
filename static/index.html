@@ -150,7 +150,7 @@
 </dialog>
 
 <dialog id="expenseDialog">
-  <div class="modal-head"><strong>הוצאה חדשה</strong><button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button></div>
+  <div class="modal-head"><strong id="expenseDialogTitle">הוצאה חדשה</strong><button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button></div>
   <div class="modal-body">
     <div class="file-actions">
       <button id="singleCameraButton" class="secondary" type="button">צילום חשבונית</button>
@@ -210,27 +210,20 @@
     </section>
 
     <section id="expenseReviewList" class="review-list hidden" aria-label="רשימת חשבוניות לבדיקה">
-      <h3>רשימת חשבוניות לבדיקה</h3>
       <div id="expenseReviewListTable" class="table-wrap">אין חשבוניות להצגה.</div>
     </section>
 
     <section id="expenseReviewContext" class="review-context hidden" aria-label="מצב בדיקת חשבונית פעילה">
-      <h3>בדיקת חשבונית פעילה</h3>
-      <p id="expenseReviewContextLabel" class="review-context-label"></p>
       <div class="review-document-wrap">
-        <div class="review-document-head">
-          <p id="expenseReviewDocumentTitle" class="review-document-title"></p>
-          <button id="expenseReviewFullscreenOpen" type="button" class="secondary review-document-fullscreen hidden" aria-label="פתיחת מסמך במסך מלא">מסך מלא</button>
-        </div>
         <div id="expenseReviewDocument" class="review-document-panel">
           <p class="review-document-state">בחרי חשבונית להצגת המסמך.</p>
         </div>
       </div>
       <div class="review-item-nav" aria-label="ניווט חשבוניות לבדיקה">
-        <button id="expenseReviewNavPrev" type="button" class="secondary">הקודמת</button>
-        <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
-        <button id="expenseReviewNavNext" type="button" class="secondary">הבאה</button>
+        <button id="expenseReviewNavPrev" type="button" class="secondary review-item-nav-arrow">→</button>
         <p id="expenseReviewPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
+        <button id="expenseReviewNavNext" type="button" class="secondary review-item-nav-arrow">←</button>
+        <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
       </div>
     </section>
 

@@ -117,7 +117,9 @@
    - Verification: Static checks passed; runtime end-to-end verification of manual grouping, changed-group re-extraction, retry behavior, exact PDF-page preview, persistence, and transition into the review list is deferred to the next appropriate deployed/integration test point.
 
 21. [User-visible, final] Implement deferred review at end: שמרי חשבוניות לבדיקה מאוחר יותר plus resume later from persisted queue.
-   - Status: Pending
+   - Status: Done
+   - Result: Implemented deferred review only for already-persisted pending invoices by reusing the existing scan batch/item/page model and `saved_expense_id` pending/saved state, without introducing a parallel system. Pending invoices now resume across all persisted batches and are ordered oldest-first by the existing persisted queue-entry timestamp (`invoice_scan_batches.completed_at`). When pending invoices exist at expense entry, the user is presented with an explicit choice between continuing pending review (`המשיכי חשבוניות ממתינות`) and scanning/adding new invoices. The action `אמשיך לבדוק מאוחר יותר` now exits an already-persisted review flow without any additional persistence. A lightweight pending-invoice count indicator is shown at expense entry points. Unfinished low-confidence/manual-grouping work remains non-persistent and now requires explicit discard confirmation before it can be lost. No persistent manual drafts, backend changes, or database/schema changes were added.
+   - Verification: Static checks passed; browser-level runtime verification for cross-batch oldest-first resume ordering, entry choice behavior, continue-later exit behavior, pending-count indicator updates, and manual-grouping discard confirmation is deferred to the next appropriate deployed/integration test point.
 
 22. [Regression tests] Add end-to-end and targeted regression coverage: single-invoice continuity, multi-invoice happy path, save-current-open-next, viewer constraints, low-confidence manual grouping, deferred/resume, idempotency, and atomic-failure recovery.
    - Status: Pending

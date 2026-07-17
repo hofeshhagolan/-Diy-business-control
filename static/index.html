@@ -167,10 +167,18 @@
 
     <div class="expense-actions">
       <button id="analyzeButton" class="primary expense-processing-btn" type="button">חלצי נתונים ובדקי חשבוניות</button>
-      <button id="queueButton" class="secondary expense-processing-btn expense-queue-btn" type="button" disabled>שמרי חשבוניות לבדיקה מאוחר יותר</button>
+      <button id="queueButton" class="secondary expense-processing-btn expense-queue-btn" type="button" disabled>אמשיך לבדוק מאוחר יותר</button>
     </div>
 
     <div id="expenseStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <section id="expensePendingChoice" class="expense-pending-choice hidden" aria-label="בחירת עבודה עם חשבוניות ממתינות">
+      <p id="expensePendingChoiceSummary" class="expense-pending-choice-summary"></p>
+      <div class="expense-pending-choice-actions">
+        <button id="expensePendingContinue" type="button" class="secondary">המשיכי חשבוניות ממתינות</button>
+        <button id="expensePendingScanNew" type="button" class="primary">סרקי/הוסיפי חשבוניות חדשות</button>
+      </div>
+    </section>
 
     <section id="expenseGroupingGate" class="grouping-gate hidden" aria-label="דרישת קיבוץ ידני לחשבוניות">
       <h3>נדרש קיבוץ ידני</h3>

@@ -10,6 +10,7 @@ let isManualGroupingConfirming = false;
 let activeExpenseReviewContext = null;
 let expenseReviewLoadToken = 0;
 let expenseReviewRows = [];
+let pendingExpenseEntryRows = [];
 let currentExpenseReviewDocument = null;
 let expenseReviewFullscreenOpener = null;
 let currentFullscreenImageState = null;
@@ -97,6 +98,83 @@ function setStatus(el,msg,type=""){
 
   el.setAttribute("aria-atomic","true");
   el.textContent = msg || "";
+}
+
+function hasUnfinishedManualGroupingWork(){
+  return Boolean(pendingGroupingAnalysisResult && !isManualGroupingConfirming);
+}
+
+function confirmManualGroupingDiscard(){
+  if(!hasUnfinishedManualGroupingWork()) return true;
+  return window.confirm("הקיבוץ הידני לא נשמר עדיין. יציאה עכשיו תבטל את העבודה שלא הושלמה. להמשיך ולצאת?");
+}
+
+function updateExpensePendingCountIndicator(count){
+  const safeCount = Number.isInteger(count) && count > 0 ? count : 0;
+  document.querySelectorAll('[data-action="expense"]').forEach(button => {
+    let badge = button.querySelector('.pending-count-badge');
+    if(!badge){
+      badge = document.createElement("span");
+      badge.className = "pending-count-badge hidden";
+      button.appendChild(badge);
+    }
+
+    if(!safeCount){
+      badge.classList.add("hidden");
+      badge.textContent = "";
+      return;
+    }
+
+    badge.textContent = String(safeCount);
+    badge.classList.remove("hidden");
+  });
+}
+
+async function loadPendingInvoiceCount(){
+  if(!sb || !userId) return 0;
+
+  const {count, error} = await sb.from("invoice_scan_items")
+    .select("id", {count:"exact", head:true})
+    .eq("user_id", userId)
+    .is("saved_expense_id", null);
+
+  if(error){
+    throw new Error(error.message || "שגיאה בטעינת מונה חשבוניות ממתינות");
+  }
+
+  return Number(count || 0);
+}
+
+async function refreshPendingInvoiceCountIndicator(){
+  try {
+    const count = await loadPendingInvoiceCount();
+    updateExpensePendingCountIndicator(count);
+    return count;
+  } catch(error){
+    console.error(error);
+    return 0;
+  }
+}
+
+function hideExpensePendingChoice(){
+  const section = $("expensePendingChoice");
+  const summary = $("expensePendingChoiceSummary");
+  if(!section || !summary) return;
+
+  section.classList.add("hidden");
+  summary.textContent = "";
+}
+
+function showExpensePendingChoice(pendingCount){
+  const section = $("expensePendingChoice");
+  const summary = $("expensePendingChoiceSummary");
+  if(!section || !summary) return;
+
+  summary.textContent = pendingCount === 1
+    ? "יש חשבונית ממתינה אחת לבדיקה."
+    : `יש ${pendingCount} חשבוניות ממתינות לבדיקה.`;
+
+  section.classList.remove("hidden");
 }
 
 function getFieldErrorId(field){
@@ -1287,11 +1365,12 @@ async function confirmManualGroupingAndContinue(){
       throw new Error("תשובת שמירת הסריקה אינה תקינה");
     }
 
-    const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
+    const reviewRows = await loadPendingReviewRows();
     clearPendingGroupingAnalysisResult();
     hideExpenseReviewContext();
     activeExpenseReviewContext = null;
     renderExpenseReviewList(reviewRows);
+    void refreshPendingInvoiceCountIndicator();
     setStatus($("expenseStatus"), "הקיבוץ הידני נשמר. הוצגה רשימת חשבוניות לבדיקה.", "ok");
   } catch(error){
     console.error(error);
@@ -1313,6 +1392,15 @@ function hideExpenseReviewList(){
 
   section.classList.add("hidden");
   tableHost.innerHTML = "אין חשבוניות להצגה.";
+  updateExpenseContinueLaterButtonState();
+}
+
+function updateExpenseContinueLaterButtonState(){
+  const queueButton = $("queueButton");
+  if(!queueButton) return;
+
+  queueButton.textContent = "אמשיך לבדוק מאוחר יותר";
+  queueButton.disabled = expenseReviewRows.length === 0;
 }
 
 function hideExpenseReviewContext(){
@@ -1326,6 +1414,7 @@ function hideExpenseReviewContext(){
   if(documentTitle) documentTitle.textContent = "";
   renderExpenseReviewDocumentState({message:"בחרי חשבונית להצגת המסמך."});
   updateExpenseReviewNavigation();
+  updateExpenseContinueLaterButtonState();
 }
 
 function clearExpenseInvoiceDerivedFields(){
@@ -1990,11 +2079,11 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
 }
 
 async function reconcileExpenseReviewRowsAfterSave(batchId){
-  if(!batchId) return;
-
   const activeScanItemId = activeExpenseReviewContext?.scanItemId || null;
-  const reconciledRows = await loadBatchReviewListRows(batchId);
+  const reconciledRows = await loadPendingReviewRows();
   expenseReviewRows = reconciledRows;
+  pendingExpenseEntryRows = reconciledRows.slice();
+  void refreshPendingInvoiceCountIndicator();
 
   if(!reconciledRows.length){
     activeExpenseReviewContext = null;
@@ -2114,12 +2203,15 @@ function renderExpenseReviewList(rows){
   const tableHost = $("expenseReviewListTable");
   if(!section || !tableHost) return;
 
+  hideExpensePendingChoice();
   expenseReviewRows = Array.isArray(rows) ? rows : [];
+  pendingExpenseEntryRows = expenseReviewRows.slice();
 
   if(!expenseReviewRows.length){
     section.classList.remove("hidden");
     tableHost.innerHTML = "אין חשבוניות להצגה.";
     updateExpenseReviewNavigation();
+    updateExpenseContinueLaterButtonState();
     return;
   }
 
@@ -2155,17 +2247,21 @@ function renderExpenseReviewList(rows){
 
   section.classList.remove("hidden");
   updateExpenseReviewNavigation();
+  updateExpenseContinueLaterButtonState();
 }
 
-async function loadBatchReviewListRows(batchId){
-  if(!batchId) return [];
-
-  const {data:items, error:itemsError} = await sb.from("invoice_scan_items")
-    .select("id,item_order,invoice_scan_batches!inner(completed_at)")
+async function loadPendingReviewRows({batchId = null} = {}){
+  let itemsQuery = sb.from("invoice_scan_items")
+    .select("id,batch_id,item_order,invoice_scan_batches!inner(completed_at)")
     .eq("user_id", userId)
-    .eq("batch_id", batchId)
     .is("saved_expense_id", null)
     .order("item_order", {ascending:true});
+
+  if(batchId){
+    itemsQuery = itemsQuery.eq("batch_id", batchId);
+  }
+
+  const {data:items, error:itemsError} = await itemsQuery;
 
   if(itemsError){
     throw new Error(itemsError.message || "שגיאה בטעינת פריטי חשבוניות לבדיקה");
@@ -2190,14 +2286,46 @@ async function loadBatchReviewListRows(batchId){
     pageCountByItemId.set(page.scan_item_id, currentCount + 1);
   });
 
-  return itemRows.map(item => ({
-    batchId,
+  const rows = itemRows.map(item => ({
+    batchId: item.batch_id,
     scanItemId: item.id,
     itemOrder: item.item_order,
     label: `חשבונית ${item.item_order}`,
     capturedAt: formatReviewCaptureDateTime(item.invoice_scan_batches?.completed_at),
+    completedAt: item.invoice_scan_batches?.completed_at || "",
     pageCount: pageCountByItemId.get(item.id) || 0
   }));
+
+  rows.sort((a,b) => {
+    const aTime = Date.parse(a.completedAt || "");
+    const bTime = Date.parse(b.completedAt || "");
+    const aHasTime = Number.isFinite(aTime);
+    const bHasTime = Number.isFinite(bTime);
+
+    if(aHasTime && bHasTime && aTime !== bTime){
+      return aTime - bTime;
+    }
+
+    if(aHasTime !== bHasTime){
+      return aHasTime ? -1 : 1;
+    }
+
+    if(a.itemOrder !== b.itemOrder){
+      return a.itemOrder - b.itemOrder;
+    }
+
+    if(a.batchId !== b.batchId){
+      return String(a.batchId).localeCompare(String(b.batchId));
+    }
+
+    return String(a.scanItemId).localeCompare(String(b.scanItemId));
+  });
+
+  return rows;
+}
+
+async function loadBatchReviewListRows(batchId){
+  return loadPendingReviewRows({batchId});
 }
 
 async function init(){
@@ -2256,6 +2384,7 @@ async function enterApp(){
   await loadBusiness();
   await loadLookups();
   await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees()]);
+  void refreshPendingInvoiceCountIndicator();
 }
 
 function setTabSelection(tabs, activeTabId){
@@ -2701,19 +2830,49 @@ document.querySelectorAll(".bottom-nav button").forEach(button => {
 $("quickAddButton").onclick = () => $("quickAddDialog").showModal();
 
 document.querySelectorAll("[data-close]").forEach(button => {
-  button.onclick = () => button.closest("dialog").close();
+  button.onclick = () => {
+    const dialog = button.closest("dialog");
+    if(!dialog) return;
+
+    if(dialog.id === "expenseDialog" && !confirmManualGroupingDiscard()){
+      return;
+    }
+
+    dialog.close();
+  };
 });
 
 document.querySelectorAll("[data-action]").forEach(button => {
   button.onclick = () => openAction(button.dataset.action);
 });
 
-function openAction(action){
+async function showExpensePendingEntryChoice(){
+  hideExpensePendingChoice();
+
+  try {
+    const pendingRows = await loadPendingReviewRows();
+    pendingExpenseEntryRows = pendingRows;
+    updateExpensePendingCountIndicator(pendingRows.length);
+    updateExpenseContinueLaterButtonState();
+
+    if(!pendingRows.length){
+      return;
+    }
+
+    showExpensePendingChoice(pendingRows.length);
+  } catch(error){
+    console.error(error);
+    setStatus($("expenseStatus"), error?.message || "שגיאה בטעינת חשבוניות ממתינות", "error");
+  }
+}
+
+async function openAction(action){
   $("quickAddDialog").close();
 
   if(action === "expense"){
     resetExpenseDialogState();
     $("expenseDialog").showModal();
+    await showExpensePendingEntryChoice();
   } else if(action === "z"){
     $("zDate").value = today();
     $("zDialog").showModal();
@@ -2721,6 +2880,11 @@ function openAction(action){
     alert("הפעולה תתווסף בעדכון הבא.");
   }
 }
+
+$("expenseDialog")?.addEventListener("cancel", event => {
+  if(confirmManualGroupingDiscard()) return;
+  event.preventDefault();
+});
 
 $("profileButton").onclick = () => $("businessDialog").showModal();
 
@@ -2768,6 +2932,11 @@ function renderSelectedFiles(){
 
 function removeSelectedFile(index){
   if(index < 0 || index >= selectedFiles.length) return;
+
+  if(hasUnfinishedManualGroupingWork() && !confirmManualGroupingDiscard()){
+    return;
+  }
+
   selectedFiles.splice(index,1);
   clearPendingGroupingAnalysisResult();
   if(!selectedFiles.length){
@@ -2780,6 +2949,12 @@ function removeSelectedFile(index){
 
 function updateFiles(input, mode){
   const newFiles = Array.from(input.files || []);
+
+  if(hasUnfinishedManualGroupingWork() && !confirmManualGroupingDiscard()){
+    input.value = "";
+    return;
+  }
+
   clearPendingGroupingAnalysisResult();
 
   if(mode === "single"){
@@ -2825,13 +3000,16 @@ function resetExpenseDialogState(){
   expenseReviewLoadToken += 1;
   activeExpenseReviewContext = null;
   expenseReviewRows = [];
+  pendingExpenseEntryRows = [];
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
   clearExpenseInvoiceDerivedFields();
+  hideExpensePendingChoice();
   hideExpenseReviewList();
   hideExpenseReviewContext();
   renderSelectedFiles();
+  updateExpenseContinueLaterButtonState();
   setStatus($("expenseStatus"), "", "");
 }
 
@@ -2854,6 +3032,10 @@ $("analyzeButton").onclick = async () => {
   formData.append("operation_source","web");
 
   try {
+    if(hasUnfinishedManualGroupingWork() && !confirmManualGroupingDiscard()){
+      return;
+    }
+
     clearPendingGroupingAnalysisResult();
     const selectionSignature = await buildFileSelectionSignature(selectedFiles);
     const operationId = getOrCreateScanOperationId(selectionSignature);
@@ -2910,11 +3092,12 @@ $("analyzeButton").onclick = async () => {
         return;
       }
 
-      const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
+      const reviewRows = await loadPendingReviewRows();
       clearPendingGroupingAnalysisResult();
       hideExpenseReviewContext();
       activeExpenseReviewContext = null;
       renderExpenseReviewList(reviewRows);
+      void refreshPendingInvoiceCountIndicator();
       setStatus($("expenseStatus"), "החשבוניות נשמרו לבדיקה. הוצגה רשימת חשבוניות.", "ok");
       return;
     }
@@ -2948,12 +3131,56 @@ $("analyzeButton").onclick = async () => {
     }
 
     fillExpenseFormFromInvoice(singleInvoice);
+    void refreshPendingInvoiceCountIndicator();
 
     setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
   } catch(error){
     console.error(error);
     setStatus($("expenseStatus"), error?.message || "שגיאה בחילוץ", "error");
   }
+};
+
+$("expensePendingContinue").onclick = async () => {
+  let rows = pendingExpenseEntryRows.slice();
+
+  if(!rows.length){
+    try {
+      rows = await loadPendingReviewRows();
+      pendingExpenseEntryRows = rows;
+    } catch(error){
+      console.error(error);
+      setStatus($("expenseStatus"), error?.message || "שגיאה בטעינת חשבוניות ממתינות", "error");
+      return;
+    }
+  }
+
+  hideExpensePendingChoice();
+
+  if(!rows.length){
+    setStatus($("expenseStatus"), "אין חשבוניות ממתינות לבדיקה.", "ok");
+    return;
+  }
+
+  hideExpenseReviewContext();
+  activeExpenseReviewContext = null;
+  renderExpenseReviewList(rows);
+  setStatus($("expenseStatus"), "הוצגו חשבוניות ממתינות לבדיקה.", "ok");
+};
+
+$("expensePendingScanNew").onclick = () => {
+  hideExpensePendingChoice();
+  hideExpenseReviewList();
+  hideExpenseReviewContext();
+  activeExpenseReviewContext = null;
+  expenseReviewRows = [];
+  updateExpenseContinueLaterButtonState();
+  setStatus($("expenseStatus"), "", "");
+};
+
+$("queueButton").onclick = () => {
+  if($("queueButton").disabled) return;
+  if(!confirmManualGroupingDiscard()) return;
+  $("expenseDialog")?.close();
 };
 
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
@@ -3177,6 +3404,7 @@ $("expenseForm").onsubmit = async event => {
   );
 
   await Promise.all([loadExpenses(),loadDashboard()]);
+  void refreshPendingInvoiceCountIndicator();
   setTimeout(() => $("expenseDialog").close(),650);
   return;
   

@@ -86,6 +86,10 @@ dialog::backdrop{background:#07182a99}
 .expense-processing-btn{border-radius:12px;padding:12px 14px;font-weight:800}
 .expense-queue-btn{background:#f7f9fc;border-color:#a7b7c7;color:var(--brand)}
 .expense-action-btn[disabled]{opacity:.65;cursor:not-allowed}
+.expense-pending-choice{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.expense-pending-choice-summary{margin:0;color:var(--text);font-weight:700}
+.expense-pending-choice-actions{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pending-count-badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;margin-inline-start:8px;padding:0 7px;border-radius:999px;background:var(--brand);color:#fff;font-size:.78rem;font-weight:800;line-height:1}
 .grouping-gate{margin-top:14px;padding:12px;border:1px solid #f2c17d;border-radius:14px;background:#fff8ef}
 .grouping-gate h3{margin:0 0 8px;color:#9a4b00;font-size:1rem}
 .grouping-gate-message{margin:0;color:var(--text);line-height:1.5}
@@ -177,6 +181,7 @@ dialog::backdrop{background:#07182a99}
   .form-grid{grid-template-columns:1fr}
   .wide{grid-column:1}
   .grouping-manual-layout{grid-template-columns:1fr}
+  .expense-pending-choice-actions{grid-template-columns:1fr}
   .grouping-manual-preview{min-height:240px}
   .grouping-manual-preview iframe{min-height:240px}
   .grouping-manual-footer{justify-content:stretch}

@@ -107,7 +107,9 @@
    - Verification: Static checks passed; browser-level runtime verification for fullscreen page navigation, boundary states, zoom reset, and image/PDF switching deferred to the next appropriate deployed/integration test point.
 
 19. [Exception flow] Add low-confidence grouping gate so auto-grouping is blocked below threshold and no invoice items are auto-created.
-   - Status: Pending
+   - Status: Done
+   - Result: Added a normalized numeric `grouping_confidence` contract with valid range `0.0..1.0`, a single frontend threshold of `0.8`, unchanged high-confidence multi-invoice auto-persistence into the existing review-list flow, and a low-confidence blocking gate that prevents persistence and review-list entry while retaining one raw in-memory analysis result for Task 20.
+   - Verification: Static checks passed; runtime browser verification for the high-confidence direct flow and low-confidence blocking behavior deferred to the next appropriate deployed/integration test point.
 
 20. [Exception flow] Implement manual grouping UI and confirmation flow, then persist confirmed grouping and continue into the normal review list flow.
    - Status: Pending

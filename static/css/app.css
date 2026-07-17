@@ -86,6 +86,14 @@ dialog::backdrop{background:#07182a99}
 .expense-processing-btn{border-radius:12px;padding:12px 14px;font-weight:800}
 .expense-queue-btn{background:#f7f9fc;border-color:#a7b7c7;color:var(--brand)}
 .expense-action-btn[disabled]{opacity:.65;cursor:not-allowed}
+.grouping-gate{margin-top:14px;padding:12px;border:1px solid #f2c17d;border-radius:14px;background:#fff8ef}
+.grouping-gate h3{margin:0 0 8px;color:#9a4b00;font-size:1rem}
+.grouping-gate-message{margin:0;color:var(--text);line-height:1.5}
+.grouping-gate-summary{margin-top:10px;display:grid;gap:8px}
+.grouping-gate-summary-list{display:grid;gap:8px}
+.grouping-gate-summary-item{padding:10px;border:1px solid #f2d5a8;border-radius:12px;background:#fff}
+.grouping-gate-summary-title{margin:0 0 6px;color:#9a4b00;font-weight:800}
+.grouping-gate-summary-line{margin:4px 0 0;color:var(--text)}
 .review-list{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
 .review-list h3{margin:0 0 10px;color:var(--brand);font-size:1rem}
 .review-list table{min-width:520px}

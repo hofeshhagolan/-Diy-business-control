@@ -32,6 +32,7 @@ SUPPORTED_CONTRACT_VERSIONS = {CURRENT_CONTRACT_VERSION}
 ACTIVE_DOCUMENT_TYPES = {"invoice"}
 SINGLE_INVOICE_DEFAULTS = {
     "multiple_invoices": False,
+    "grouping_confidence": 0,
     "supplier": "",
     "supplier_registration_number": "",
     "document_number": "",
@@ -76,6 +77,18 @@ def _to_number(value) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _normalize_grouping_confidence(value) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0
+
+    if not parsed.isfinite() or parsed < 0 or parsed > 1:
+        return 0
+
+    return parsed
 
 
 def _to_iso_date_or_empty(value) -> str:
@@ -197,10 +210,17 @@ def _normalize_extraction_payload(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Extraction payload must be a JSON object")
 
+    grouping_confidence = _normalize_grouping_confidence(
+        payload.get("grouping_confidence")
+    )
+
     if _to_strict_true(payload.get("multiple_invoices")):
         grouped_invoices = payload.get("grouped_invoices")
         if grouped_invoices is None:
-            return {"multiple_invoices": True}
+            return {
+                "multiple_invoices": True,
+                "grouping_confidence": grouping_confidence,
+            }
 
         if not isinstance(grouped_invoices, list) or not grouped_invoices:
             raise ValueError("grouped_invoices must be a non-empty array")
@@ -244,11 +264,13 @@ def _normalize_extraction_payload(payload: dict) -> dict:
 
         return {
             "multiple_invoices": True,
+            "grouping_confidence": grouping_confidence,
             "grouped_invoices": normalized_groups,
         }
 
     normalized = dict(SINGLE_INVOICE_DEFAULTS)
     normalized.update(_normalize_invoice_fields(payload))
+    normalized["grouping_confidence"] = grouping_confidence
 
     return normalized
 
@@ -266,6 +288,7 @@ def _build_extraction_result(payload: dict, document_type: str) -> dict:
             "canonical_business_contract": "top_level_invoice_fields",
             "top_level_fields": [
                 "multiple_invoices",
+                "grouping_confidence",
                 "grouped_invoices",
                 "supplier",
                 "supplier_registration_number",
@@ -409,12 +432,14 @@ async def analyze_invoice(
 אם מופיעות כמה חשבוניות שונות באותם קבצים, החזירי multiple_invoices=true וגם grouped_invoices.
 grouped_invoices הוא מערך קבוצות עמודים לפי סדר עמודים גלובלי 1..N על פני כל הקבצים.
 כל עמוד חייב להופיע בדיוק פעם אחת באחת הקבוצות.
+grouping_confidence הוא מספר בין 0.0 ל-1.0 שמייצג את מידת הביטחון שלך בקיבוץ העמודים לחשבוניות.
 קראי את כל העמודים יחד. הסכום הסופי יכול להופיע בעמוד האחרון.
 אין להמציא נתונים.
 
 החזירי JSON בלבד במבנה:
 {
     "multiple_invoices": false,
+    "grouping_confidence": 0,
     "supplier": "",
     "supplier_registration_number": "",
     "document_number": "",
@@ -429,6 +454,7 @@ grouped_invoices הוא מערך קבוצות עמודים לפי סדר עמו�
 או במקרה של כמה חשבוניות:
 {
     "multiple_invoices": true,
+    "grouping_confidence": 0.95,
     "grouped_invoices": [
         {
             "global_page_indexes": [1,2],

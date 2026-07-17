@@ -4,6 +4,7 @@ let isExpenseSaving = false;
 let initialSessionChecked = false;
 let currentScanOperationId = null;
 let currentScanSelectionSignature = "";
+let pendingGroupingAnalysisResult = null;
 let activeExpenseReviewContext = null;
 let expenseReviewLoadToken = 0;
 let expenseReviewRows = [];
@@ -13,6 +14,7 @@ let currentFullscreenImageState = null;
 let currentExpenseReviewPages = [];
 let currentExpenseReviewPageIndex = 0;
 const fileSha256Cache = new WeakMap();
+const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
 
@@ -388,6 +390,17 @@ function normalizeMultipleInvoicesFlag(value){
   return false;
 }
 
+function normalizeGroupingConfidence(value){
+  const confidence = Number(value);
+  if(!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return 0;
+  return confidence;
+}
+
+function isLowConfidenceGroupingResult(result){
+  if(!normalizeMultipleInvoicesFlag(result?.multiple_invoices)) return false;
+  return normalizeGroupingConfidence(result?.grouping_confidence) < GROUPING_CONFIDENCE_THRESHOLD;
+}
+
 function buildScanBatchRpcInput(extractionResult){
   const operation = extractionResult && extractionResult._operation;
   const pageManifest = operation && operation.page_manifest;
@@ -588,6 +601,105 @@ function formatReviewCaptureDateTime(value){
     dateStyle:"short",
     timeStyle:"short"
   }).format(date);
+}
+
+function describeGlobalPageIndexes(globalPageIndexes){
+  const sortedIndexes = Array.from(new Set(
+    (Array.isArray(globalPageIndexes) ? globalPageIndexes : [])
+      .map(value => Number(value))
+      .filter(value => Number.isInteger(value) && value > 0)
+  )).sort((a,b) => a - b);
+
+  if(!sortedIndexes.length) return "";
+
+  const ranges = [];
+  let start = sortedIndexes[0];
+  let end = sortedIndexes[0];
+
+  for(let index = 1; index < sortedIndexes.length; index++){
+    const current = sortedIndexes[index];
+    if(current === end + 1){
+      end = current;
+      continue;
+    }
+
+    ranges.push(start === end ? `${start}` : `${start}-${end}`);
+    start = current;
+    end = current;
+  }
+
+  ranges.push(start === end ? `${start}` : `${start}-${end}`);
+  return ranges.join(", ");
+}
+
+function hideExpenseGroupingGate(){
+  const section = $("expenseGroupingGate");
+  const summary = $("expenseGroupingGateSummary");
+  if(!section || !summary) return;
+
+  section.classList.add("hidden");
+  summary.innerHTML = "";
+}
+
+function clearPendingGroupingAnalysisResult(){
+  pendingGroupingAnalysisResult = null;
+  hideExpenseGroupingGate();
+}
+
+function renderExpenseGroupingGate(result){
+  const section = $("expenseGroupingGate");
+  const summary = $("expenseGroupingGateSummary");
+  if(!section || !summary) return;
+
+  summary.innerHTML = "";
+
+  const groups = Array.isArray(result?.grouped_invoices) ? result.grouped_invoices : [];
+  if(groups.length){
+    const list = document.createElement("div");
+    list.className = "grouping-gate-summary-list";
+
+    groups.forEach((group, index) => {
+      const item = document.createElement("article");
+      item.className = "grouping-gate-summary-item";
+
+      const title = document.createElement("p");
+      title.className = "grouping-gate-summary-title";
+      title.textContent = `חשבונית ${index + 1}`;
+      item.appendChild(title);
+
+      const indexes = Array.isArray(group?.global_page_indexes)
+        ? group.global_page_indexes.filter(value => Number.isInteger(Number(value)) && Number(value) > 0).map(value => Number(value))
+        : [];
+
+      const details = [];
+      if(indexes.length){
+        details.push(`עמודים: ${describeGlobalPageIndexes(indexes)}`);
+        details.push(`מספר עמודים: ${indexes.length}`);
+      }
+
+      const supplier = String(group?.supplier || "").trim();
+      if(supplier) details.push(`ספק: ${supplier}`);
+
+      const documentNumber = String(group?.document_number || "").trim();
+      if(documentNumber) details.push(`מספר חשבונית: ${documentNumber}`);
+
+      const description = String(group?.description || "").trim();
+      if(description) details.push(`תיאור: ${description}`);
+
+      details.forEach(text => {
+        const line = document.createElement("p");
+        line.className = "grouping-gate-summary-line";
+        line.textContent = text;
+        item.appendChild(line);
+      });
+
+      list.appendChild(item);
+    });
+
+    summary.appendChild(list);
+  }
+
+  section.classList.remove("hidden");
 }
 
 function hideExpenseReviewList(){
@@ -2053,6 +2165,7 @@ function renderSelectedFiles(){
 function removeSelectedFile(index){
   if(index < 0 || index >= selectedFiles.length) return;
   selectedFiles.splice(index,1);
+  clearPendingGroupingAnalysisResult();
   if(!selectedFiles.length){
     resetExpenseDialogState();
   } else {
@@ -2063,6 +2176,7 @@ function removeSelectedFile(index){
 
 function updateFiles(input, mode){
   const newFiles = Array.from(input.files || []);
+  clearPendingGroupingAnalysisResult();
 
   if(mode === "single"){
     selectedFiles = newFiles.slice(0, 1);
@@ -2103,6 +2217,7 @@ $("browseInput").onchange = event => updateFiles(event.currentTarget, "append");
 function resetExpenseDialogState(){
   selectedFiles = [];
   resetScanOperationId();
+  clearPendingGroupingAnalysisResult();
   expenseReviewLoadToken += 1;
   activeExpenseReviewContext = null;
   expenseReviewRows = [];
@@ -2135,6 +2250,7 @@ $("analyzeButton").onclick = async () => {
   formData.append("operation_source","web");
 
   try {
+    clearPendingGroupingAnalysisResult();
     const selectionSignature = await buildFileSelectionSignature(selectedFiles);
     const operationId = getOrCreateScanOperationId(selectionSignature);
     const uploadedScanFiles = await uploadScanFilesBeforeAnalyze(selectedFiles, operationId);
@@ -2157,6 +2273,17 @@ $("analyzeButton").onclick = async () => {
     }
 
     if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
+      if(isLowConfidenceGroupingResult(result)){
+        pendingGroupingAnalysisResult = result;
+        expenseReviewRows = [];
+        activeExpenseReviewContext = null;
+        hideExpenseReviewList();
+        hideExpenseReviewContext();
+        renderExpenseGroupingGate(result);
+        setStatus($("expenseStatus"), "הקיבוץ האוטומטי לא אמין מספיק. נדרש קיבוץ ידני לפני המשך.", "error");
+        return;
+      }
+
       const rpcInput = buildScanBatchRpcInput(result);
       if(!rpcInput){
         setStatus($("expenseStatus"), "מבנה קיבוץ החשבוניות אינו תקין", "error");
@@ -2180,6 +2307,7 @@ $("analyzeButton").onclick = async () => {
       }
 
       const reviewRows = await loadBatchReviewListRows(batchRow.batch_id);
+  clearPendingGroupingAnalysisResult();
       hideExpenseReviewContext();
       activeExpenseReviewContext = null;
       renderExpenseReviewList(reviewRows);

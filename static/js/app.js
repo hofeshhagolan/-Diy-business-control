@@ -21,8 +21,10 @@ let manualGroupingPreviewToken = 0;
 let isCheckpointResumeRunning = false;
 let isDeferredAnalyzeInFlight = false;
 let currentAnalyzeRunToken = 0;
+let expenseExtractedPreviewLoadToken = 0;
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
+const extractedPreviewSignedUrlCache = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
@@ -189,6 +191,7 @@ function setExpenseDialogPrimaryState(state){
   const fileActions = dialog.querySelector(".file-actions");
   const filePreview = $("expenseFilePreview");
   const expenseActions = dialog.querySelector(".expense-actions");
+  const extractedPreview = $("expenseExtractedPreview");
   const analyzeButton = $("analyzeButton");
   const queueButton = $("queueButton");
   const expenseForm = $("expenseForm");
@@ -202,6 +205,7 @@ function setExpenseDialogPrimaryState(state){
     fileActions,
     filePreview,
     expenseActions,
+    extractedPreview,
     expenseForm,
     pendingChoice,
     groupingGate,
@@ -258,6 +262,7 @@ function setExpenseDialogPrimaryState(state){
         analyzeButton.classList.add("hidden");
         analyzeButton.disabled = true;
       }
+      extractedPreview?.classList.remove("hidden");
       expenseForm?.classList.remove("hidden");
       break;
     default:
@@ -1436,7 +1441,6 @@ function clearPendingGroupingAnalysisResult(){
   isManualGroupingConfirming = false;
   manualGroupingPreviewToken += 1;
   clearCurrentManualGroupingPreviewUrl();
-  clearLocalFileObjectUrls();
   hideExpenseGroupingGate();
 }
 
@@ -1710,6 +1714,117 @@ function fillExpenseFormFromInvoice(invoice){
 
   if(invoice.currency_code === "ILS"){
     $("expenseGross").value = invoice.gross_original || "";
+  }
+}
+
+function renderExpenseExtractedPreviewState({message = "", isError = false} = {}){
+  const section = $("expenseExtractedPreview");
+  const panel = $("expenseExtractedPreviewPanel");
+  if(!section || !panel) return;
+
+  section.classList.remove("hidden");
+  panel.innerHTML = "";
+
+  const text = document.createElement("p");
+  text.className = isError ? "review-document-state error" : "review-document-state";
+  text.textContent = message || "אין מסמך להצגה.";
+  panel.appendChild(text);
+}
+
+function renderExpenseExtractedPreviewFile({src, mimeType}){
+  const section = $("expenseExtractedPreview");
+  const panel = $("expenseExtractedPreviewPanel");
+  if(!section || !panel || !src) return;
+
+  section.classList.remove("hidden");
+  panel.innerHTML = "";
+
+  if(String(mimeType || "").toLowerCase().startsWith("image/")){
+    const image = document.createElement("img");
+    image.src = src;
+    image.alt = "מסמך חשבונית";
+    panel.appendChild(image);
+    return;
+  }
+
+  const frame = document.createElement("iframe");
+  frame.src = src;
+  frame.title = "מסמך חשבונית";
+  frame.loading = "lazy";
+  panel.appendChild(frame);
+}
+
+function renderExpenseExtractedPreviewFromLocalFiles(files){
+  const candidateFiles = Array.isArray(files) ? files : [];
+  if(!candidateFiles.length) return false;
+
+  const preferredFile = candidateFiles.find(file => String(file?.type || "").toLowerCase().startsWith("image/")) || candidateFiles[0];
+  const localUrl = getLocalFileObjectUrl(preferredFile);
+  if(!localUrl) return false;
+
+  renderExpenseExtractedPreviewFile({
+    src: localUrl,
+    mimeType: preferredFile.type || "application/octet-stream"
+  });
+  return true;
+}
+
+function getSingleItemFirstPageForPreview(rpcInput){
+  const pages = rpcInput?.p_items?.[0]?.pages;
+  if(!Array.isArray(pages) || !pages.length) return null;
+
+  return pages
+    .slice()
+    .sort((a,b) => Number(a?.global_page_index || 0) - Number(b?.global_page_index || 0))[0] || null;
+}
+
+async function getSignedUrlForExtractedPreview(storagePath){
+  const now = Date.now();
+  const cached = extractedPreviewSignedUrlCache.get(storagePath);
+  if(cached && cached.expiresAt > (now + 2000)){
+    return cached.signedUrl;
+  }
+
+  const {data:signed, error:signError} = await sb.storage
+    .from("invoice-documents")
+    .createSignedUrl(storagePath, 60);
+
+  if(signError || !signed?.signedUrl){
+    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
+  }
+
+  extractedPreviewSignedUrlCache.set(storagePath, {
+    signedUrl: signed.signedUrl,
+    expiresAt: now + 55000
+  });
+
+  return signed.signedUrl;
+}
+
+async function renderExpenseExtractedPreviewFromPersistedPage(page){
+  const storagePath = String(page?.storage_path || "").trim();
+  const mimeType = String(page?.mime_type || "").trim() || "application/octet-stream";
+  if(!storagePath){
+    renderExpenseExtractedPreviewState({message:"אין מסמך להצגה."});
+    return;
+  }
+
+  expenseExtractedPreviewLoadToken += 1;
+  const loadToken = expenseExtractedPreviewLoadToken;
+  renderExpenseExtractedPreviewState({message:"טוען מסמך חשבונית..."});
+
+  try {
+    const signedUrl = await getSignedUrlForExtractedPreview(storagePath);
+    if(loadToken !== expenseExtractedPreviewLoadToken) return;
+
+    renderExpenseExtractedPreviewFile({src:signedUrl, mimeType});
+  } catch(error){
+    if(loadToken !== expenseExtractedPreviewLoadToken) return;
+    console.error(error);
+    renderExpenseExtractedPreviewState({
+      message: "לא ניתן לטעון את מסמך החשבונית.",
+      isError: true
+    });
   }
 }
 
@@ -3205,10 +3320,6 @@ function renderSelectedFiles(){
   const preview = $("expenseFilePreview");
   if(!preview) return;
 
-  preview.querySelectorAll("img").forEach(img => {
-    if(img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-  });
-
   if(!selectedFiles.length){
     preview.innerHTML = `<div class="file-preview-empty">לא נבחרו מסמכים.</div>`;
     return;
@@ -3228,7 +3339,7 @@ function renderSelectedFiles(){
         </div>`;
     }
 
-    const previewUrl = URL.createObjectURL(file);
+    const previewUrl = getLocalFileObjectUrl(file) || "";
     return `
       <div class="file-preview-item" data-file-index="${index}">
         <div class="file-preview-card image">
@@ -3273,6 +3384,7 @@ function updateFiles(input, mode){
   clearPendingGroupingAnalysisResult();
 
   if(mode === "single"){
+    clearLocalFileObjectUrls();
     selectedFiles = newFiles.slice(0, 1);
   } else {
     const existingKeys = new Set(selectedFiles.map(file => getFileKey(file)));
@@ -3310,6 +3422,9 @@ $("browseInput").onchange = event => updateFiles(event.currentTarget, "append");
 
 function resetExpenseDialogState(){
   selectedFiles = [];
+  clearLocalFileObjectUrls();
+  extractedPreviewSignedUrlCache.clear();
+  expenseExtractedPreviewLoadToken += 1;
   resetScanOperationId();
   clearPendingGroupingAnalysisResult();
   expenseReviewLoadToken += 1;
@@ -3562,6 +3677,15 @@ async function runAnalyzeFlow({
 
     canDeferSingleExtractedInvoice = true;
     setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM);
+    const didRenderLocalPreview = renderExpenseExtractedPreviewFromLocalFiles(filesToProcess);
+    if(!didRenderLocalPreview){
+      const firstPersistedPage = getSingleItemFirstPageForPreview(rpcInput);
+      if(firstPersistedPage){
+        void renderExpenseExtractedPreviewFromPersistedPage(firstPersistedPage);
+      } else {
+        renderExpenseExtractedPreviewState({message:"אין מסמך להצגה."});
+      }
+    }
     fillExpenseFormFromInvoice(singleInvoice);
     void refreshPendingInvoiceCountIndicator();
     setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
@@ -3892,6 +4016,7 @@ $("expenseForm").onsubmit = async event => {
 
   event.target.reset();
   selectedFiles = [];
+  clearLocalFileObjectUrls();
   setStatus(
     $("expenseStatus"),
     reviewQueueSyncError || "החשבונית נשמרה",

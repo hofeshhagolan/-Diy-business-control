@@ -254,7 +254,6 @@ function setExpenseDialogPrimaryState(state){
       manualWorkspace?.classList.remove("hidden");
       break;
     case EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM:
-      expenseActions?.classList.remove("hidden");
       if(analyzeButton){
         analyzeButton.classList.add("hidden");
         analyzeButton.disabled = true;
@@ -3653,8 +3652,7 @@ $("expensePendingScanNew").onclick = () => {
   resetExpenseDialogState();
 };
 
-$("queueButton").onclick = () => {
-  if($("queueButton").disabled) return;
+function handleExpenseContinueLaterAction(){
   if(!confirmManualGroupingDiscard()) return;
 
   if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
@@ -3669,6 +3667,15 @@ $("queueButton").onclick = () => {
 
   canDeferSingleExtractedInvoice = false;
   $("expenseDialog")?.close();
+}
+
+$("queueButton").onclick = () => {
+  if($("queueButton").disabled) return;
+  handleExpenseContinueLaterAction();
+};
+
+$("expenseFormDeferButton").onclick = () => {
+  handleExpenseContinueLaterAction();
 };
 
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);

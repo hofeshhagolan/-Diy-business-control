@@ -440,6 +440,55 @@ def _build_extraction_result(payload: dict, document_type: str) -> dict:
     }
 
 
+def _build_fallback_persistence_payload(
+    operation_meta: dict,
+) -> dict | None:
+    if not isinstance(operation_meta, dict):
+        return None
+
+    operation_id = str(operation_meta.get("id") or "").strip()
+    storage_metadata = operation_meta.get("storage_metadata")
+    page_manifest = operation_meta.get("page_manifest")
+
+    if not operation_id:
+        return None
+
+    if not isinstance(storage_metadata, dict):
+        return None
+
+    storage_files = storage_metadata.get("files")
+    if not isinstance(storage_files, list) or not storage_files:
+        return None
+
+    if not isinstance(page_manifest, dict):
+        return None
+
+    uploads = page_manifest.get("uploads")
+    pages = page_manifest.get("pages")
+    if not isinstance(uploads, list) or not uploads:
+        return None
+    if not isinstance(pages, list) or not pages:
+        return None
+
+    return {
+        "operation_id": operation_id,
+        "storage_metadata": storage_metadata,
+        "page_manifest": page_manifest,
+        "default_extracted_data": _normalize_invoice_fields({}),
+    }
+
+
+def _extraction_failure_response(
+    detail: str,
+    operation_meta: dict,
+) -> JSONResponse:
+    payload = {"detail": detail}
+    fallback_payload = _build_fallback_persistence_payload(operation_meta)
+    if fallback_payload is not None:
+        payload["fallback_persistence"] = fallback_payload
+    return JSONResponse(status_code=502, content=payload)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -789,22 +838,22 @@ currency_code חייב להיות אחד: ILS, USD, EUR, GBP.
         return normalized
     except json.JSONDecodeError as exc:
         logger.exception("Invalid JSON from extraction model")
-        raise HTTPException(
-            status_code=502,
-            detail="התקבלה תשובה לא תקינה ממנוע החילוץ",
-        ) from exc
+        return _extraction_failure_response(
+            "התקבלה תשובה לא תקינה ממנוע החילוץ",
+            operation_meta,
+        )
     except ValueError as exc:
         logger.exception("Invalid extraction payload format")
-        raise HTTPException(
-            status_code=502,
-            detail=f"מבנה תשובת חילוץ לא תקין: {str(exc)[:220]}",
-        ) from exc
+        return _extraction_failure_response(
+            f"מבנה תשובת חילוץ לא תקין: {str(exc)[:220]}",
+            operation_meta,
+        )
     except Exception as exc:
         logger.exception("Invoice extraction failed")
-        raise HTTPException(
-            status_code=502,
-            detail=f"שגיאה בחילוץ הנתונים: {str(exc)[:220]}",
-        ) from exc
+        return _extraction_failure_response(
+            f"שגיאה בחילוץ הנתונים: {str(exc)[:220]}",
+            operation_meta,
+        )
 
 
 @app.post("/api/manual-grouping-pdf-preview")

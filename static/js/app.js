@@ -18,6 +18,9 @@ let currentExpenseReviewPages = [];
 let currentExpenseReviewPageIndex = 0;
 let currentManualGroupingPreviewUrl = null;
 let manualGroupingPreviewToken = 0;
+let isCheckpointResumeRunning = false;
+let isDeferredAnalyzeInFlight = false;
+let currentAnalyzeRunToken = 0;
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
@@ -31,6 +34,8 @@ const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   MANUAL_GROUPING: "manualGrouping",
   EXTRACTED_FORM: "extractedForm"
 });
+let currentExpenseDialogPrimaryState = EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD;
+let canDeferSingleExtractedInvoice = false;
 
 const showLoading = () => {
   $("loadingScreen")?.classList.remove("hidden");
@@ -177,11 +182,15 @@ function setExpenseDialogPrimaryState(state){
   const dialog = $("expenseDialog");
   if(!dialog) return;
 
+  currentExpenseDialogPrimaryState = state;
+
   const title = $("expenseDialogTitle");
 
   const fileActions = dialog.querySelector(".file-actions");
   const filePreview = $("expenseFilePreview");
   const expenseActions = dialog.querySelector(".expense-actions");
+  const analyzeButton = $("analyzeButton");
+  const queueButton = $("queueButton");
   const expenseForm = $("expenseForm");
   const pendingChoice = $("expensePendingChoice");
   const groupingGate = $("expenseGroupingGate");
@@ -202,6 +211,15 @@ function setExpenseDialogPrimaryState(state){
   ].forEach(section => section?.classList.add("hidden"));
 
   setStatus($("expenseStatus"), "", "");
+
+  if(analyzeButton){
+    analyzeButton.classList.remove("hidden");
+    analyzeButton.disabled = false;
+  }
+
+  if(queueButton){
+    queueButton.classList.remove("hidden");
+  }
 
   if(title){
     const titleByState = {
@@ -236,6 +254,11 @@ function setExpenseDialogPrimaryState(state){
       manualWorkspace?.classList.remove("hidden");
       break;
     case EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM:
+      expenseActions?.classList.remove("hidden");
+      if(analyzeButton){
+        analyzeButton.classList.add("hidden");
+        analyzeButton.disabled = true;
+      }
       expenseForm?.classList.remove("hidden");
       break;
     default:
@@ -573,6 +596,89 @@ async function uploadScanFilesBeforeAnalyze(files, operationId){
   return uploadedScanFiles;
 }
 
+function buildCheckpointPayload({uploadedScanFiles, selectionSignature}){
+  return {
+    checkpoint_version: 1,
+    selection_signature: selectionSignature,
+    storage_metadata: {
+      storage_metadata_version: 1,
+      files: uploadedScanFiles
+    }
+  };
+}
+
+async function upsertDurableScanCheckpoint({operationId, extractionMode = "all", uploadedScanFiles, selectionSignature}){
+  const checkpointPayload = buildCheckpointPayload({uploadedScanFiles, selectionSignature});
+
+  const {error} = await sb.rpc("upsert_invoice_scan_batch_checkpoint", {
+    p_operation_id: operationId,
+    p_extraction_mode: extractionMode,
+    p_checkpoint_payload: checkpointPayload
+  });
+
+  if(error){
+    throw new Error(error.message || "שגיאה בשמירת טיוטת המסמכים");
+  }
+
+  return checkpointPayload;
+}
+
+async function markCheckpointTerminalFailure(operationId, message){
+  if(!operationId) return;
+  const {error} = await sb.rpc("mark_invoice_scan_batch_checkpoint_failed", {
+    p_operation_id: operationId,
+    p_last_error: String(message || "").trim()
+  });
+
+  if(error){
+    console.error(error);
+  }
+}
+
+async function listRecoverableCheckpoints(limit = 5){
+  const {data, error} = await sb.rpc("list_recoverable_invoice_scan_batches", {
+    p_limit: limit
+  });
+
+  if(error){
+    throw new Error(error.message || "שגיאה בטעינת טיוטות מסמכים");
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+function getCheckpointStorageFiles(checkpoint){
+  const files = checkpoint?.checkpoint_payload?.storage_metadata?.files;
+  if(!Array.isArray(files) || !files.length) return [];
+  return files
+    .filter(file => file && Number.isInteger(file.upload_index) && file.storage_path)
+    .sort((a,b) => a.upload_index - b.upload_index);
+}
+
+async function buildFilesFromCheckpoint(checkpoint){
+  const storageFiles = getCheckpointStorageFiles(checkpoint);
+  if(!storageFiles.length){
+    throw new Error("טיוטת המסמכים אינה מכילה קבצים לשחזור");
+  }
+
+  const files = [];
+  for(const fileMeta of storageFiles){
+    const {data, error} = await sb.storage
+      .from("invoice-documents")
+      .download(fileMeta.storage_path);
+
+    if(error || !data){
+      throw new Error(error?.message || "שגיאה בשחזור קובץ מהטיוטה");
+    }
+
+    const fileName = String(fileMeta.original_filename || `scan-${fileMeta.upload_index + 1}`).trim() || `scan-${fileMeta.upload_index + 1}`;
+    const mimeType = String(fileMeta.mime_type || "application/octet-stream");
+    files.push(new File([data], fileName, {type: mimeType}));
+  }
+
+  return files;
+}
+
 function normalizeMultipleInvoicesFlag(value){
   if(value === true) return true;
   if(typeof value === "string" && value.trim().toLowerCase() === "true") return true;
@@ -590,7 +696,21 @@ function isLowConfidenceGroupingResult(result){
   return normalizeGroupingConfidence(result?.grouping_confidence) < GROUPING_CONFIDENCE_THRESHOLD;
 }
 
-function buildScanBatchRpcInput(extractionResult){
+function createEmptySingleInvoiceExtractedData(){
+  return {
+    supplier: "",
+    supplier_registration_number: "",
+    document_number: "",
+    document_date: "",
+    description: "",
+    gross_original: 0,
+    currency_code: "ILS",
+    suggested_category: "",
+    suggested_accounting_type: ""
+  };
+}
+
+function buildScanBatchRpcInput(extractionResult, {singleItemExtractedData = null} = {}){
   const operation = extractionResult && extractionResult._operation;
   const pageManifest = operation && operation.page_manifest;
   const storageMetadata = operation && operation.storage_metadata;
@@ -741,10 +861,73 @@ function buildScanBatchRpcInput(extractionResult){
       {
         item_order: 1,
         selected_for_extraction: true,
+        ...(singleItemExtractedData ? {extracted_data: singleItemExtractedData} : {}),
         pages
       }
     ]
   };
+}
+
+function buildFallbackSingleInvoiceExtractionResult(fallbackPersistence){
+  if(!fallbackPersistence || typeof fallbackPersistence !== "object") return null;
+
+  const operationId = String(fallbackPersistence.operation_id || "").trim();
+  const storageMetadata = fallbackPersistence.storage_metadata;
+  const pageManifest = fallbackPersistence.page_manifest;
+
+  if(!operationId) return null;
+  if(!storageMetadata || !Array.isArray(storageMetadata.files) || !storageMetadata.files.length) return null;
+  if(!pageManifest || !Array.isArray(pageManifest.pages) || !pageManifest.pages.length) return null;
+  if(!Array.isArray(pageManifest.uploads) || !pageManifest.uploads.length) return null;
+
+  const safeExtractedData = sanitizeSingleInvoiceResult({
+    multiple_invoices: false,
+    ...(fallbackPersistence.default_extracted_data || {})
+  }) || createEmptySingleInvoiceExtractedData();
+
+  return {
+    multiple_invoices: false,
+    ...safeExtractedData,
+    _operation: {
+      id: operationId,
+      storage_metadata: storageMetadata,
+      page_manifest: pageManifest
+    }
+  };
+}
+
+async function tryPersistSingleInvoiceFallbackFromFailure(result, {openReviewList = true} = {}){
+  const fallbackResult = buildFallbackSingleInvoiceExtractionResult(result?.fallback_persistence);
+  if(!fallbackResult) return false;
+
+  const safeExtractedData = sanitizeSingleInvoiceResult(fallbackResult) || createEmptySingleInvoiceExtractedData();
+  const rpcInput = buildScanBatchRpcInput(fallbackResult, {singleItemExtractedData: safeExtractedData});
+  if(!rpcInput) return false;
+
+  const {data:batchResult, error:batchError} = await sb.rpc(
+    "persist_invoice_scan_batch_atomic",
+    rpcInput
+  );
+
+  if(batchError){
+    throw new Error(batchError.message || "שגיאה בשמירת החשבונית לבדיקה מאוחרת");
+  }
+
+  const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
+  if(!batchRow || !batchRow.batch_id){
+    throw new Error("תשובת שמירת הסריקה אינה תקינה");
+  }
+
+  clearPendingGroupingAnalysisResult();
+  activeExpenseReviewContext = null;
+  canDeferSingleExtractedInvoice = false;
+  if(openReviewList){
+    const reviewRows = await loadPendingReviewRows();
+    renderExpenseReviewList(reviewRows);
+  }
+  void refreshPendingInvoiceCountIndicator();
+  setStatus($("expenseStatus"), "החילוץ נכשל, אך המסמך נשמר לבדיקה מאוחרת בתור הממתין.", "ok");
+  return true;
 }
 
 function sanitizeSingleInvoiceResult(result){
@@ -1481,7 +1664,19 @@ function updateExpenseContinueLaterButtonState(){
   const queueButton = $("queueButton");
   if(!queueButton) return;
 
-  queueButton.textContent = "אמשיך לבדוק מאוחר יותר";
+  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
+    queueButton.textContent = "חלץ ואבדוק מאוחר יותר";
+    queueButton.disabled = selectedFiles.length === 0 || isDeferredAnalyzeInFlight;
+    return;
+  }
+
+  queueButton.textContent = "אבדוק מאוחר יותר";
+
+  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM){
+    queueButton.disabled = !canDeferSingleExtractedInvoice;
+    return;
+  }
+
   queueButton.disabled = expenseReviewRows.length === 0;
 }
 
@@ -2483,6 +2678,7 @@ async function enterApp(){
   await loadLookups();
   await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees()]);
   void refreshPendingInvoiceCountIndicator();
+  void resumeDurableInvoiceCheckpoints();
 }
 
 function setTabSelection(tabs, activeTabId){
@@ -2932,6 +3128,11 @@ document.querySelectorAll("[data-close]").forEach(button => {
     const dialog = button.closest("dialog");
     if(!dialog) return;
 
+    if(dialog.id === "expenseDialog" && isDeferredAnalyzeInFlight){
+      setStatus($("expenseStatus"), "ממתינות לשמירת טיוטת המסמכים לפני יציאה בטוחה.", "error");
+      return;
+    }
+
     if(dialog.id === "expenseDialog" && !confirmManualGroupingDiscard()){
       return;
     }
@@ -2989,6 +3190,12 @@ async function openAction(action){
 }
 
 $("expenseDialog")?.addEventListener("cancel", event => {
+  if(isDeferredAnalyzeInFlight){
+    event.preventDefault();
+    setStatus($("expenseStatus"), "ממתינות לשמירת טיוטת המסמכים לפני יציאה בטוחה.", "error");
+    return;
+  }
+
   if(confirmManualGroupingDiscard()) return;
   event.preventDefault();
 });
@@ -3035,6 +3242,8 @@ function renderSelectedFiles(){
   preview.querySelectorAll(".file-remove").forEach(button => {
     button.onclick = () => removeSelectedFile(Number(button.dataset.index));
   });
+
+  updateExpenseContinueLaterButtonState();
 }
 
 function removeSelectedFile(index){
@@ -3108,6 +3317,8 @@ function resetExpenseDialogState(){
   activeExpenseReviewContext = null;
   expenseReviewRows = [];
   pendingExpenseEntryRows = [];
+  canDeferSingleExtractedInvoice = false;
+  isDeferredAnalyzeInFlight = false;
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
@@ -3116,65 +3327,154 @@ function resetExpenseDialogState(){
   setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
 }
 
-$("analyzeButton").onclick = async () => {
-  if(!selectedFiles.length){
+async function runAnalyzeFlow({
+  mode = "review-now",
+  files = null,
+  operationId: providedOperationId = null,
+  uploadedScanFiles: providedUploadedScanFiles = null,
+  selectionSignature: providedSelectionSignature = null,
+  onCheckpointSecured = null,
+  checkpointOnly = false
+} = {}){
+  const runToken = ++currentAnalyzeRunToken;
+  const filesToProcess = Array.isArray(files) ? files.slice() : selectedFiles.slice();
+  if(!filesToProcess.length){
     setStatus($("expenseStatus"), "בחרי תמונה או PDF", "error");
-    return;
+    return null;
   }
 
-  const progressMessage = selectedFiles.length === 1
-    ? "מחלצת נתונים מהחשבונית..."
-    : "מחלצת נתונים מהחשבוניות...";
+  const isDeferredMode = mode === "defer-now" || mode === "defer-resume";
+  const isResumeMode = mode === "defer-resume";
 
-  setStatus($("expenseStatus"), progressMessage);
+  if(mode === "defer-now"){
+    isDeferredAnalyzeInFlight = true;
+    updateExpenseContinueLaterButtonState();
+    setStatus($("expenseStatus"), "שומרת טיוטה של המסמכים…", "");
+  } else {
+    const progressMessage = filesToProcess.length === 1
+      ? "מחלצת נתונים מהחשבונית..."
+      : "מחלצת נתונים מהחשבוניות...";
+    setStatus($("expenseStatus"), progressMessage);
+  }
 
-  const formData = new FormData();
-  selectedFiles.forEach(file => formData.append("files",file));
-  formData.append("document_type","invoice");
-  formData.append("contract_version","1");
-  formData.append("operation_source","web");
+  let operationId = String(providedOperationId || "").trim();
+  let uploadedScanFiles = Array.isArray(providedUploadedScanFiles) ? providedUploadedScanFiles : null;
+  let selectionSignature = String(providedSelectionSignature || "").trim();
+  let checkpointSecured = isResumeMode;
 
   try {
     if(hasUnfinishedManualGroupingWork() && !confirmManualGroupingDiscard()){
-      return;
+      return null;
     }
 
-    clearPendingGroupingAnalysisResult();
-    const selectionSignature = await buildFileSelectionSignature(selectedFiles);
-    const operationId = getOrCreateScanOperationId(selectionSignature);
-    const uploadedScanFiles = await uploadScanFilesBeforeAnalyze(selectedFiles, operationId);
-    formData.append("operation_id",operationId);
+    if(!operationId || !uploadedScanFiles){
+      clearPendingGroupingAnalysisResult();
+    }
+
+    if(!selectionSignature){
+      selectionSignature = await buildFileSelectionSignature(filesToProcess);
+    }
+
+    if(!operationId){
+      operationId = getOrCreateScanOperationId(selectionSignature);
+    }
+
+    if(!uploadedScanFiles){
+      uploadedScanFiles = await uploadScanFilesBeforeAnalyze(filesToProcess, operationId);
+    }
+
+    if(isDeferredMode && !isResumeMode){
+      await upsertDurableScanCheckpoint({
+        operationId,
+        extractionMode: "all",
+        uploadedScanFiles,
+        selectionSignature
+      });
+      checkpointSecured = true;
+
+      if(typeof onCheckpointSecured === "function"){
+        try {
+          onCheckpointSecured({operationId});
+        } catch(error){
+          console.error(error);
+        }
+      }
+    }
+
+    if(isDeferredMode){
+      if(!isResumeMode){
+        setStatus($("expenseStatus"), "טיוטת המסמכים נשמרה בבטחה. אפשר לצאת ולהמשיך מאוחר יותר.", "ok");
+      }
+      if(checkpointOnly){
+        return {mode, operationId, uploadedScanFiles, selectionSignature, checkpointSecured: true};
+      }
+    }
+
+    const formData = new FormData();
+    filesToProcess.forEach(file => formData.append("files", file));
+    formData.append("document_type", "invoice");
+    formData.append("contract_version", "1");
+    formData.append("operation_source", "web");
+    formData.append("operation_id", operationId);
     formData.append("storage_metadata_json", JSON.stringify({
       storage_metadata_version: 1,
       files: uploadedScanFiles
     }));
 
-    const response = await fetch("/api/analyze-invoice",{
-      method:"POST",
-      body:formData
+    const response = await fetch("/api/analyze-invoice", {
+      method: "POST",
+      body: formData
     });
 
     const result = await response.json();
 
+    if(runToken !== currentAnalyzeRunToken && mode === "review-now"){
+      return null;
+    }
+
     if(!response.ok){
+      const mayFallbackToSingleItem = filesToProcess.length === 1;
+      const persistedFallback = mayFallbackToSingleItem
+        ? await tryPersistSingleInvoiceFallbackFromFailure(result, {openReviewList: !isDeferredMode})
+        : false;
+
+      if(persistedFallback){
+        return {mode, operationId, status: "fallback-persisted"};
+      }
+
+      if(checkpointSecured){
+        await markCheckpointTerminalFailure(operationId, result?.detail || "שגיאה בחילוץ");
+      }
+
       setStatus($("expenseStatus"), result.detail || "שגיאה בחילוץ", "error");
-      return;
+      return null;
     }
 
     if(normalizeMultipleInvoicesFlag(result.multiple_invoices)){
       if(isLowConfidenceGroupingResult(result)){
+        if(isDeferredMode){
+          if(checkpointSecured){
+            await markCheckpointTerminalFailure(operationId, "נדרש קיבוץ ידני לפני המשך עיבוד החשבוניות.");
+          }
+          setStatus($("expenseStatus"), "נדרשת פעולה ידנית להמשך הקיבוץ. הטיוטה נשמרה ותוכלי לחזור אליה מאוחר יותר.", "error");
+          return null;
+        }
+
         pendingGroupingAnalysisResult = result;
         expenseReviewRows = [];
         activeExpenseReviewContext = null;
         renderExpenseGroupingGate(result);
         setStatus($("expenseStatus"), "הקיבוץ האוטומטי לא אמין מספיק. נדרש קיבוץ ידני לפני המשך.", "error");
-        return;
+        return null;
       }
 
       const rpcInput = buildScanBatchRpcInput(result);
       if(!rpcInput){
+        if(checkpointSecured){
+          await markCheckpointTerminalFailure(operationId, "מבנה קיבוץ החשבוניות אינו תקין");
+        }
         setStatus($("expenseStatus"), "מבנה קיבוץ החשבוניות אינו תקין", "error");
-        return;
+        return null;
       }
 
       const {data:batchResult, error:batchError} = await sb.rpc(
@@ -3183,14 +3483,26 @@ $("analyzeButton").onclick = async () => {
       );
 
       if(batchError){
+        if(checkpointSecured){
+          await markCheckpointTerminalFailure(operationId, batchError.message || "שגיאה בשמירת הסריקה");
+        }
         setStatus($("expenseStatus"), batchError.message || "שגיאה בשמירת הסריקה", "error");
-        return;
+        return null;
       }
 
       const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
       if(!batchRow || !batchRow.batch_id){
+        if(checkpointSecured){
+          await markCheckpointTerminalFailure(operationId, "תשובת שמירת הסריקה אינה תקינה");
+        }
         setStatus($("expenseStatus"), "תשובת שמירת הסריקה אינה תקינה", "error");
-        return;
+        return null;
+      }
+
+      if(isDeferredMode){
+        void refreshPendingInvoiceCountIndicator();
+        setStatus($("expenseStatus"), "החשבוניות נשמרו לבדיקה מאוחרת.", "ok");
+        return {mode, operationId, status: "persisted"};
       }
 
       const reviewRows = await loadPendingReviewRows();
@@ -3199,19 +3511,25 @@ $("analyzeButton").onclick = async () => {
       renderExpenseReviewList(reviewRows);
       void refreshPendingInvoiceCountIndicator();
       setStatus($("expenseStatus"), "החשבוניות נשמרו לבדיקה. הוצגה רשימת חשבוניות.", "ok");
-      return;
+      return {mode, operationId, status: "persisted"};
     }
 
     const singleInvoice = sanitizeSingleInvoiceResult(result);
     if(!singleInvoice){
+      if(checkpointSecured){
+        await markCheckpointTerminalFailure(operationId, "מבנה תשובת החילוץ לא תקין");
+      }
       setStatus($("expenseStatus"), "מבנה תשובת החילוץ לא תקין", "error");
-      return;
+      return null;
     }
 
     const rpcInput = buildScanBatchRpcInput(result);
     if(!rpcInput){
+      if(checkpointSecured){
+        await markCheckpointTerminalFailure(operationId, "חסר מידע סריקה לשמירה אטומית");
+      }
       setStatus($("expenseStatus"), "חסר מידע סריקה לשמירה אטומית", "error");
-      return;
+      return null;
     }
 
     const {data:batchResult, error:batchError} = await sb.rpc(
@@ -3220,25 +3538,89 @@ $("analyzeButton").onclick = async () => {
     );
 
     if(batchError){
+      if(checkpointSecured){
+        await markCheckpointTerminalFailure(operationId, batchError.message || "שגיאה בשמירת סריקה");
+      }
       setStatus($("expenseStatus"), batchError.message || "שגיאה בשמירת סריקה", "error");
-      return;
+      return null;
     }
 
     const batchRow = Array.isArray(batchResult) ? batchResult[0] : batchResult;
     if(!batchRow || !batchRow.batch_id){
+      if(checkpointSecured){
+        await markCheckpointTerminalFailure(operationId, "תשובת שמירת הסריקה אינה תקינה");
+      }
       setStatus($("expenseStatus"), "תשובת שמירת הסריקה אינה תקינה", "error");
-      return;
+      return null;
     }
 
+    if(isDeferredMode){
+      canDeferSingleExtractedInvoice = false;
+      void refreshPendingInvoiceCountIndicator();
+      setStatus($("expenseStatus"), "החשבונית נשמרה לבדיקה מאוחרת.", "ok");
+      return {mode, operationId, status: "persisted"};
+    }
+
+    canDeferSingleExtractedInvoice = true;
     setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM);
     fillExpenseFormFromInvoice(singleInvoice);
     void refreshPendingInvoiceCountIndicator();
-
     setStatus($("expenseStatus"), "הנתונים חולצו. בדקי לפני שמירה.", "ok");
+    return {mode, operationId, status: "persisted"};
   } catch(error){
     console.error(error);
+    if(isDeferredMode && !checkpointSecured){
+      setStatus($("expenseStatus"), "טיוטת המסמכים לא נשמרה בבטחה. הישארי במסך ונסי שוב.", "error");
+      return null;
+    }
+
+    if(checkpointSecured && operationId){
+      await markCheckpointTerminalFailure(operationId, error?.message || "שגיאה בעיבוד הטיוטה");
+      setStatus($("expenseStatus"), "טיוטת המסמכים נשמרה, אך העיבוד נעצר. אפשר לנסות שוב מאוחר יותר.", "error");
+      return null;
+    }
+
     setStatus($("expenseStatus"), error?.message || "שגיאה בחילוץ", "error");
+    return null;
+  } finally {
+    if(mode === "defer-now"){
+      isDeferredAnalyzeInFlight = false;
+      updateExpenseContinueLaterButtonState();
+    }
   }
+}
+
+async function resumeDurableInvoiceCheckpoints(){
+  if(isCheckpointResumeRunning || !sb || !userId) return;
+  isCheckpointResumeRunning = true;
+
+  try {
+    const checkpoints = await listRecoverableCheckpoints(5);
+    for(const checkpoint of checkpoints){
+      const operationId = String(checkpoint?.operation_id || "").trim();
+      if(!operationId) continue;
+
+      const files = await buildFilesFromCheckpoint(checkpoint);
+      const uploadedScanFiles = getCheckpointStorageFiles(checkpoint);
+      const selectionSignature = String(checkpoint?.checkpoint_payload?.selection_signature || "").trim();
+
+      await runAnalyzeFlow({
+        mode: "defer-resume",
+        files,
+        operationId,
+        uploadedScanFiles,
+        selectionSignature
+      });
+    }
+  } catch(error){
+    console.error(error);
+  } finally {
+    isCheckpointResumeRunning = false;
+  }
+}
+
+$("analyzeButton").onclick = async () => {
+  await runAnalyzeFlow({mode: "review-now"});
 };
 
 $("expensePendingContinue").onclick = async () => {
@@ -3274,6 +3656,18 @@ $("expensePendingScanNew").onclick = () => {
 $("queueButton").onclick = () => {
   if($("queueButton").disabled) return;
   if(!confirmManualGroupingDiscard()) return;
+
+  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
+    void runAnalyzeFlow({
+      mode: "defer-now",
+      onCheckpointSecured: () => {
+        $("expenseDialog")?.close();
+      }
+    });
+    return;
+  }
+
+  canDeferSingleExtractedInvoice = false;
   $("expenseDialog")?.close();
 };
 

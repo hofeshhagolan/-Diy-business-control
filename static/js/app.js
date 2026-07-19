@@ -185,6 +185,9 @@ function setExpenseDialogPrimaryState(state){
   if(!dialog) return;
 
   currentExpenseDialogPrimaryState = state;
+  if(state !== EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM){
+    expenseExtractedPreviewLoadToken += 1;
+  }
 
   const title = $("expenseDialogTitle");
 
@@ -536,6 +539,16 @@ function clearLocalFileObjectUrls(){
   }
 
   localFileObjectUrls.clear();
+}
+
+function clearLocalFileObjectUrl(file){
+  if(!(file instanceof File)) return;
+
+  const url = localFileObjectUrls.get(file);
+  if(!url) return;
+
+  if(url.startsWith("blob:")) URL.revokeObjectURL(url);
+  localFileObjectUrls.delete(file);
 }
 
 function clearCurrentManualGroupingPreviewUrl(){
@@ -1813,13 +1826,18 @@ async function renderExpenseExtractedPreviewFromPersistedPage(page){
   const loadToken = expenseExtractedPreviewLoadToken;
   renderExpenseExtractedPreviewState({message:"טוען מסמך חשבונית..."});
 
+  const isCurrentLoad = () => (
+    loadToken === expenseExtractedPreviewLoadToken
+    && currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.EXTRACTED_FORM
+  );
+
   try {
     const signedUrl = await getSignedUrlForExtractedPreview(storagePath);
-    if(loadToken !== expenseExtractedPreviewLoadToken) return;
+    if(!isCurrentLoad()) return;
 
     renderExpenseExtractedPreviewFile({src:signedUrl, mimeType});
   } catch(error){
-    if(loadToken !== expenseExtractedPreviewLoadToken) return;
+    if(!isCurrentLoad()) return;
     console.error(error);
     renderExpenseExtractedPreviewState({
       message: "לא ניתן לטעון את מסמך החשבונית.",
@@ -3314,6 +3332,10 @@ $("expenseDialog")?.addEventListener("cancel", event => {
   event.preventDefault();
 });
 
+$("expenseDialog")?.addEventListener("close", () => {
+  clearLocalFileObjectUrls();
+});
+
 $("profileButton").onclick = () => $("businessDialog").showModal();
 
 function renderSelectedFiles(){
@@ -3363,6 +3385,7 @@ function removeSelectedFile(index){
     return;
   }
 
+  clearLocalFileObjectUrl(selectedFiles[index]);
   selectedFiles.splice(index,1);
   clearPendingGroupingAnalysisResult();
   if(!selectedFiles.length){

@@ -20,6 +20,7 @@ language plpgsql
 security invoker
 set search_path = public, pg_temp
 as $$
+#variable_conflict use_column
 declare
   v_user_id uuid;
   v_operation_id text;
@@ -66,6 +67,7 @@ begin
     null
   )
   on conflict (user_id, operation_id)
+  where operation_id is not null
   do update
     set extraction_mode = excluded.extraction_mode,
         status = case

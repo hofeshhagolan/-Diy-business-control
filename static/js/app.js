@@ -588,7 +588,26 @@ async function uploadScanFilesBeforeAnalyze(files, operationId){
 
       if(upload.error){
         if(!isStorageObjectAlreadyExistsError(upload.error)){
-          throw new Error(upload.error.message || "שגיאה בהעלאת קובץ הסריקה");
+          console.error("defer_checkpoint_diagnostic", {
+            stage: "storage_upload",
+            operation_id: operationId,
+            upload_index: uploadIndex,
+            checkpointSecured: false,
+            code: upload.error?.code || null,
+            message: upload.error?.message || null,
+            details: upload.error?.details || null,
+            hint: upload.error?.hint || null,
+            rawError: upload.error
+          });
+
+          const diagnosticError = new Error(upload.error.message || "שגיאה בהעלאת קובץ הסריקה");
+          diagnosticError.diagnosticStage = "storage_upload";
+          diagnosticError.diagnosticOperationId = operationId;
+          diagnosticError.diagnosticCode = upload.error?.code || null;
+          diagnosticError.diagnosticDetails = upload.error?.details || null;
+          diagnosticError.diagnosticHint = upload.error?.hint || null;
+          diagnosticError.diagnosticRawError = upload.error;
+          throw diagnosticError;
         }
       } else {
         createdStoragePaths.push(storagePath);
@@ -634,7 +653,25 @@ async function upsertDurableScanCheckpoint({operationId, extractionMode = "all",
   });
 
   if(error){
-    throw new Error(error.message || "שגיאה בשמירת טיוטת המסמכים");
+    console.error("defer_checkpoint_diagnostic", {
+      stage: "checkpoint_rpc",
+      operation_id: operationId,
+      checkpointSecured: false,
+      code: error?.code || null,
+      message: error?.message || null,
+      details: error?.details || null,
+      hint: error?.hint || null,
+      rawError: error
+    });
+
+    const diagnosticError = new Error(error.message || "שגיאה בשמירת טיוטת המסמכים");
+    diagnosticError.diagnosticStage = "checkpoint_rpc";
+    diagnosticError.diagnosticOperationId = operationId;
+    diagnosticError.diagnosticCode = error?.code || null;
+    diagnosticError.diagnosticDetails = error?.details || null;
+    diagnosticError.diagnosticHint = error?.hint || null;
+    diagnosticError.diagnosticRawError = error;
+    throw diagnosticError;
   }
 
   return checkpointPayload;
@@ -3716,6 +3753,16 @@ async function runAnalyzeFlow({
   } catch(error){
     console.error(error);
     if(isDeferredMode && !checkpointSecured){
+      console.error("defer_checkpoint_diagnostic", {
+        stage: error?.diagnosticStage || "unknown",
+        operation_id: error?.diagnosticOperationId || operationId || null,
+        checkpointSecured,
+        code: error?.diagnosticCode || error?.code || null,
+        message: error?.message || null,
+        details: error?.diagnosticDetails || error?.details || null,
+        hint: error?.diagnosticHint || error?.hint || null,
+        rawError: error?.diagnosticRawError || error
+      });
       setStatus($("expenseStatus"), "טיוטת המסמכים לא נשמרה בבטחה. הישארי במסך ונסי שוב.", "error");
       return null;
     }

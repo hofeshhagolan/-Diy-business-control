@@ -3753,17 +3753,43 @@ async function runAnalyzeFlow({
   } catch(error){
     console.error(error);
     if(isDeferredMode && !checkpointSecured){
-      console.error("defer_checkpoint_diagnostic", {
+      const diagnostic = {
         stage: error?.diagnosticStage || "unknown",
-        operation_id: error?.diagnosticOperationId || operationId || null,
+        operation_id: error?.diagnosticOperationId || operationId || "",
         checkpointSecured,
-        code: error?.diagnosticCode || error?.code || null,
-        message: error?.message || null,
-        details: error?.diagnosticDetails || error?.details || null,
-        hint: error?.diagnosticHint || error?.hint || null,
+        code: error?.diagnosticCode || error?.code || "",
+        message: error?.message || "",
+        details: error?.diagnosticDetails || error?.details || "",
+        hint: error?.diagnosticHint || error?.hint || ""
+      };
+
+      console.error("defer_checkpoint_diagnostic", {
+        stage: diagnostic.stage,
+        operation_id: diagnostic.operation_id || null,
+        checkpointSecured: diagnostic.checkpointSecured,
+        code: diagnostic.code || null,
+        message: diagnostic.message || null,
+        details: diagnostic.details || null,
+        hint: diagnostic.hint || null,
         rawError: error?.diagnosticRawError || error
       });
-      setStatus($("expenseStatus"), "טיוטת המסמכים לא נשמרה בבטחה. הישארי במסך ונסי שוב.", "error");
+
+      const diagnosticText = [
+        "[Temporary Diagnostic]",
+        `stage: ${diagnostic.stage}`,
+        `operation_id: ${diagnostic.operation_id || ""}`,
+        `checkpointSecured: ${String(diagnostic.checkpointSecured)}`,
+        `code: ${diagnostic.code || ""}`,
+        `message: ${diagnostic.message || ""}`,
+        `details: ${diagnostic.details || ""}`,
+        `hint: ${diagnostic.hint || ""}`
+      ].join("\n");
+
+      setStatus(
+        $("expenseStatus"),
+        `טיוטת המסמכים לא נשמרה בבטחה. הישארי במסך ונסי שוב.\n\n${diagnosticText}`,
+        "error"
+      );
       return null;
     }
 

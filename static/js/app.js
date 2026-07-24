@@ -2994,8 +2994,50 @@ function setupManualTablist(tabIds, activateTab){
   });
 }
 
+function isInteractiveElement(element){
+  if(!(element instanceof Element)) return false;
+
+  return Boolean(element.closest("button,a,input,select,textarea,[role='button'],[role='tab']"));
+}
+
+function setupDashboardCardNavigation(){
+  document.querySelectorAll("[data-dashboard-view]").forEach(card => {
+    const targetView = card.dataset.dashboardView;
+    if(!AVAILABLE_VIEWS.includes(targetView)) return;
+
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.classList.add("dashboard-nav-card-enabled");
+
+    const dashboardLabel = String(card.dataset.dashboardLabel || "").trim();
+    if(dashboardLabel){
+      card.setAttribute("aria-label", `מעבר אל ${dashboardLabel}`);
+    }
+
+    const navigateToDashboardDestination = () => {
+      activateView(targetView);
+      if(targetView === "alView" && card.dataset.dashboardAlTab){
+        setAlTab(card.dataset.dashboardAlTab);
+      }
+    };
+
+    card.addEventListener("click", event => {
+      if(event.target !== card && isInteractiveElement(event.target)) return;
+      navigateToDashboardDestination();
+    });
+
+    card.addEventListener("keydown", event => {
+      if(event.key !== "Enter" && event.key !== " ") return;
+      if(event.target !== card && isInteractiveElement(event.target)) return;
+      event.preventDefault();
+      navigateToDashboardDestination();
+    });
+  });
+}
+
 setupManualTablist(["loginTab","signupTab"], setAuthTab);
 setupManualTablist(["insightsTab","chatTab"], setAlTab);
+setupDashboardCardNavigation();
 setAuthTab($("signupTab").classList.contains("active") ? "signupTab" : "loginTab");
 setAlTab($("chatTab").classList.contains("active") ? "chatTab" : "insightsTab");
 

@@ -62,6 +62,9 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .insight{border-right:5px solid var(--brand2)}
 .quick{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .quick button{padding:13px 8px;border:1px solid #c9d7e5;background:#fff;border-radius:13px;color:var(--brand);font-weight:800}
+.dashboard-nav-card-enabled{cursor:pointer}
+.dashboard-nav-card-enabled:hover{border-color:#bfd0e0;background:#f8fbff}
+.dashboard-nav-card-enabled:focus-visible{outline:3px solid #0b63ce;outline-offset:2px;box-shadow:0 0 0 2px #fff}
 .table-wrap{overflow:auto}
 table{width:100%;border-collapse:collapse;min-width:720px}
 th,td{padding:10px;border-bottom:1px solid #e8edf2;text-align:right;white-space:nowrap}

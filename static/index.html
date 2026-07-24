@@ -64,12 +64,12 @@
       <h2>תמונת מצב</h2>
       <div class="card snapshot">
         <div class="metric income"><span>הכנסות השנה</span><strong id="incomeMetric">₪0</strong></div>
-        <div class="metric expense"><span>הוצאות השנה</span><strong id="expenseMetric">₪0</strong></div>
+        <div class="metric expense" data-dashboard-view="expensesView"><span>הוצאות השנה</span><strong id="expenseMetric">₪0</strong></div>
         <div class="metric"><span>רווח / הפסד</span><strong id="profitMetric">₪0</strong></div>
-        <div class="metric"><span>מצב חשבון</span><strong>לא הוזן</strong></div>
+        <div class="metric" data-dashboard-view="financeView" data-dashboard-label="פיננסים"><span>מצב חשבון</span><strong>לא הוזן</strong></div>
       </div>
 
-      <div class="card insight">
+      <div class="card insight" data-dashboard-view="alView" data-dashboard-al-tab="insightsTab" data-dashboard-label="תובנות AL">
         <h3>🤖 תובנת AL</h3>
         <div id="homeInsight" role="status" aria-live="polite" aria-atomic="true">טוענת תמונת מצב…</div>
       </div>

@@ -3429,6 +3429,7 @@ $("expenseDialog")?.addEventListener("cancel", event => {
 });
 
 $("expenseDialog")?.addEventListener("close", () => {
+  closeExpenseReviewFullscreen({shouldRestoreFocus:false});
   resetExpenseDialogState();
 });
 

@@ -1018,15 +1018,19 @@ function sanitizeSingleInvoiceResult(result){
 }
 
 function formatReviewCaptureDateTime(value){
-  if(!value) return "";
+  if(!value) return {capturedDate:"", capturedTime:""};
 
   const date = new Date(value);
-  if(Number.isNaN(date.getTime())) return "";
+  if(Number.isNaN(date.getTime())) return {capturedDate:"", capturedTime:""};
 
-  return new Intl.DateTimeFormat("he-IL", {
-    dateStyle:"short",
-    timeStyle:"short"
-  }).format(date);
+  return {
+    capturedDate: new Intl.DateTimeFormat("he-IL", {
+      dateStyle:"short"
+    }).format(date),
+    capturedTime: new Intl.DateTimeFormat("he-IL", {
+      timeStyle:"short"
+    }).format(date)
+  };
 }
 
 function describeGlobalPageIndexes(globalPageIndexes){
@@ -2740,17 +2744,17 @@ function renderExpenseReviewList(rows){
     <table aria-label="טבלת חשבוניות לבדיקה">
       <thead>
         <tr>
-          <th scope="col">תווית חשבונית</th>
-          <th scope="col">תאריך/שעת קליטה</th>
-          <th scope="col">מספר עמודים</th>
+          <th scope="col">מס' חשבונית</th>
+          <th scope="col">תאריך</th>
+          <th scope="col">שעה</th>
         </tr>
       </thead>
       <tbody>
         ${expenseReviewRows.map(row => `
           <tr data-scan-item-id="${row.scanItemId}" data-batch-id="${row.batchId}" data-item-order="${row.itemOrder}">
             <td><button type="button" class="review-row-open" data-open-review-item="${row.scanItemId}">${row.label}</button></td>
-            <td>${row.capturedAt}</td>
-            <td>${row.pageCount}</td>
+            <td>${row.capturedDate}</td>
+            <td>${row.capturedTime}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -2812,7 +2816,7 @@ async function loadPendingReviewRows({batchId = null} = {}){
     scanItemId: item.id,
     itemOrder: item.item_order,
     label: `חשבונית ${item.item_order}`,
-    capturedAt: formatReviewCaptureDateTime(item.invoice_scan_batches?.completed_at),
+    ...formatReviewCaptureDateTime(item.invoice_scan_batches?.completed_at),
     completedAt: item.invoice_scan_batches?.completed_at || "",
     pageCount: pageCountByItemId.get(item.id) || 0
   }));

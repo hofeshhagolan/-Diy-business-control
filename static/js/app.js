@@ -3429,7 +3429,7 @@ $("expenseDialog")?.addEventListener("cancel", event => {
 });
 
 $("expenseDialog")?.addEventListener("close", () => {
-  clearLocalFileObjectUrls();
+  resetExpenseDialogState();
 });
 
 $("profileButton").onclick = () => $("businessDialog").showModal();

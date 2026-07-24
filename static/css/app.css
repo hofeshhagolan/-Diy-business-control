@@ -74,6 +74,7 @@ th{background:#eef3f8;color:var(--brand)}
 .fab{position:fixed;left:50%;bottom:68px;transform:translateX(-50%);z-index:35;width:60px;height:60px;border:5px solid var(--bg);border-radius:50%;color:#fff;background:var(--brand);font-size:1.8rem}
 dialog{width:min(640px,calc(100% - 24px));border:0;border-radius:18px;padding:0}
 dialog::backdrop{background:#07182a99}
+#expenseReviewFullscreenDialog{width:min(100vw,calc(100% - 8px));max-width:100vw;height:min(96dvh,calc(100dvh - 8px));display:flex;flex-direction:column}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--brand);color:#fff}
 .modal-head button{border:0;background:transparent;color:#fff;font-size:1.1rem}
 .modal-body{padding:18px;max-height:82vh;overflow:auto}
@@ -135,7 +136,7 @@ dialog::backdrop{background:#07182a99}
 .review-document-panel iframe{width:100%;min-height:420px;border:0;background:#fff}
 .review-document-state{margin:0;color:var(--muted);padding:12px;text-align:center}
 .review-document-state.error{color:#9f2f2f}
-.review-fullscreen-body{position:relative;padding:0;max-height:min(90vh,calc(100dvh - 40px));overflow:auto}
+.review-fullscreen-body{position:relative;flex:1 1 auto;min-height:0;padding:0;max-height:none;overflow:hidden}
 .review-fullscreen-page-nav{position:absolute;inset:0;pointer-events:none;z-index:2}
 .review-fullscreen-page-nav.hidden{display:none!important}
 .review-fullscreen-page-arrow{position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;pointer-events:auto;width:48px;height:72px;padding:0;border:0;background:transparent;box-shadow:none;border-radius:0;color:#1f2937;font-size:2rem;line-height:1;font-weight:600;cursor:pointer;opacity:.95}
@@ -143,12 +144,12 @@ dialog::backdrop{background:#07182a99}
 .review-fullscreen-page-arrow:disabled{color:#c4c9d1;opacity:1;cursor:default}
 .review-fullscreen-page-arrow-prev{left:4px}
 .review-fullscreen-page-arrow-next{right:4px}
-.review-fullscreen-content{display:flex;align-items:center;justify-content:center;background:#f8fbff;min-height:min(90vh,calc(100dvh - 40px));padding:0}
+.review-fullscreen-content{display:flex;align-items:flex-start;justify-content:center;background:#f8fbff;min-height:100%;height:100%;padding:0}
 .review-fullscreen-content.image-mode{overflow:hidden;touch-action:none;user-select:none}
-.review-fullscreen-viewport{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.review-fullscreen-viewport img{max-width:100%;max-height:calc(100dvh - 72px);width:auto;height:auto;object-fit:contain;background:#fff;transform-origin:center center;will-change:transform;cursor:grab;touch-action:none;user-select:none;-webkit-user-drag:none}
+.review-fullscreen-viewport{position:relative;width:100%;height:100%;display:flex;align-items:flex-start;justify-content:center;overflow:hidden}
+.review-fullscreen-viewport img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;background:#fff;transform-origin:center center;will-change:transform;cursor:grab;touch-action:none;user-select:none;-webkit-user-drag:none}
 .review-fullscreen-viewport img.dragging{cursor:grabbing}
-.review-fullscreen-content iframe{width:min(100vw,1600px);height:calc(100dvh - 72px);border:0;background:#fff}
+.review-fullscreen-content iframe{width:min(100vw,1600px);height:100%;border:0;background:#fff}
 .review-item-nav{margin-top:10px;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
 .review-item-nav button{min-height:40px}
 .review-item-nav-arrow{min-width:36px;min-height:36px;padding:0 10px;font-size:1.1rem;font-weight:900;line-height:1}
@@ -189,7 +190,7 @@ dialog::backdrop{background:#07182a99}
   .review-fullscreen-page-arrow{width:52px;height:80px;font-size:2.1rem}
   .review-fullscreen-page-arrow-prev{left:2px}
   .review-fullscreen-page-arrow-next{right:2px}
-  .review-fullscreen-content iframe{width:100%;height:calc(100dvh - 72px)}
+  .review-fullscreen-content iframe{width:100%;height:100%}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}
 }

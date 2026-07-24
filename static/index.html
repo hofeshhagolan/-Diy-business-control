@@ -63,7 +63,7 @@
     <section id="homeView" class="view active">
       <h2>תמונת מצב</h2>
       <div class="card snapshot">
-        <div class="metric income"><span>הכנסות השנה</span><strong id="incomeMetric">₪0</strong></div>
+        <div class="metric income" data-dashboard-view="incomeView" data-dashboard-label="הכנסות"><span>הכנסות השנה</span><strong id="incomeMetric">₪0</strong></div>
         <div class="metric expense" data-dashboard-view="expensesView"><span>הוצאות השנה</span><strong id="expenseMetric">₪0</strong></div>
         <div class="metric"><span>רווח / הפסד</span><strong id="profitMetric">₪0</strong></div>
         <div class="metric" data-dashboard-view="financeView" data-dashboard-label="פיננסים"><span>מצב חשבון</span><strong>לא הוזן</strong></div>
@@ -100,11 +100,23 @@
       <div class="card"><div id="expensesTable" class="table-wrap">טוענת…</div></div>
     </section>
 
-    <section id="financeView" class="view">
-      <h2>פיננסים</h2>
+    <section id="incomeView" class="view">
+      <h2>הכנסות</h2>
       <div class="card">
         <h3>הכנסות ודו״חות Z</h3>
         <div id="zTable" class="table-wrap">טוענת…</div>
+      </div>
+    </section>
+
+    <section id="financeView" class="view">
+      <h2>פיננסים</h2>
+      <div class="card" data-dashboard-view="incomeView" data-dashboard-label="הכנסות">
+        <h3>הכנסות</h3>
+        <div class="empty">מעבר למסך הכנסות ודו״חות Z.</div>
+      </div>
+      <div class="card" data-dashboard-view="expensesView" data-dashboard-label="הוצאות">
+        <h3>הוצאות</h3>
+        <div class="empty">מעבר למסך ניהול ההוצאות.</div>
       </div>
       <div class="card">
         <h3>בנק, מע״מ, מיסים, ספקים ותזרים</h3>

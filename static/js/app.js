@@ -27,7 +27,7 @@ const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
-const AVAILABLE_VIEWS = ["homeView","expensesView","financeView","teamView","alView"];
+const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","teamView","alView"];
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
   PENDING_CHOICE: "pendingChoice",

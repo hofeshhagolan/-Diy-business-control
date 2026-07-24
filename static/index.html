@@ -225,12 +225,6 @@
           <p class="review-document-state">בחרי חשבונית להצגת המסמך.</p>
         </div>
       </div>
-      <div class="review-item-nav" aria-label="ניווט חשבוניות לבדיקה">
-        <button id="expenseReviewNavPrev" type="button" class="secondary review-item-nav-arrow">→</button>
-        <p id="expenseReviewPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
-        <button id="expenseReviewNavNext" type="button" class="secondary review-item-nav-arrow">←</button>
-        <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
-      </div>
     </section>
 
     <form id="expenseForm" class="form-grid" style="margin-top:14px">
@@ -251,6 +245,13 @@
         <button id="expenseFormDeferButton" type="button" class="secondary">אבדוק מאוחר יותר</button>
       </div>
     </form>
+
+    <div class="review-item-nav hidden" aria-label="ניווט חשבוניות לבדיקה">
+      <button id="expenseReviewNavPrev" type="button" class="review-item-nav-arrow" aria-label="חשבונית קודמת" title="חשבונית קודמת">→</button>
+      <p id="expenseReviewPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
+      <button id="expenseReviewNavNext" type="button" class="review-item-nav-arrow" aria-label="חשבונית הבאה" title="חשבונית הבאה">←</button>
+      <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
+    </div>
   </div>
 </dialog>
 

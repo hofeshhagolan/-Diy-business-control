@@ -203,6 +203,7 @@ function setExpenseDialogPrimaryState(state){
   const manualWorkspace = $("expenseManualGroupingWorkspace");
   const reviewList = $("expenseReviewList");
   const reviewContext = $("expenseReviewContext");
+  const reviewNav = $("expenseReviewPosition")?.closest(".review-item-nav");
 
   [
     fileActions,
@@ -214,7 +215,8 @@ function setExpenseDialogPrimaryState(state){
     groupingGate,
     manualWorkspace,
     reviewList,
-    reviewContext
+    reviewContext,
+    reviewNav
   ].forEach(section => section?.classList.add("hidden"));
 
   setStatus($("expenseStatus"), "", "");
@@ -255,6 +257,8 @@ function setExpenseDialogPrimaryState(state){
       break;
     case EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT:
       reviewContext?.classList.remove("hidden");
+      expenseForm?.classList.remove("hidden");
+      reviewNav?.classList.remove("hidden");
       break;
     case EXPENSE_DIALOG_PRIMARY_STATES.MANUAL_GROUPING:
       groupingGate?.classList.remove("hidden");
@@ -2545,8 +2549,6 @@ function updateExpenseReviewNavigation(){
   prevButton.title = "חשבונית קודמת";
   nextButton.title = "חשבונית הבאה";
 
-  prevButton.classList.toggle("hidden", !hasActive || activeIndex <= 0);
-  nextButton.classList.toggle("hidden", !hasActive || activeIndex >= (total - 1));
   prevButton.disabled = !hasActive || activeIndex <= 0;
   nextButton.disabled = !hasActive || activeIndex >= (total - 1);
   backButton.disabled = total === 0;

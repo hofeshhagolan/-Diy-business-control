@@ -1773,7 +1773,7 @@ function renderExpenseExtractedPreviewState({message = "", isError = false} = {}
   if(!section || !panel) return;
 
   section.classList.remove("hidden");
-  panel.classList.remove("preview-openable");
+  panel.classList.remove("preview-openable", "preview-overlay-openable");
   panel.removeAttribute("tabindex");
   panel.removeAttribute("role");
   panel.removeAttribute("aria-label");
@@ -1790,30 +1790,15 @@ function renderExpenseExtractedPreviewState({message = "", isError = false} = {}
   panel.appendChild(text);
 }
 
-function enableExpenseExtractedPreviewFullscreenEntry({src, mimeType}){
-  const panel = $("expenseExtractedPreviewPanel");
-  if(!panel || !src || !mimeType) return;
+function openExpenseExtractedPreviewFullscreen(opener){
+  expenseReviewFullscreenOpener = opener;
+  openExpenseReviewFullscreen();
+}
 
+function prepareExpenseExtractedPreviewFullscreenDocument({src, mimeType}){
+  if(!src || !mimeType) return;
   setCurrentExpenseReviewDocument({signedUrl: src, mimeType});
   clearExpenseReviewPageSelection();
-
-  panel.classList.add("preview-openable");
-  panel.tabIndex = 0;
-  panel.setAttribute("role", "button");
-  panel.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
-  panel.setAttribute("title", "פתחי במסך מלא");
-
-  panel.onclick = () => {
-    expenseReviewFullscreenOpener = panel;
-    openExpenseReviewFullscreen();
-  };
-
-  panel.onkeydown = event => {
-    if(event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    expenseReviewFullscreenOpener = panel;
-    openExpenseReviewFullscreen();
-  };
 }
 
 function renderExpenseExtractedPreviewFile({src, mimeType}){
@@ -1823,9 +1808,10 @@ function renderExpenseExtractedPreviewFile({src, mimeType}){
 
   section.classList.remove("hidden");
   panel.innerHTML = "";
+  panel.classList.remove("preview-openable", "preview-overlay-openable");
 
   const normalizedMimeType = String(mimeType || "").toLowerCase();
-  enableExpenseExtractedPreviewFullscreenEntry({
+  prepareExpenseExtractedPreviewFullscreenDocument({
     src,
     mimeType: normalizedMimeType || "application/octet-stream"
   });
@@ -1834,15 +1820,44 @@ function renderExpenseExtractedPreviewFile({src, mimeType}){
     const image = document.createElement("img");
     image.src = src;
     image.alt = "מסמך חשבונית";
+    image.tabIndex = 0;
+    image.style.cursor = "pointer";
+    image.setAttribute("role", "button");
+    image.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
+    image.setAttribute("title", "פתחי במסך מלא");
+    image.addEventListener("click", () => {
+      openExpenseExtractedPreviewFullscreen(image);
+    });
+    image.addEventListener("keydown", event => {
+      if(event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openExpenseExtractedPreviewFullscreen(image);
+    });
     panel.appendChild(image);
     return;
   }
 
+  panel.classList.add("preview-overlay-openable");
   const frame = document.createElement("iframe");
   frame.src = src;
   frame.title = "מסמך חשבונית";
   frame.loading = "lazy";
   panel.appendChild(frame);
+
+  const openOverlay = document.createElement("button");
+  openOverlay.type = "button";
+  openOverlay.className = "review-document-overlay-trigger";
+  openOverlay.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
+  openOverlay.setAttribute("title", "פתחי במסך מלא");
+  openOverlay.addEventListener("click", () => {
+    openExpenseExtractedPreviewFullscreen(openOverlay);
+  });
+  openOverlay.addEventListener("keydown", event => {
+    if(event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openExpenseExtractedPreviewFullscreen(openOverlay);
+  });
+  panel.appendChild(openOverlay);
 }
 
 function renderExpenseExtractedPreviewFromLocalFiles(files){

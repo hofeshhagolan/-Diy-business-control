@@ -70,6 +70,19 @@ table{width:100%;border-collapse:collapse;min-width:720px}
 th,td{padding:10px;border-bottom:1px solid #e8edf2;text-align:right;white-space:nowrap}
 th{background:#eef3f8;color:var(--brand)}
 .eye{border:1px solid #bfd0e0;background:#fff;color:var(--brand);border-radius:9px;padding:5px 8px}
+.eye:disabled{border-color:#d7e1eb;background:#f7f9fc;color:#9aa9b8;cursor:not-allowed}
+
+#zTable .income-table{min-width:0;table-layout:fixed}
+#zTable .income-table th,
+#zTable .income-table td{padding:8px 6px}
+#zTable .income-table th:nth-child(1),
+#zTable .income-table td:nth-child(1){width:44px;text-align:center}
+#zTable .income-table th:nth-child(2),
+#zTable .income-table td:nth-child(2){width:112px}
+#zTable .income-table th:nth-child(3),
+#zTable .income-table td:nth-child(3){width:110px}
+#zTable .income-table th:nth-child(4),
+#zTable .income-table td:nth-child(4){white-space:normal;overflow-wrap:anywhere}
 .bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
 .bottom-nav button{border:0;background:transparent;color:var(--muted);padding:7px 2px;font-size:.78rem}
 .bottom-nav button.active{color:var(--brand);font-weight:800}
@@ -208,6 +221,11 @@ dialog::backdrop{background:#07182a99}
   .review-fullscreen-content iframe{width:100%;height:100%}
   .review-list{padding:10px}
   .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
+  #zTable .income-table th,#zTable .income-table td{padding:7px 4px;font-size:.92rem}
+  #zTable .income-table th:nth-child(2),
+  #zTable .income-table td:nth-child(2){width:104px}
+  #zTable .income-table th:nth-child(3),
+  #zTable .income-table td:nth-child(3){width:102px}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}
 }

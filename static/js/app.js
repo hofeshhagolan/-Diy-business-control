@@ -3290,7 +3290,7 @@ async function loadExpenses(){
       <tbody>
         ${(data || []).map(row => `
           <tr>
-            <td><button class="eye" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
+            <td><button class="eye eye-expense" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
             <td>${row.document_date || ""}</td>
             <td>${money(row.gross_ils)}</td>
             <td>${row.supplier_name_snapshot || ""}</td>
@@ -3302,7 +3302,7 @@ async function loadExpenses(){
     </table>
   `;
 
-  document.querySelectorAll(".eye").forEach(btn => {
+  document.querySelectorAll(".eye-expense").forEach(btn => {
     btn.onclick = () => openExpenseDocument(btn.dataset.expense);
   });
 }
@@ -3346,13 +3346,29 @@ async function loadZReports(){
   }
 
   $("zTable").innerHTML = (data || []).length ? `
-    <table aria-label="טבלת דו״חות Z">
+    <table class="income-table" aria-label="טבלת הכנסות ודו״חות Z">
       <thead>
-        <tr><th scope="col">תאריך</th><th scope="col">הכנסות</th><th scope="col">פרויקט</th></tr>
+        <tr>
+          <th scope="col" aria-label="מצב צפייה במסמך">👁</th>
+          <th scope="col">תאריך</th>
+          <th scope="col">הכנסות</th>
+          <th scope="col">פרויקט</th>
+        </tr>
       </thead>
       <tbody>
         ${(data || []).map(row => `
           <tr>
+            <td>
+              <button
+                class="eye eye-income"
+                type="button"
+                disabled
+                aria-disabled="true"
+                aria-label="צפייה במסמכי דו״ח Z אינה זמינה עדיין"
+                title="צפייה במסמכי דו״ח Z אינה זמינה עדיין">
+                👁
+              </button>
+            </td>
             <td>${row.report_date}</td>
             <td>${money(row.total_income_ils)}</td>
             <td>${row.projects?.name || ""}</td>

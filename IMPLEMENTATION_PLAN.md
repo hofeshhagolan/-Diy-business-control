@@ -159,7 +159,8 @@
    - Verification commit: 6e83442aac89c9c61d71b8fedb425c5862179366.
 
 22. [Regression tests] Add end-to-end and targeted regression coverage: single-invoice continuity, multi-invoice happy path, save-current-open-next, viewer constraints, low-confidence manual grouping, deferred/resume, idempotency, and atomic-failure recovery.
-   - Status: Pending
+   - Status: Deferred (Final Regression & Acceptance Gate)
+   - Execution order note: Task 22 is intentionally deferred until after Tasks 25–33 are completed. Continue normal per-task runtime verification during implementation, then execute this full checklist as the final comprehensive regression/acceptance pass.
    - Critical runtime verification checklist:
    - Single-invoice analyze → review → save.
    - Single-invoice “אבדוק מאוחר יותר” → close → resume.
@@ -177,7 +178,7 @@
    - Manual-grouping discard confirmation.
    - Idempotency evidence.
    - Atomic-failure recovery evidence.
-   - Gate: Complete and pass critical Task 22 runtime verification before Tasks 25–33 begin.
+   - Gate: Complete and pass critical Task 22 runtime verification as the final regression/acceptance gate before current-phase sign-off.
 
 23. [Performance validation] Validate and document performance for:
 - large batches (50+ invoices)
@@ -332,7 +333,7 @@
 
 # Current-phase completion rule
 
-- Task 21A and critical Task 22 runtime verification are hard gates before Tasks 25–33.
+- Task 22 is intentionally deferred and serves as the final comprehensive regression and acceptance gate after the currently planned implementation work (Tasks 25–33) has been completed.
 - Task 23 remains required current-phase validation and must be completed before the current phase is formally closed.
 - Task 24 remains Done; all new UI work must preserve its accessibility improvements.
 - Calendar, Supplier Card, and Asset Card are intentionally NOT current implementation tasks.

@@ -1773,12 +1773,47 @@ function renderExpenseExtractedPreviewState({message = "", isError = false} = {}
   if(!section || !panel) return;
 
   section.classList.remove("hidden");
+  panel.classList.remove("preview-openable");
+  panel.removeAttribute("tabindex");
+  panel.removeAttribute("role");
+  panel.removeAttribute("aria-label");
+  panel.removeAttribute("title");
+  panel.onclick = null;
+  panel.onkeydown = null;
+  setCurrentExpenseReviewDocument(null);
+  clearExpenseReviewPageSelection();
   panel.innerHTML = "";
 
   const text = document.createElement("p");
   text.className = isError ? "review-document-state error" : "review-document-state";
   text.textContent = message || "אין מסמך להצגה.";
   panel.appendChild(text);
+}
+
+function enableExpenseExtractedPreviewFullscreenEntry({src, mimeType}){
+  const panel = $("expenseExtractedPreviewPanel");
+  if(!panel || !src || !mimeType) return;
+
+  setCurrentExpenseReviewDocument({signedUrl: src, mimeType});
+  clearExpenseReviewPageSelection();
+
+  panel.classList.add("preview-openable");
+  panel.tabIndex = 0;
+  panel.setAttribute("role", "button");
+  panel.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
+  panel.setAttribute("title", "פתחי במסך מלא");
+
+  panel.onclick = () => {
+    expenseReviewFullscreenOpener = panel;
+    openExpenseReviewFullscreen();
+  };
+
+  panel.onkeydown = event => {
+    if(event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    expenseReviewFullscreenOpener = panel;
+    openExpenseReviewFullscreen();
+  };
 }
 
 function renderExpenseExtractedPreviewFile({src, mimeType}){
@@ -1789,7 +1824,13 @@ function renderExpenseExtractedPreviewFile({src, mimeType}){
   section.classList.remove("hidden");
   panel.innerHTML = "";
 
-  if(String(mimeType || "").toLowerCase().startsWith("image/")){
+  const normalizedMimeType = String(mimeType || "").toLowerCase();
+  enableExpenseExtractedPreviewFullscreenEntry({
+    src,
+    mimeType: normalizedMimeType || "application/octet-stream"
+  });
+
+  if(normalizedMimeType.startsWith("image/")){
     const image = document.createElement("img");
     image.src = src;
     image.alt = "מסמך חשבונית";

@@ -132,6 +132,8 @@ dialog::backdrop{background:#07182a99}
 .review-context{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
 .review-document-wrap{margin-top:10px;display:grid;gap:8px}
 .review-document-panel{border:1px solid var(--line);border-radius:14px;background:#f8fbff;min-height:360px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.review-document-panel.preview-openable{cursor:pointer}
+.review-document-panel.preview-openable:focus-visible{outline:3px solid #0b63ce;outline-offset:2px;box-shadow:0 0 0 2px #fff}
 .review-document-panel img{width:100%;max-height:420px;object-fit:contain;background:#fff}
 .review-document-panel iframe{width:100%;min-height:420px;border:0;background:#fff}
 .review-document-state{margin:0;color:var(--muted);padding:12px;text-align:center}

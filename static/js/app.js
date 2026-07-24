@@ -1953,18 +1953,21 @@ function updateExpenseReviewFullscreenPageNavigation(){
   const prevButton = $("expenseReviewFullscreenPagePrev");
   const nextButton = $("expenseReviewFullscreenPageNext");
   const position = $("expenseReviewFullscreenPagePosition");
-  if(!nav || !prevButton || !nextButton || !position) return;
+  if(!nav || !prevButton || !nextButton) return;
 
   const total = currentExpenseReviewPages.length;
   const hasPages = total > 0;
+  const hasMultiplePages = total > 1;
   const activeIndex = hasPages
     ? Math.min(Math.max(0, currentExpenseReviewPageIndex), total - 1)
     : 0;
 
-  nav.classList.toggle("hidden", !hasPages);
-  prevButton.disabled = !hasPages || activeIndex <= 0;
-  nextButton.disabled = !hasPages || activeIndex >= (total - 1);
-  position.textContent = hasPages ? `עמוד ${activeIndex + 1} מתוך ${total}` : "";
+  nav.classList.toggle("hidden", !hasMultiplePages);
+  prevButton.disabled = !hasMultiplePages || activeIndex <= 0;
+  nextButton.disabled = !hasMultiplePages || activeIndex >= (total - 1);
+  if(position){
+    position.textContent = hasPages ? `עמוד ${activeIndex + 1} מתוך ${total}` : "";
+  }
 }
 
 function getExpenseReviewPageRenderSequence(){
@@ -3905,15 +3908,6 @@ $("expenseReviewFullscreenPagePrev").onclick = () => navigateExpenseReviewFullsc
 $("expenseReviewFullscreenPageNext").onclick = () => navigateExpenseReviewFullscreenPageByOffset(1);
 $("expenseReviewFullscreenOpen")?.addEventListener("click", () => openExpenseReviewFullscreen());
 $("expenseReviewFullscreenClose").onclick = () => closeExpenseReviewFullscreen();
-$("expenseReviewFullscreenZoomIn").onclick = () => zoomFullscreenImageBy(1.2);
-$("expenseReviewFullscreenZoomOut").onclick = () => zoomFullscreenImageBy(1 / 1.2);
-$("expenseReviewFullscreenZoomReset").onclick = () => {
-  if(!currentFullscreenImageState) return;
-  currentFullscreenImageState.scale = 1;
-  currentFullscreenImageState.translateX = 0;
-  currentFullscreenImageState.translateY = 0;
-  applyFullscreenImageTransform();
-};
 $("expenseManualGroupingConfirm").onclick = () => {
   void confirmManualGroupingAndContinue();
 };

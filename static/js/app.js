@@ -688,6 +688,12 @@ function resetZFileSelection(){
   renderSelectedZFiles();
 }
 
+function queueZDialogResetAfterClose(successMessage = "הכנסה חדשה נשמרה"){
+  shouldResetZFormAfterClose = true;
+  pendingZSuccessToastMessage = successMessage;
+  $("zDialog")?.close();
+}
+
 function updateZFiles(input){
   const incoming = Array.from(input?.files || []);
   const existingKeys = new Set(selectedZFiles.map(file => getFileKey(file)));
@@ -3907,7 +3913,6 @@ $("expenseDialog")?.addEventListener("close", () => {
 
 $("zDialog")?.addEventListener("close", () => {
   pendingZReportId = "";
-  resetZFileSelection();
   setStatus($("zStatus"), "", "");
 
   if(!shouldResetZFormAfterClose){
@@ -3919,11 +3924,13 @@ $("zDialog")?.addEventListener("close", () => {
   const successMessage = pendingZSuccessToastMessage || "הכנסה חדשה נשמרה";
   pendingZSuccessToastMessage = "";
 
-  // Reset after the dialog is fully closed so users never see fields clearing.
-  setTimeout(() => {
-    $("zForm")?.reset();
-    showToast(successMessage, "ok");
-  }, 0);
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      resetZFileSelection();
+      $("zForm")?.reset();
+      showToast(successMessage, "ok");
+    }, 0);
+  });
 });
 
 $("zForm")?.addEventListener("reset", () => {
@@ -4060,10 +4067,22 @@ function updateFiles(input, mode){
   renderSelectedFiles();
 }
 
-$("singleCameraButton").onclick = () => $("singleCameraInput").click();
-$("multiCameraButton").onclick = () => $("multiCameraInput").click();
-$("browseButton").onclick = () => $("browseInput").click();
-$("zBrowseButton")?.addEventListener("click", () => $("zBrowseInput")?.click());
+$("singleCameraButton").onclick = event => {
+  event.preventDefault();
+  $("singleCameraInput").click();
+};
+$("multiCameraButton").onclick = event => {
+  event.preventDefault();
+  $("multiCameraInput").click();
+};
+$("browseButton").onclick = event => {
+  event.preventDefault();
+  $("browseInput").click();
+};
+$("zBrowseButton")?.addEventListener("click", event => {
+  event.preventDefault();
+  $("zBrowseInput")?.click();
+});
 $("singleCameraInput").onchange = event => updateFiles(event.currentTarget, "single");
 $("multiCameraInput").onchange = event => updateFiles(event.currentTarget, "append");
 $("browseInput").onchange = event => updateFiles(event.currentTarget, "append");
@@ -4762,9 +4781,7 @@ $("zForm").onsubmit = async event => {
     if(!selectedZFiles.length){
       pendingZReportId = "";
       await Promise.all([loadZReports(),loadDashboard()]);
-      shouldResetZFormAfterClose = true;
-      pendingZSuccessToastMessage = "הכנסה חדשה נשמרה";
-      $("zDialog")?.close();
+      queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
       return;
     }
 
@@ -4811,9 +4828,7 @@ $("zForm").onsubmit = async event => {
       if(!missingUploadPlan.length && existingRows.length === uploadPlan.length){
         pendingZReportId = "";
         await Promise.all([loadZReports(),loadDashboard()]);
-        shouldResetZFormAfterClose = true;
-        pendingZSuccessToastMessage = "הכנסה חדשה נשמרה";
-        $("zDialog")?.close();
+        queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
         return;
       }
 
@@ -4884,9 +4899,7 @@ $("zForm").onsubmit = async event => {
 
     pendingZReportId = "";
     await Promise.all([loadZReports(),loadDashboard()]);
-    shouldResetZFormAfterClose = true;
-    pendingZSuccessToastMessage = "הכנסה חדשה נשמרה";
-    $("zDialog")?.close();
+    queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
   } catch(error){
     console.error(error);
 

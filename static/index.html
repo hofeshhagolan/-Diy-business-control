@@ -290,9 +290,52 @@
       <label>תאריך<input id="zDate" type="date" required></label>
       <label>סך הכנסות<input id="zTotal" type="number" min="0" step=".01" required></label>
       <label>פרויקט<select id="zProject"></select></label>
+      <div class="wide file-actions">
+        <button id="zBrowseButton" class="secondary" type="button">צרפי מסמכים</button>
+        <input id="zBrowseInput" type="file" accept="image/*,application/pdf" multiple>
+      </div>
+      <div id="zFilePreview" class="file-preview wide">
+        <div class="file-preview-empty">לא נבחרו מסמכים.</div>
+      </div>
       <button class="primary wide">שמרי דו״ח Z</button>
       <div id="zStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
+  </div>
+</dialog>
+
+<dialog id="zDocumentsDialog" aria-labelledby="zDocumentsDialogTitle">
+  <div class="modal-head">
+    <strong id="zDocumentsDialogTitle">מסמכי דו״ח Z</strong>
+    <button data-close type="button" aria-label="סגירת חלון מסמכי דו״ח Z">✕</button>
+  </div>
+  <div class="modal-body">
+    <section class="review-document-wrap" aria-label="תצוגת מסמכי דו״ח Z">
+      <div id="zDocumentsViewerPanel" class="review-document-panel">
+        <p class="review-document-state">אין מסמך להצגה.</p>
+      </div>
+    </section>
+    <div class="review-item-nav" aria-label="ניווט מסמכי דו״ח Z">
+      <button id="zDocumentsPrev" type="button" class="review-item-nav-arrow" aria-label="מסמך קודם" title="מסמך קודם">→</button>
+      <p id="zDocumentsPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
+      <button id="zDocumentsNext" type="button" class="review-item-nav-arrow" aria-label="מסמך הבא" title="מסמך הבא">←</button>
+      <button id="zDocumentsFullscreenOpen" type="button" class="review-item-nav-back">מסך מלא</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="zDocumentsFullscreenDialog" aria-labelledby="zDocumentsFullscreenTitle">
+  <div class="modal-head">
+    <strong id="zDocumentsFullscreenTitle">מסמך דו״ח Z במסך מלא</strong>
+    <button id="zDocumentsFullscreenClose" type="button" aria-label="סגירת תצוגת מסך מלא">✕</button>
+  </div>
+  <div class="modal-body review-fullscreen-body">
+    <div id="zDocumentsFullscreenPageNav" class="review-fullscreen-page-nav hidden" aria-label="ניווט מסמכים במסך מלא">
+      <button id="zDocumentsFullscreenPrev" type="button" class="review-fullscreen-page-arrow review-fullscreen-page-arrow-prev" aria-label="המסמך הקודם" title="המסמך הקודם">‹</button>
+      <button id="zDocumentsFullscreenNext" type="button" class="review-fullscreen-page-arrow review-fullscreen-page-arrow-next" aria-label="המסמך הבא" title="המסמך הבא">›</button>
+    </div>
+    <div id="zDocumentsFullscreenContent" class="review-fullscreen-content">
+      <p class="review-document-state">אין מסמך להצגה.</p>
+    </div>
   </div>
 </dialog>
 
@@ -313,6 +356,8 @@
     </form>
   </div>
 </dialog>
+
+<div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="/static/js/app.js"></script>
 </body>

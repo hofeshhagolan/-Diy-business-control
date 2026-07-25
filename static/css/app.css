@@ -47,6 +47,9 @@ textarea{min-height:92px}
 .secondary{border:1px solid var(--brand);background:#fff;color:var(--brand)}
 .text-button{border:0;background:transparent;color:var(--brand2);font-weight:700}
 .status{margin-top:8px;white-space:pre-wrap}.status.ok{color:var(--good)}.status.error{color:var(--bad)}
+.app-toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;max-width:min(92vw,520px);padding:12px 16px;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 12px 28px rgba(16,44,78,.24);text-align:center}
+.app-toast.ok{background:#146c4a}
+.app-toast.error{background:#9f2f2f}
 .app{min-height:100vh;padding-bottom:88px}
 .topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--brand);color:#fff}
 .topbar button{border:1px solid #ffffff66;background:transparent;color:#fff;border-radius:10px;padding:7px 10px}
@@ -228,4 +231,5 @@ dialog::backdrop{background:#07182a99}
   #zTable .income-table td:nth-child(3){width:102px}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}
+  .app-toast{bottom:calc(92px + env(safe-area-inset-bottom));font-size:.95rem;padding:11px 14px}
 }

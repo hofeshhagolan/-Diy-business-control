@@ -688,10 +688,25 @@ function resetZFileSelection(){
   renderSelectedZFiles();
 }
 
+function applyZDialogResetAndToast(successMessage = "הכנסה חדשה נשמרה"){
+  shouldResetZFormAfterClose = false;
+  pendingZSuccessToastMessage = "";
+  resetZFileSelection();
+  $("zForm")?.reset();
+  showToast(successMessage, "ok");
+}
+
 function queueZDialogResetAfterClose(successMessage = "הכנסה חדשה נשמרה"){
   shouldResetZFormAfterClose = true;
   pendingZSuccessToastMessage = successMessage;
-  $("zDialog")?.close();
+
+  const dialog = $("zDialog");
+  if(dialog?.open){
+    dialog.close();
+    return;
+  }
+
+  applyZDialogResetAndToast(successMessage);
 }
 
 function updateZFiles(input){
@@ -3920,17 +3935,12 @@ $("zDialog")?.addEventListener("close", () => {
     return;
   }
 
-  shouldResetZFormAfterClose = false;
   const successMessage = pendingZSuccessToastMessage || "הכנסה חדשה נשמרה";
   pendingZSuccessToastMessage = "";
 
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      resetZFileSelection();
-      $("zForm")?.reset();
-      showToast(successMessage, "ok");
-    }, 0);
-  });
+  setTimeout(() => {
+    applyZDialogResetAndToast(successMessage);
+  }, 0);
 });
 
 $("zForm")?.addEventListener("reset", () => {
@@ -4081,7 +4091,10 @@ $("browseButton").onclick = event => {
 };
 $("zBrowseButton")?.addEventListener("click", event => {
   event.preventDefault();
-  $("zBrowseInput")?.click();
+  const input = $("zBrowseInput");
+  if(!input) return;
+  input.value = "";
+  input.click();
 });
 $("singleCameraInput").onchange = event => updateFiles(event.currentTarget, "single");
 $("multiCameraInput").onchange = event => updateFiles(event.currentTarget, "append");

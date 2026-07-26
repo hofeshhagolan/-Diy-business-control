@@ -4112,14 +4112,18 @@ async function loadZReports(){
                   data-z-report-income-type="${incomeType.replace(/"/g, "&quot;")}"
                   data-z-report-project-id="${row.projects?.id || ""}"
                   data-z-report-notes="${String(row.notes || "").replace(/"/g, "&quot;")}"
-                  data-z-report-income-source="${row.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE}">
-                  ✏️ Edit
+                  data-z-report-income-source="${row.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE}"
+                  aria-label="עריכת הכנסה"
+                  title="עריכת הכנסה">
+                  ✏️
                 </button>
                 <button
                   class="row-action delete-action"
                   type="button"
-                  data-z-report-id="${row.id}">
-                  ❌ Delete
+                  data-z-report-id="${row.id}"
+                  aria-label="מחיקת הכנסה"
+                  title="מחיקת הכנסה">
+                  ❌
                 </button>
               </div>
             </td>
@@ -5162,7 +5166,7 @@ $("zForm").onsubmit = async event => {
     const normalizedIncomeType = normalizeIncomeType($("zIncomeType")?.value);
     const reportTime = $("zTime")?.value || null;
     const notesValue = $("zNotes")?.value?.trim() || "";
-    const isFromZReport = isZReportIncomeSource(currentZIncomeSource);
+    const isFromZReport = normalizedIncomeType === Z_INCOME_TYPE_DEFAULT;
 
     if(currentZReportEditId){
       const {error:updateError} = await sb.from("daily_z_reports")

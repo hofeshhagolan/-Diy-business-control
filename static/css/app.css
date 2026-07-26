@@ -91,8 +91,8 @@ th{background:#eef3f8;color:var(--brand)}
 .doc-indicator.active{border-color:#1d8f5f;background:#e9f8f0;color:#14643f}
 .doc-indicator.inactive{border-color:#d6dde5;background:#f7f9fc;color:#6b7786}
 .doc-indicator:disabled{opacity:.7;cursor:not-allowed}
-.row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-start}
-.row-action{border:1px solid #cfe0ef;background:#fff;color:var(--brand);padding:4px 7px;border-radius:999px;font-size:.76rem;font-weight:700;line-height:1.2}
+.row-actions{display:inline-flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-start;white-space:nowrap}
+.row-action{min-width:34px;min-height:34px;border:1px solid #cfe0ef;background:#fff;color:var(--brand);padding:4px 6px;border-radius:999px;font-size:.88rem;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .row-action.delete-action{border-color:#f0c2c2;color:#b23a3a}
 
 #zTable .income-table{min-width:0;table-layout:fixed}
@@ -109,9 +109,9 @@ th{background:#eef3f8;color:var(--brand)}
 #zTable .income-table th:nth-child(5),
 #zTable .income-table td:nth-child(5){width:140px;white-space:nowrap}
 #zTable .income-table th:nth-child(6),
-#zTable .income-table td:nth-child(6){width:72px;text-align:center}
+#zTable .income-table td:nth-child(6){width:62px;text-align:center}
 #zTable .income-table th:nth-child(7),
-#zTable .income-table td:nth-child(7){width:120px;text-align:left}
+#zTable .income-table td:nth-child(7){width:78px;text-align:center}
 #zTable .income-table .doc-indicator{padding:4px 6px;gap:4px;font-size:.74rem}
 #zTable .income-table .doc-indicator-icon{font-size:.82rem}
 .bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
@@ -269,9 +269,9 @@ dialog::backdrop{background:#07182a99}
   #zTable .income-table th:nth-child(5),
   #zTable .income-table td:nth-child(5){width:120px}
   #zTable .income-table th:nth-child(6),
-  #zTable .income-table td:nth-child(6){width:66px}
+  #zTable .income-table td:nth-child(6){width:58px}
   #zTable .income-table th:nth-child(7),
-  #zTable .income-table td:nth-child(7){width:102px}
+  #zTable .income-table td:nth-child(7){width:70px}
   #zTable .income-table .row-action{font-size:.72rem;padding:4px 6px}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}

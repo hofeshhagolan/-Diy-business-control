@@ -28,6 +28,7 @@ let pendingZReportId = "";
 let shouldResetZFormAfterClose = false;
 let pendingZSuccessToastMessage = "";
 let currentZReportEditId = "";
+let currentZIncomeSource = "z_report";
 let currentZDocuments = [];
 let currentZDocumentIndex = -1;
 let currentZViewerDocument = null;
@@ -38,7 +39,11 @@ const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
 const zDocumentsSignedUrlCache = new Map();
+const incomeTypeSuggestions = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
+const Z_INCOME_TYPE_DEFAULT = 'דו"ח Z';
+const NON_Z_INCOME_SOURCE = "non_z";
+const Z_REPORT_INCOME_SOURCE = "z_report";
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
@@ -159,6 +164,103 @@ const money = n => new Intl.NumberFormat("he-IL", {
 }).format(Number(n || 0));
 
 const today = () => new Date().toISOString().slice(0,10);
+const currentTime = () => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+};
+
+function normalizeIncomeType(rawValue){
+  const value = String(rawValue || "").trim();
+  return value || Z_INCOME_TYPE_DEFAULT;
+}
+
+function addIncomeTypeSuggestion(rawValue){
+  const value = normalizeIncomeType(rawValue);
+  if(!value) return false;
+  const beforeSize = incomeTypeSuggestions.size;
+  incomeTypeSuggestions.set(value.toLowerCase(), value);
+  return incomeTypeSuggestions.size !== beforeSize;
+}
+
+function getIncomeTypeSuggestions(){
+  return Array.from(incomeTypeSuggestions.values())
+    .sort((a, b) => a.localeCompare(b, "he"));
+}
+
+function renderIncomeTypeSuggestionsPanel(filterText = ""){
+  const panel = $("zIncomeTypeSuggestions");
+  const datalist = $("incomeTypeSuggestionsList");
+  if(!panel) return;
+
+  const normalizedFilter = String(filterText || "").trim().toLowerCase();
+  const suggestions = getIncomeTypeSuggestions().filter(value => {
+    if(!normalizedFilter) return true;
+    return value.toLowerCase().includes(normalizedFilter);
+  });
+
+  if(datalist){
+    datalist.innerHTML = suggestions.map(value => `<option value="${value.replace(/"/g, "&quot;")}"></option>`).join("");
+  }
+
+  if(!suggestions.length){
+    panel.innerHTML = '';
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.innerHTML = suggestions.map(value => `
+    <button type="button" class="income-type-suggestion" role="option" data-income-type-suggestion="${value.replace(/"/g, "&quot;")}">${value}</button>
+  `).join("");
+  panel.classList.remove("hidden");
+}
+
+function openIncomeTypeSuggestions(){
+  renderIncomeTypeSuggestionsPanel($("zIncomeType")?.value || "");
+}
+
+function closeIncomeTypeSuggestions(){
+  const panel = $("zIncomeTypeSuggestions");
+  if(!panel) return;
+  panel.classList.add("hidden");
+}
+
+function bindIncomeTypeSuggestionInteractions(){
+  const input = $("zIncomeType");
+  const panel = $("zIncomeTypeSuggestions");
+  if(!input || !panel) return;
+
+  input.addEventListener("focus", openIncomeTypeSuggestions);
+  input.addEventListener("click", openIncomeTypeSuggestions);
+  input.addEventListener("input", () => renderIncomeTypeSuggestionsPanel(input.value));
+  input.addEventListener("keydown", event => {
+    if(event.key === "Escape"){
+      closeIncomeTypeSuggestions();
+    }
+  });
+
+  panel.addEventListener("mousedown", event => event.preventDefault());
+  panel.addEventListener("click", event => {
+    const button = event.target.closest("[data-income-type-suggestion]");
+    if(!button) return;
+    input.value = button.dataset.incomeTypeSuggestion || Z_INCOME_TYPE_DEFAULT;
+    closeIncomeTypeSuggestions();
+    input.focus();
+  });
+
+  document.addEventListener("click", event => {
+    if(event.target === input || panel.contains(event.target)) return;
+    closeIncomeTypeSuggestions();
+  });
+}
+
+function normalizeIncomeSource(rawValue){
+  return rawValue === NON_Z_INCOME_SOURCE ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE;
+}
+
+function isZReportIncomeSource(rawValue){
+  return normalizeIncomeSource(rawValue) === Z_REPORT_INCOME_SOURCE;
+}
+
 const monthStart = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
@@ -762,25 +864,30 @@ function resetZFileSelection(){
 
 function resetZDialogMode(){
   currentZReportEditId = "";
+  currentZIncomeSource = Z_REPORT_INCOME_SOURCE;
   const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
-  if(submitButton) submitButton.textContent = "שמרי דו״ח Z";
-  const title = $("zDialog")?.querySelector(".modal-head strong");
-  if(title) title.textContent = "דו״ח Z";
+  if(submitButton) submitButton.textContent = "שמרי הכנסה";
+  const title = $("zDialogTitle");
+  if(title) title.textContent = "הכנסה חדשה";
 }
 
 function setZDialogEditMode(report){
   currentZReportEditId = String(report?.id || "");
-  const title = $("zDialog")?.querySelector(".modal-head strong");
-  if(title) title.textContent = "עדכוני דו״ח Z";
+  currentZIncomeSource = normalizeIncomeSource(report?.income_source);
+  const title = $("zDialogTitle");
+  if(title) title.textContent = "עדכון הכנסה";
   const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
-  if(submitButton) submitButton.textContent = "עדכוני דו״ח Z";
+  if(submitButton) submitButton.textContent = "עדכני הכנסה";
 }
 
 function populateZDialogFromReport(report){
   const safeReport = report || {};
   $("zDate").value = safeReport.report_date || today();
+  $("zTime").value = safeReport.report_time || currentTime();
   $("zTotal").value = safeReport.total_income_ils == null ? "" : Number(safeReport.total_income_ils || 0).toFixed(2);
+  $("zIncomeType").value = normalizeIncomeType(safeReport.income_type);
   $("zProject").value = safeReport.project_id || "";
+  $("zNotes").value = safeReport.notes || "";
 }
 
 function applyZDialogResetAndToast(successMessage = "הכנסה חדשה נשמרה"){
@@ -789,6 +896,11 @@ function applyZDialogResetAndToast(successMessage = "הכנסה חדשה נשמ�
   resetZDialogMode();
   resetZFileSelection();
   $("zForm")?.reset();
+  $("zDate").value = today();
+  $("zTime").value = currentTime();
+  $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
+  $("zNotes").value = "";
+  closeIncomeTypeSuggestions();
   showToast(successMessage, "ok");
 }
 
@@ -3180,7 +3292,7 @@ async function enterApp(){
 
   await loadBusiness();
   await loadLookups();
-  await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees()]);
+  await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees(), loadIncomeTypeSuggestions()]);
   void refreshPendingInvoiceCountIndicator();
   void resumeDurableInvoiceCheckpoints();
 }
@@ -3485,6 +3597,7 @@ async function loadDashboard(){
     sb.from("daily_z_reports")
       .select("total_income_ils")
       .eq("user_id",userId)
+      .eq("is_from_z_report", true)
       .gte("report_date",from)
       .lte("report_date",to),
     sb.from("expenses")
@@ -3495,6 +3608,7 @@ async function loadDashboard(){
     sb.from("daily_z_reports")
       .select("total_income_ils")
       .eq("user_id",userId)
+      .eq("is_from_z_report", true)
       .gte("report_date",monthFrom)
       .lte("report_date",monthTo)
   ]);
@@ -3517,6 +3631,7 @@ async function loadDashboard(){
   const {data:zYesterday} = await sb.from("daily_z_reports")
     .select("id")
     .eq("user_id",userId)
+    .eq("is_from_z_report", true)
     .eq("report_date",y);
 
   const missing = !(zYesterday || []).length;
@@ -3666,7 +3781,7 @@ function renderZViewerFile({signedUrl, mimeType}){
   if(String(mimeType || "").toLowerCase().startsWith("image/")){
     const image = document.createElement("img");
     image.src = signedUrl;
-    image.alt = "מסמך דו״ח Z";
+    image.alt = "מסמך הכנסה";
     image.title = "פתחי במסך מלא";
     image.style.cursor = "pointer";
     image.tabIndex = 0;
@@ -3686,7 +3801,7 @@ function renderZViewerFile({signedUrl, mimeType}){
 
   const frame = document.createElement("iframe");
   frame.src = signedUrl;
-  frame.title = "מסמך דו״ח Z";
+  frame.title = "מסמך הכנסה";
   frame.loading = "lazy";
   panel.appendChild(frame);
 }
@@ -3707,7 +3822,7 @@ function renderZFullscreenContent(){
   if(String(currentZViewerDocument.mime_type || "").toLowerCase().startsWith("image/")){
     const image = document.createElement("img");
     image.src = currentZViewerDocument.signedUrl;
-    image.alt = "מסמך דו״ח Z במסך מלא";
+    image.alt = "מסמך הכנסה במסך מלא";
     image.style.maxWidth = "100%";
     image.style.maxHeight = "100%";
     image.style.objectFit = "contain";
@@ -3718,7 +3833,7 @@ function renderZFullscreenContent(){
 
   const frame = document.createElement("iframe");
   frame.src = currentZViewerDocument.signedUrl;
-  frame.title = "מסמך דו״ח Z במסך מלא";
+  frame.title = "מסמך הכנסה במסך מלא";
   frame.loading = "lazy";
   content.appendChild(frame);
 }
@@ -3812,9 +3927,13 @@ async function renderCurrentZDocument(){
   }
 }
 
-async function openZReportDocuments(zReportId){
+async function openZReportDocuments(zReportId, incomeType = ""){
   const safeReportId = String(zReportId || "").trim();
   if(!safeReportId) return;
+
+  const label = String(incomeType || "").trim() || "הכנסה";
+  if($("zDocumentsDialogTitle")) $("zDocumentsDialogTitle").textContent = `מסמכי ${label}`;
+  if($("zDocumentsFullscreenTitle")) $("zDocumentsFullscreenTitle").textContent = `מסמך ${label} במסך מלא`;
 
   const {data, error} = await sb.from("z_report_documents")
     .select("id,storage_path,original_filename,mime_type,document_order")
@@ -3823,13 +3942,13 @@ async function openZReportDocuments(zReportId){
     .order("document_order", {ascending: true});
 
   if(error){
-    setStatus($("zStatus"), error.message || "שגיאה בטעינת מסמכי דו״ח Z", "error");
+    setStatus($("zStatus"), error.message || "שגיאה בטעינת מסמכי הכנסה", "error");
     return;
   }
 
   const documents = Array.isArray(data) ? data : [];
   if(!documents.length){
-    setStatus($("zStatus"), "אין מסמכים מצורפים לדו״ח Z זה.", "error");
+    setStatus($("zStatus"), "אין מסמכים מצורפים להכנסה זו.", "error");
     return;
   }
 
@@ -3863,7 +3982,7 @@ function resetZDocumentsViewerState(){
 async function deleteZReport(zReportId){
   const safeReportId = String(zReportId || "").trim();
   if(!safeReportId) return;
-  if(!confirm("למחוק את דו״ח Z זה?")) return;
+  if(!confirm("למחוק הכנסה זו?")) return;
 
   try {
     const {data:attachedDocuments, error:documentsLookupError} = await sb.from("z_report_documents")
@@ -3892,11 +4011,11 @@ async function deleteZReport(zReportId){
       throw error;
     }
 
-    await Promise.all([loadZReports(), loadDashboard()]);
-    showToast("דו״ח Z נמחק", "ok");
+    await Promise.all([loadZReports(), loadDashboard(), loadIncomeTypeSuggestions()]);
+    showToast("הכנסה נמחקה", "ok");
   } catch(error){
     console.error(error);
-    showToast(error?.message || "שגיאה במחיקת דו״ח Z", "error");
+    showToast(error?.message || "שגיאה במחיקת הכנסה", "error");
   }
 }
 
@@ -3908,23 +4027,31 @@ function startEditingZReport(button){
   setZDialogEditMode({
     id: safeReportId,
     report_date: button.dataset.zReportDate || today(),
+    report_time: button.dataset.zReportTime || currentTime(),
     total_income_ils: button.dataset.zReportTotal || "",
-    project_id: button.dataset.zReportProjectId || ""
+    income_type: button.dataset.zReportIncomeType || Z_INCOME_TYPE_DEFAULT,
+    project_id: button.dataset.zReportProjectId || "",
+    notes: button.dataset.zReportNotes || "",
+    income_source: button.dataset.zReportIncomeSource || Z_REPORT_INCOME_SOURCE
   });
   populateZDialogFromReport({
     id: safeReportId,
     report_date: button.dataset.zReportDate || today(),
+    report_time: button.dataset.zReportTime || currentTime(),
     total_income_ils: button.dataset.zReportTotal || "",
-    project_id: button.dataset.zReportProjectId || ""
+    income_type: button.dataset.zReportIncomeType || Z_INCOME_TYPE_DEFAULT,
+    project_id: button.dataset.zReportProjectId || "",
+    notes: button.dataset.zReportNotes || ""
   });
   $("zDialog")?.showModal();
 }
 
 async function loadZReports(){
   const {data,error} = await sb.from("daily_z_reports")
-    .select("id,report_date,total_income_ils,projects(id,name),z_report_documents(id)")
+    .select("id,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
     .eq("user_id",userId)
     .order("report_date",{ascending:false})
+    .order("report_time",{ascending:false, nullsFirst:false})
     .limit(60);
 
   if(error){
@@ -3933,10 +4060,11 @@ async function loadZReports(){
   }
 
   $("zTable").innerHTML = (data || []).length ? `
-    <table class="income-table" aria-label="טבלת הכנסות ודו״חות Z">
+    <table class="income-table" aria-label="טבלת הכנסות">
       <thead>
         <tr>
           <th scope="col">תאריך</th>
+          <th scope="col">שעה</th>
           <th scope="col">הכנסות</th>
           <th scope="col">סוג הכנסה</th>
           <th scope="col">פרויקט</th>
@@ -3948,21 +4076,24 @@ async function loadZReports(){
         ${(data || []).map(row => {
           const documentCount = Array.isArray(row.z_report_documents) ? row.z_report_documents.length : 0;
           const hasDocuments = documentCount > 0;
+          const incomeType = normalizeIncomeType(row.income_type);
           const documentLabel = hasDocuments
-            ? `פתיחת מסמכי דו״ח Z (${documentCount})`
-            : "אין מסמכים מצורפים לדו״ח Z";
+            ? `פתיחת מסמכי הכנסה (${documentCount})`
+            : "אין מסמכים מצורפים להכנסה";
+          const reportTime = row.report_time ? String(row.report_time).slice(0,5) : "";
 
           return `
           <tr>
             <td>${row.report_date}</td>
+            <td>${reportTime}</td>
             <td>${money(row.total_income_ils)}</td>
-            <td>דו"ח Z</td>
+            <td>${incomeType}</td>
             <td>${row.projects?.name || ""}</td>
             <td>
               <button
                 class="doc-indicator ${hasDocuments ? "active" : "inactive"}"
                 type="button"
-                ${hasDocuments ? `data-z-report-id="${row.id}"` : "disabled aria-disabled=\"true\""}
+                ${hasDocuments ? `data-z-report-id="${row.id}" data-z-report-income-type="${incomeType.replace(/"/g, "&quot;")}"` : "disabled aria-disabled=\"true\""}
                 aria-label="${documentLabel}"
                 title="${documentLabel}">
                 <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
@@ -3976,8 +4107,12 @@ async function loadZReports(){
                   type="button"
                   data-z-report-id="${row.id}"
                   data-z-report-date="${row.report_date}"
+                  data-z-report-time="${reportTime}"
                   data-z-report-total="${Number(row.total_income_ils || 0)}"
-                  data-z-report-project-id="${row.projects?.id || ""}">
+                  data-z-report-income-type="${incomeType.replace(/"/g, "&quot;")}"
+                  data-z-report-project-id="${row.projects?.id || ""}"
+                  data-z-report-notes="${String(row.notes || "").replace(/"/g, "&quot;")}"
+                  data-z-report-income-source="${row.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE}">
                   ✏️ Edit
                 </button>
                 <button
@@ -3997,7 +4132,7 @@ async function loadZReports(){
 
   document.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
     button.onclick = () => {
-      void openZReportDocuments(button.dataset.zReportId || "");
+      void openZReportDocuments(button.dataset.zReportId || "", button.dataset.zReportIncomeType || "");
     };
   });
 
@@ -4008,6 +4143,30 @@ async function loadZReports(){
   document.querySelectorAll(".delete-action[data-z-report-id]").forEach(button => {
     button.onclick = () => void deleteZReport(button.dataset.zReportId || "");
   });
+}
+
+async function loadIncomeTypeSuggestions(){
+  incomeTypeSuggestions.clear();
+  addIncomeTypeSuggestion(Z_INCOME_TYPE_DEFAULT);
+
+  if(!sb || !userId){
+    renderIncomeTypeSuggestionsPanel();
+    return;
+  }
+
+  const {data, error} = await sb.from("daily_z_reports")
+    .select("income_type")
+    .eq("user_id", userId)
+    .order("income_type", {ascending: true});
+
+  if(error){
+    console.error(error);
+    renderIncomeTypeSuggestionsPanel();
+    return;
+  }
+
+  (Array.isArray(data) ? data : []).forEach(row => addIncomeTypeSuggestion(row?.income_type));
+  renderIncomeTypeSuggestionsPanel($("zIncomeType")?.value || "");
 }
 
 async function loadEmployees(){
@@ -4070,6 +4229,8 @@ document.querySelectorAll("[data-action]").forEach(button => {
   button.onclick = () => openAction(button.dataset.action);
 });
 
+bindIncomeTypeSuggestionInteractions();
+
 async function showExpensePendingEntryChoice(){
   try {
     const pendingRows = await loadPendingReviewRows();
@@ -4107,13 +4268,30 @@ async function openAction(action){
 
     $("expenseDialog").showModal();
   } else if(action === "z"){
-    resetZDialogMode();
-    resetZFileSelection();
-    $("zDate").value = today();
-    $("zDialog").showModal();
+    openNewIncomeDialog({source: Z_REPORT_INCOME_SOURCE});
+  } else if(action === "income"){
+    openNewIncomeDialog({source: NON_Z_INCOME_SOURCE});
   }else{
     alert("הפעולה תתווסף בעדכון הבא.");
   }
+}
+
+function openNewIncomeDialog({source = Z_REPORT_INCOME_SOURCE} = {}){
+  resetZDialogMode();
+  resetZFileSelection();
+  currentZIncomeSource = normalizeIncomeSource(source);
+  $("zForm")?.reset();
+  $("zDate").value = today();
+  $("zTime").value = currentTime();
+  $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
+  $("zNotes").value = "";
+
+  if(currentZIncomeSource === NON_Z_INCOME_SOURCE){
+    const title = $("zDialogTitle");
+    if(title) title.textContent = "הכנסה חדשה";
+  }
+
+  $("zDialog")?.showModal();
 }
 
 $("expenseDialog")?.addEventListener("cancel", event => {
@@ -4152,6 +4330,10 @@ $("zDialog")?.addEventListener("close", () => {
 $("zForm")?.addEventListener("reset", () => {
   pendingZReportId = "";
   currentZReportEditId = "";
+  currentZIncomeSource = Z_REPORT_INCOME_SOURCE;
+  $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
+  $("zTime").value = currentTime();
+  $("zNotes").value = "";
 });
 
 $("zDocumentsDialog")?.addEventListener("close", () => {
@@ -4185,6 +4367,9 @@ $("zDocumentsFullscreenPrev")?.addEventListener("click", () => navigateZDocument
 $("zDocumentsFullscreenNext")?.addEventListener("click", () => navigateZDocumentsByOffset(1));
 
 $("profileButton").onclick = () => $("businessDialog").showModal();
+$("incomeNewButton")?.addEventListener("click", () => {
+  openNewIncomeDialog({source: NON_Z_INCOME_SOURCE});
+});
 
 function renderSelectedFiles(){
   const preview = $("expenseFilePreview");
@@ -4974,12 +5159,21 @@ $("zForm").onsubmit = async event => {
   let uploadCleanupAttempted = false;
 
   try {
+    const normalizedIncomeType = normalizeIncomeType($("zIncomeType")?.value);
+    const reportTime = $("zTime")?.value || null;
+    const notesValue = $("zNotes")?.value?.trim() || "";
+    const isFromZReport = isZReportIncomeSource(currentZIncomeSource);
+
     if(currentZReportEditId){
       const {error:updateError} = await sb.from("daily_z_reports")
         .update({
           report_date:$("zDate").value,
+          report_time: reportTime,
           project_id:$("zProject").value || null,
-          total_income_ils:Number($("zTotal").value || 0)
+          total_income_ils:Number($("zTotal").value || 0),
+          income_type: normalizedIncomeType,
+          notes: notesValue || null,
+          is_from_z_report: isFromZReport
         })
         .eq("user_id", userId)
         .eq("id", currentZReportEditId);
@@ -4996,8 +5190,12 @@ $("zForm").onsubmit = async event => {
         .insert({
           user_id:userId,
           report_date:$("zDate").value,
+          report_time: reportTime,
           project_id:$("zProject").value || null,
-          total_income_ils:Number($("zTotal").value || 0)
+          total_income_ils:Number($("zTotal").value || 0),
+          income_type: normalizedIncomeType,
+          notes: notesValue || null,
+          is_from_z_report: isFromZReport
         })
         .select("id")
         .single();
@@ -5009,7 +5207,7 @@ $("zForm").onsubmit = async event => {
 
       zReportId = insertedReport?.id || "";
       if(!zReportId){
-        setStatus($("zStatus"), "תשובת שמירת דו״ח Z אינה תקינה", "error");
+        setStatus($("zStatus"), "תשובת שמירת ההכנסה אינה תקינה", "error");
         return;
       }
 
@@ -5019,8 +5217,8 @@ $("zForm").onsubmit = async event => {
     if(!selectedZFiles.length){
       pendingZReportId = "";
       currentZReportEditId = "";
-      await Promise.all([loadZReports(),loadDashboard()]);
-      queueZDialogResetAfterClose(isEditingSession ? "דו״ח Z עודכן" : "הכנסה חדשה נשמרה");
+      await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
+      queueZDialogResetAfterClose(isEditingSession ? "הכנסה עודכנה" : "הכנסה חדשה נשמרה");
       return;
     }
 
@@ -5066,7 +5264,7 @@ $("zForm").onsubmit = async event => {
       const missingUploadPlan = uploadPlan.filter(item => !existingRowsByOrder.has(item.order));
       if(!missingUploadPlan.length && existingRows.length === uploadPlan.length){
         pendingZReportId = "";
-        await Promise.all([loadZReports(),loadDashboard()]);
+        await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
         queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
         return;
       }
@@ -5121,10 +5319,10 @@ $("zForm").onsubmit = async event => {
         const cleanupSuffix = cleanupError ? " ניקוי הקבצים שהועלו לא הושלם." : "";
         setStatus(
           $("zStatus"),
-          `דו״ח Z נשמר, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
+          `ההכנסה נשמרה, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
           "error"
         );
-        await Promise.all([loadZReports(),loadDashboard()]);
+        await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
         return;
       }
 
@@ -5146,17 +5344,17 @@ $("zForm").onsubmit = async event => {
       const cleanupSuffix = cleanupError ? " ניקוי הקבצים שהועלו לא הושלם." : "";
       setStatus(
         $("zStatus"),
-        `דו״ח Z נשמר, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
+        `ההכנסה נשמרה, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
         "error"
       );
-      await Promise.all([loadZReports(),loadDashboard()]);
+      await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
       return;
     }
 
     pendingZReportId = "";
     currentZReportEditId = "";
-    await Promise.all([loadZReports(),loadDashboard()]);
-    queueZDialogResetAfterClose(isEditingSession ? "דו״ח Z עודכן" : "הכנסה חדשה נשמרה");
+    await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
+    queueZDialogResetAfterClose(isEditingSession ? "הכנסה עודכנה" : "הכנסה חדשה נשמרה");
   } catch(error){
     console.error(error);
 
@@ -5171,14 +5369,14 @@ $("zForm").onsubmit = async event => {
     if(zReportId){
       setStatus(
         $("zStatus"),
-        `דו״ח Z נשמר, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
+        `ההכנסה נשמרה, אבל צירוף המסמכים נכשל והמסמכים לא נשמרו.${cleanupSuffix}`,
         "error"
       );
-      await Promise.all([loadZReports(),loadDashboard()]);
+      await Promise.all([loadZReports(),loadDashboard(),loadIncomeTypeSuggestions()]);
       return;
     }
 
-    setStatus($("zStatus"), `${error?.message || "שגיאה בשמירת דו״ח Z"}${cleanupSuffix}`, "error");
+    setStatus($("zStatus"), `${error?.message || "שגיאה בשמירת הכנסה"}${cleanupSuffix}`, "error");
   } finally {
     isZSaving = false;
     if(submitButton) submitButton.disabled = false;

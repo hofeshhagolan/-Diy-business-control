@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260726-4">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260726-5">
 </head>
 <body>
 
@@ -97,7 +97,7 @@
         <h3>⚡ פעולות מהירות</h3>
         <div class="quick">
           <button data-action="expense">הוצאה חדשה</button>
-          <button data-action="z">דו״ח Z</button>
+          <button data-action="z">הכנסה חדשה</button>
           <button data-action="hours">שעות עבודה</button>
           <button data-action="reminder">תזכורת</button>
         </div>
@@ -112,7 +112,10 @@
     <section id="incomeView" class="view">
       <h2>הכנסות</h2>
       <div class="card">
-        <h3>הכנסות ודו״חות Z</h3>
+        <div class="card-head-inline">
+          <h3>הכנסות</h3>
+          <button id="incomeNewButton" type="button" class="secondary">הכנסה חדשה</button>
+        </div>
         <div id="zTable" class="table-wrap">טוענת…</div>
       </div>
     </section>
@@ -164,7 +167,7 @@
   <div class="modal-head"><strong>מה תרצי להוסיף?</strong><button data-close aria-label="סגירת חלון הוספה מהירה">✕</button></div>
   <div class="modal-body action-grid">
     <button data-action="expense">📷 הוצאה חדשה</button>
-    <button data-action="z">💰 דו״ח Z</button>
+    <button data-action="z">💰 הכנסה חדשה</button>
     <button data-action="hours">⏰ שעות עבודה</button>
     <button data-action="reminder">📅 תזכורת</button>
   </div>
@@ -293,12 +296,19 @@
 </dialog>
 
 <dialog id="zDialog">
-  <div class="modal-head"><strong>דו״ח Z</strong><button data-close aria-label="סגירת חלון דו״ח Z">✕</button></div>
+  <div class="modal-head"><strong id="zDialogTitle">הכנסה חדשה</strong><button data-close aria-label="סגירת חלון הכנסה">✕</button></div>
   <div class="modal-body">
     <form id="zForm" class="form-grid">
       <label>תאריך<input id="zDate" type="date" required></label>
-      <label>סך הכנסות<input id="zTotal" type="number" min="0" step=".01" required></label>
+      <label>שעה<input id="zTime" type="time" required></label>
+      <label>סכום<input id="zTotal" type="number" min="0" step=".01" required></label>
+      <label class="wide income-type-field">
+        <span>סוג הכנסה</span>
+        <input id="zIncomeType" type="text" required autocomplete="off" list="incomeTypeSuggestionsList">
+        <div id="zIncomeTypeSuggestions" class="income-type-suggestions hidden" role="listbox" aria-label="הצעות לסוג הכנסה"></div>
+      </label>
       <label>פרויקט<select id="zProject"></select></label>
+      <label class="wide">הערות<textarea id="zNotes"></textarea></label>
       <div class="wide file-actions">
         <button id="zBrowseButton" class="secondary" type="button">צרפי מסמכים</button>
         <input id="zBrowseInput" type="file" accept="image/*,application/pdf" multiple>
@@ -306,11 +316,13 @@
       <div id="zFilePreview" class="file-preview wide">
         <div class="file-preview-empty">לא נבחרו מסמכים.</div>
       </div>
-      <button class="primary wide">שמרי דו״ח Z</button>
+      <button class="primary wide">שמרי הכנסה</button>
       <div id="zStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>
 </dialog>
+
+<datalist id="incomeTypeSuggestionsList"></datalist>
 
 <dialog id="zDocumentsDialog" aria-labelledby="zDocumentsDialogTitle">
   <div class="modal-head">
@@ -368,6 +380,6 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260726-4"></script>
+<script src="/static/js/app.js?v=20260726-5"></script>
 </body>
 </html>

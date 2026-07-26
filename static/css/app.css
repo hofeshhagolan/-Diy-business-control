@@ -42,6 +42,12 @@ button,input,select,textarea{font:inherit}
 label{display:flex;flex-direction:column;gap:6px;font-weight:700}
 input,select,textarea{width:100%;border:1px solid #c9d5e1;border-radius:11px;padding:12px;background:#fff}
 textarea{min-height:92px}
+.income-type-field{position:relative}
+.income-type-field span{display:block}
+.income-type-suggestions{position:relative;z-index:4;display:grid;gap:6px;margin-top:2px;padding:8px;border:1px solid #cfd9e4;border-radius:12px;background:#fff;box-shadow:0 10px 24px rgba(16,44,78,.12);max-height:220px;overflow:auto}
+.income-type-suggestions.hidden{display:none!important}
+.income-type-suggestion{width:100%;border:1px solid #d5e0ea;background:#f8fbff;color:var(--brand);border-radius:10px;padding:10px 12px;text-align:right;font-weight:700;cursor:pointer}
+.income-type-suggestion:hover,.income-type-suggestion:focus-visible{background:#eef5fb;border-color:#b7cae1}
 .primary,.secondary{border-radius:11px;padding:12px 16px;font-weight:800}
 .primary{border:0;background:var(--brand);color:#fff}
 .secondary{border:1px solid var(--brand);background:#fff;color:var(--brand)}
@@ -62,6 +68,8 @@ main{max-width:1080px;margin:auto;padding:16px}
 .view{display:none}.view.active{display:block}
 h2{margin:4px 0 14px;color:var(--brand)}
 .card{padding:18px;margin-bottom:14px}
+.card-head-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.card-head-inline h3{margin:0}
 .snapshot{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .metric{padding:14px;border-radius:14px;background:#f7f9fc}
 .metric span{display:block;color:var(--muted);font-size:.9rem}
@@ -91,17 +99,19 @@ th{background:#eef3f8;color:var(--brand)}
 #zTable .income-table th,
 #zTable .income-table td{padding:8px 6px}
 #zTable .income-table th:nth-child(1),
-#zTable .income-table td:nth-child(1){width:106px}
+#zTable .income-table td:nth-child(1){width:98px}
 #zTable .income-table th:nth-child(2),
-#zTable .income-table td:nth-child(2){width:112px}
+#zTable .income-table td:nth-child(2){width:72px}
 #zTable .income-table th:nth-child(3),
-#zTable .income-table td:nth-child(3){width:96px}
+#zTable .income-table td:nth-child(3){width:102px}
 #zTable .income-table th:nth-child(4),
-#zTable .income-table td:nth-child(4){width:180px;white-space:nowrap}
+#zTable .income-table td:nth-child(4){width:150px;white-space:nowrap}
 #zTable .income-table th:nth-child(5),
-#zTable .income-table td:nth-child(5){width:76px;text-align:center}
+#zTable .income-table td:nth-child(5){width:140px;white-space:nowrap}
 #zTable .income-table th:nth-child(6),
-#zTable .income-table td:nth-child(6){width:120px;text-align:left}
+#zTable .income-table td:nth-child(6){width:72px;text-align:center}
+#zTable .income-table th:nth-child(7),
+#zTable .income-table td:nth-child(7){width:120px;text-align:left}
 #zTable .income-table .doc-indicator{padding:4px 6px;gap:4px;font-size:.74rem}
 #zTable .income-table .doc-indicator-icon{font-size:.82rem}
 .bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
@@ -232,6 +242,7 @@ dialog::backdrop{background:#07182a99}
   .quick{grid-template-columns:1fr 1fr}
   .form-grid{grid-template-columns:1fr}
   .wide{grid-column:1}
+  .income-type-suggestions{max-height:180px}
   .grouping-manual-layout{grid-template-columns:1fr}
   .expense-pending-choice-actions{grid-template-columns:1fr}
   .grouping-manual-preview{min-height:240px}
@@ -248,17 +259,19 @@ dialog::backdrop{background:#07182a99}
   .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
   #zTable .income-table th,#zTable .income-table td{padding:7px 4px;font-size:.92rem}
   #zTable .income-table th:nth-child(1),
-  #zTable .income-table td:nth-child(1){width:98px}
+  #zTable .income-table td:nth-child(1){width:92px}
   #zTable .income-table th:nth-child(2),
-  #zTable .income-table td:nth-child(2){width:96px}
+  #zTable .income-table td:nth-child(2){width:68px}
   #zTable .income-table th:nth-child(3),
-  #zTable .income-table td:nth-child(3){width:86px}
+  #zTable .income-table td:nth-child(3){width:90px}
   #zTable .income-table th:nth-child(4),
-  #zTable .income-table td:nth-child(4){width:146px}
+  #zTable .income-table td:nth-child(4){width:126px}
   #zTable .income-table th:nth-child(5),
-  #zTable .income-table td:nth-child(5){width:70px}
+  #zTable .income-table td:nth-child(5){width:120px}
   #zTable .income-table th:nth-child(6),
-  #zTable .income-table td:nth-child(6){width:106px}
+  #zTable .income-table td:nth-child(6){width:66px}
+  #zTable .income-table th:nth-child(7),
+  #zTable .income-table td:nth-child(7){width:102px}
   #zTable .income-table .row-action{font-size:.72rem;padding:4px 6px}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}

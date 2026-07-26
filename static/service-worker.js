@@ -1,4 +1,4 @@
-const CACHE_NAME = "diy-business-control-v1";
+const CACHE_NAME = "diy-business-control-v2";
 const ASSETS = [
   "/",
   "/manifest.webmanifest",

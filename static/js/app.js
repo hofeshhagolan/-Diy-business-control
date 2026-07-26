@@ -3187,13 +3187,6 @@ function setupManualTablist(tabIds, activateTab){
   });
 }
 
-function hasNestedInteractiveTarget(element, container){
-  if(!(element instanceof Element) || !(container instanceof Element)) return false;
-
-  const interactiveAncestor = element.closest("button,a,input,select,textarea,[role='button'],[role='tab']");
-  return Boolean(interactiveAncestor && interactiveAncestor !== container);
-}
-
 function setupDashboardCardNavigation(){
   document.querySelectorAll("[data-dashboard-view]").forEach(card => {
     const targetView = card.dataset.dashboardView;
@@ -3216,13 +3209,11 @@ function setupDashboardCardNavigation(){
     };
 
     card.addEventListener("click", event => {
-      if(event.target !== card && hasNestedInteractiveTarget(event.target, card)) return;
       navigateToDashboardDestination();
     });
 
     card.addEventListener("keydown", event => {
       if(event.key !== "Enter" && event.key !== " ") return;
-      if(event.target !== card && hasNestedInteractiveTarget(event.target, card)) return;
       event.preventDefault();
       navigateToDashboardDestination();
     });

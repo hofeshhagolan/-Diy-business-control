@@ -3187,10 +3187,11 @@ function setupManualTablist(tabIds, activateTab){
   });
 }
 
-function isInteractiveElement(element){
-  if(!(element instanceof Element)) return false;
+function hasNestedInteractiveTarget(element, container){
+  if(!(element instanceof Element) || !(container instanceof Element)) return false;
 
-  return Boolean(element.closest("button,a,input,select,textarea,[role='button'],[role='tab']"));
+  const interactiveAncestor = element.closest("button,a,input,select,textarea,[role='button'],[role='tab']");
+  return Boolean(interactiveAncestor && interactiveAncestor !== container);
 }
 
 function setupDashboardCardNavigation(){
@@ -3215,13 +3216,13 @@ function setupDashboardCardNavigation(){
     };
 
     card.addEventListener("click", event => {
-      if(event.target !== card && isInteractiveElement(event.target)) return;
+      if(event.target !== card && hasNestedInteractiveTarget(event.target, card)) return;
       navigateToDashboardDestination();
     });
 
     card.addEventListener("keydown", event => {
       if(event.key !== "Enter" && event.key !== " ") return;
-      if(event.target !== card && isInteractiveElement(event.target)) return;
+      if(event.target !== card && hasNestedInteractiveTarget(event.target, card)) return;
       event.preventDefault();
       navigateToDashboardDestination();
     });
@@ -3850,10 +3851,11 @@ async function loadZReports(){
     <table class="income-table" aria-label="טבלת הכנסות ודו״חות Z">
       <thead>
         <tr>
-          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
           <th scope="col">תאריך</th>
           <th scope="col">הכנסות</th>
+          <th scope="col">סוג הכנסה</th>
           <th scope="col">פרויקט</th>
+          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
           <th scope="col" aria-label="פעולות">פעולות</th>
         </tr>
       </thead>
@@ -3867,6 +3869,10 @@ async function loadZReports(){
 
           return `
           <tr>
+            <td>${row.report_date}</td>
+            <td>${money(row.total_income_ils)}</td>
+            <td>דו"ח Z</td>
+            <td>${row.projects?.name || ""}</td>
             <td>
               <button
                 class="doc-indicator ${hasDocuments ? "active" : "inactive"}"
@@ -3875,12 +3881,9 @@ async function loadZReports(){
                 aria-label="${documentLabel}"
                 title="${documentLabel}">
                 <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
-                <span class="doc-indicator-text">${hasDocuments ? `מסמכים (${documentCount})` : "ללא מסמכים"}</span>
+                <span class="doc-indicator-text">${hasDocuments ? `(${documentCount})` : "(0)"}</span>
               </button>
             </td>
-            <td>${row.report_date}</td>
-            <td>${money(row.total_income_ils)}</td>
-            <td>${row.projects?.name || ""}</td>
             <td>
               <div class="row-actions">
                 <button
@@ -3890,13 +3893,13 @@ async function loadZReports(){
                   data-z-report-date="${row.report_date}"
                   data-z-report-total="${Number(row.total_income_ils || 0)}"
                   data-z-report-project-id="${row.projects?.id || ""}">
-                  עריכה
+                  ✏️ Edit
                 </button>
                 <button
                   class="row-action delete-action"
                   type="button"
                   data-z-report-id="${row.id}">
-                  מחיקה
+                  ❌ Delete
                 </button>
               </div>
             </td>

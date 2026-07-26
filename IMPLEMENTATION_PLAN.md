@@ -290,22 +290,10 @@
    - Dependency: Task 31 provides persisted Z-report multi-document attachments.
 
 31. [Income documents] Add multi-file document support for Z reports.
-   - Status: Pending
-   - Scope:
-   - Add צלם דו"ח Z to the Z-report entry flow.
-   - Support multiple files/documents for one Z report.
-   - Reuse existing private file-storage and document-viewer patterns where practical.
-   - Use a normalized one-to-many attachment structure rather than one attachment field on the Z record.
-   - Store file information and ordering needed to reopen and view all documents reliably.
-   - Data impact:
-   - Requires a database migration.
-   - Requires appropriate ownership/security policies.
-   - Verification:
-   - Create a Z report with multiple documents.
-   - Reopen it.
-   - View all attached documents.
-   - Confirm eye active/disabled behavior.
-   - Confirm one user cannot access another user's documents.
+   - Status: Done
+   - Completed: 2026-07-26
+   - Result: Added multi-file document support for Z reports using a normalized attachment model, integrated into the Z-report entry and reopen/view flows while reusing the existing private storage and document-viewer patterns.
+   - Verification: Completed and verified in production, including successful runtime testing of create, reopen, and attached-document viewing behavior.
 
 32. [Income] Add non-Z income with project-based activity classification and multi-file documents.
    - Status: Pending

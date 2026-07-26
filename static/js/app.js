@@ -96,6 +96,10 @@ const monthStart = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
 };
+const monthEnd = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()).padStart(2,"0")}`;
+};
 
 const currentYear = () => new Date().getFullYear();
 const getSelectedYear = () => {
@@ -3392,11 +3396,13 @@ async function loadLookups(){
 }
 
 async function loadDashboard(){
-  const year = getSelectedYear();
+  const year = currentYear();
   const from = yearStart(year);
   const to = yearEnd(year);
+  const monthFrom = monthStart();
+  const monthTo = monthEnd();
 
-  const [{data:expenses},{data:income}] = await Promise.all([
+  const [{data:expensesYear},{data:incomeYear},{data:expensesMonth},{data:incomeMonth}] = await Promise.all([
     sb.from("expenses")
       .select("gross_ils")
       .eq("user_id",userId)
@@ -3406,15 +3412,29 @@ async function loadDashboard(){
       .select("total_income_ils")
       .eq("user_id",userId)
       .gte("report_date",from)
-      .lte("report_date",to)
+      .lte("report_date",to),
+    sb.from("expenses")
+      .select("gross_ils")
+      .eq("user_id",userId)
+      .gte("document_date",monthFrom)
+      .lte("document_date",monthTo),
+    sb.from("daily_z_reports")
+      .select("total_income_ils")
+      .eq("user_id",userId)
+      .gte("report_date",monthFrom)
+      .lte("report_date",monthTo)
   ]);
 
-  const expenseTotal = (expenses || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);
-  const incomeTotal = (income || []).reduce((s,x)=>s+Number(x.total_income_ils || 0),0);
+  const expenseYearTotal = (expensesYear || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);
+  const incomeYearTotal = (incomeYear || []).reduce((s,x)=>s+Number(x.total_income_ils || 0),0);
+  const expenseMonthTotal = (expensesMonth || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);
+  const incomeMonthTotal = (incomeMonth || []).reduce((s,x)=>s+Number(x.total_income_ils || 0),0);
 
-  $("incomeMetric").textContent = money(incomeTotal);
-  $("expenseMetric").textContent = money(expenseTotal);
-  $("profitMetric").textContent = money(incomeTotal-expenseTotal);
+  $("incomeMonthMetric").textContent = money(incomeMonthTotal);
+  $("expenseMonthMetric").textContent = money(expenseMonthTotal);
+  $("incomeYearMetric").textContent = money(incomeYearTotal);
+  $("expenseYearMetric").textContent = money(expenseYearTotal);
+  $("profitYearMetric").textContent = money(incomeYearTotal-expenseYearTotal);
 
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate()-1);
@@ -3432,7 +3452,7 @@ async function loadDashboard(){
 
   $("insightsList").innerHTML =
     (missing ? '<div>🔴 לא הוזן דו״ח Z של אתמול.</div><hr>' : "") +
-    `<div>🟢 מצב העסק: הכנסות החודש ${money(incomeTotal)}, הוצאות ${money(expenseTotal)}.</div>`;
+    `<div>🟢 מצב העסק: הכנסות החודש ${money(incomeMonthTotal)}, הוצאות החודש ${money(expenseMonthTotal)}.</div>`;
 }
 
 async function loadExpenses(){

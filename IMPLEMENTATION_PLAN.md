@@ -232,16 +232,26 @@
    - Status: Pending
    - Rules:
    - Reuse existing navigation handlers. Do not duplicate routing logic.
-   - הוצאות is clickable because a real destination exists.
-   - פיננסים is clickable because a real destination exists.
+   - Dashboard summary uses 6 cards in a two-column RTL layout:
+   - הכנסות החודש
+   - הוצאות החודש
+   - הכנסות השנה
+   - הוצאות השנה
+   - רווח / הפסד שנתי
+   - מצב חשבון
+   - Monetary values display exactly two decimal places.
+   - Keep existing dashboard visual language (card style, spacing, hierarchy).
+   - הכנסות החודש and הכנסות השנה are clickable because a real destination exists.
+   - הוצאות החודש and הוצאות השנה are clickable because a real destination exists.
+   - פיננסים remains clickable because a real destination exists.
    - תובנות is clickable because a real Insights destination already exists.
-   - הכנסות remains non-clickable until Task 29 creates the dedicated Income screen.
    - משימות remains non-clickable until a real Tasks screen exists.
    - לוח שנה / השבוע הקרוב remains non-clickable until a real Calendar screen exists.
    - Other cards without real destinations remain non-clickable and visually neutral.
    - Quick-action cards keep their own internal controls and must not be hijacked by card-level navigation.
    - Verification:
    - Test whole-card tapping on mobile.
+   - Confirm title/value/empty-area taps all navigate on clickable cards.
    - Test keyboard/focus behavior where relevant.
    - Confirm placeholder cards do not visually imply clickability.
 
@@ -252,12 +262,20 @@
    - Add direct navigation access for הכנסות.
    - Finance provides clear access to both Income and Expenses.
    - Do not duplicate full Income and Expense management interfaces inside Finance.
-   - Once the dedicated Income screen exists, make the dashboard הכנסות card clickable and route it there.
+   - There must be exactly one Income screen implementation.
+   - Dashboard הכנסות החודש, Dashboard הכנסות השנה, and Finance → Income must open the same Income screen via the same navigation path.
+   - There must be exactly one Expenses screen implementation.
+   - Dashboard הוצאות החודש, Dashboard הוצאות השנה, and Finance → Expenses must open the same Expenses screen.
+   - Dashboard cards are entry shortcuts only; no separate monthly/yearly screens.
+   - Automatic preset filters are not required at this stage.
    - Verification:
    - Direct Income navigation.
+   - Dashboard הכנסות החודש → Income.
+   - Dashboard הכנסות השנה → Income.
    - Finance → Income.
+   - Dashboard הוצאות החודש → Expenses.
+   - Dashboard הוצאות השנה → Expenses.
    - Finance → Expenses.
-   - Dashboard Income-card navigation after the screen is live.
 
 30. [Income UI] Make the Income list compact and mobile-first, including document-view status.
    - Status: Pending

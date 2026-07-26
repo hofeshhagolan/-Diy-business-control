@@ -57,7 +57,7 @@ main{max-width:1080px;margin:auto;padding:16px}
 .view{display:none}.view.active{display:block}
 h2{margin:4px 0 14px;color:var(--brand)}
 .card{padding:18px;margin-bottom:14px}
-.snapshot{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.snapshot{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .metric{padding:14px;border-radius:14px;background:#f7f9fc}
 .metric span{display:block;color:var(--muted);font-size:.9rem}
 .metric strong{display:block;margin-top:8px;font-size:1.4rem}
@@ -78,23 +78,27 @@ th{background:#eef3f8;color:var(--brand)}
 .doc-indicator.active{border-color:#1d8f5f;background:#e9f8f0;color:#14643f}
 .doc-indicator.inactive{border-color:#d6dde5;background:#f7f9fc;color:#6b7786}
 .doc-indicator:disabled{opacity:.7;cursor:not-allowed}
-.row-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-.row-action{border:1px solid #cfe0ef;background:#fff;color:var(--brand);padding:5px 8px;border-radius:999px;font-size:.8rem;font-weight:700}
+.row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-start}
+.row-action{border:1px solid #cfe0ef;background:#fff;color:var(--brand);padding:4px 7px;border-radius:999px;font-size:.76rem;font-weight:700;line-height:1.2}
 .row-action.delete-action{border-color:#f0c2c2;color:#b23a3a}
 
 #zTable .income-table{min-width:0;table-layout:fixed}
 #zTable .income-table th,
 #zTable .income-table td{padding:8px 6px}
 #zTable .income-table th:nth-child(1),
-#zTable .income-table td:nth-child(1){width:148px;text-align:center}
+#zTable .income-table td:nth-child(1){width:106px}
 #zTable .income-table th:nth-child(2),
 #zTable .income-table td:nth-child(2){width:112px}
 #zTable .income-table th:nth-child(3),
-#zTable .income-table td:nth-child(3){width:110px}
+#zTable .income-table td:nth-child(3){width:96px}
 #zTable .income-table th:nth-child(4),
-#zTable .income-table td:nth-child(4){white-space:normal;overflow-wrap:anywhere}
+#zTable .income-table td:nth-child(4){width:180px;white-space:nowrap}
 #zTable .income-table th:nth-child(5),
-#zTable .income-table td:nth-child(5){width:150px;text-align:left}
+#zTable .income-table td:nth-child(5){width:76px;text-align:center}
+#zTable .income-table th:nth-child(6),
+#zTable .income-table td:nth-child(6){width:120px;text-align:left}
+#zTable .income-table .doc-indicator{padding:4px 6px;gap:4px;font-size:.74rem}
+#zTable .income-table .doc-indicator-icon{font-size:.82rem}
 .bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
 .bottom-nav button{border:0;background:transparent;color:var(--muted);padding:7px 2px;font-size:.78rem}
 .bottom-nav button.active{color:var(--brand);font-weight:800}
@@ -235,13 +239,18 @@ dialog::backdrop{background:#07182a99}
   .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
   #zTable .income-table th,#zTable .income-table td{padding:7px 4px;font-size:.92rem}
   #zTable .income-table th:nth-child(1),
-  #zTable .income-table td:nth-child(1){width:138px}
+  #zTable .income-table td:nth-child(1){width:98px}
   #zTable .income-table th:nth-child(2),
-  #zTable .income-table td:nth-child(2){width:104px}
+  #zTable .income-table td:nth-child(2){width:96px}
   #zTable .income-table th:nth-child(3),
-  #zTable .income-table td:nth-child(3){width:102px}
+  #zTable .income-table td:nth-child(3){width:86px}
+  #zTable .income-table th:nth-child(4),
+  #zTable .income-table td:nth-child(4){width:146px}
   #zTable .income-table th:nth-child(5),
-  #zTable .income-table td:nth-child(5){width:132px}
+  #zTable .income-table td:nth-child(5){width:70px}
+  #zTable .income-table th:nth-child(6),
+  #zTable .income-table td:nth-child(6){width:106px}
+  #zTable .income-table .row-action{font-size:.72rem;padding:4px 6px}
   .review-item-nav{grid-template-columns:auto 1fr auto}
   .review-item-nav-back{grid-column:1/-1;justify-self:center;text-align:center}
   .app-toast{bottom:calc(92px + env(safe-area-inset-bottom));font-size:.95rem;padding:11px 14px}

@@ -136,7 +136,7 @@
    - Deferred items survive closing/reopening and appear in the existing pending-review flow.
    - Gate:
    - Complete and runtime-verify Task 21A before Task 22 can be signed off.
-   - Do not start Tasks 25–33 until Task 21A and the critical Task 22 gate are closed.
+   - Do not start Tasks 25–34 until Task 21A and the critical Task 22 gate are closed.
 
 21B. [Integration follow-up] Make expense-dialog primary states mutually exclusive and remove overlapping review UI states.
    - Status: Done
@@ -160,7 +160,7 @@
 
 22. [Regression tests] Add end-to-end and targeted regression coverage: single-invoice continuity, multi-invoice happy path, save-current-open-next, viewer constraints, low-confidence manual grouping, deferred/resume, idempotency, and atomic-failure recovery.
    - Status: Deferred (Final Regression & Acceptance Gate)
-   - Execution order note: Task 22 is intentionally deferred until after Tasks 25–33 are completed. Continue normal per-task runtime verification during implementation, then execute this full checklist as the final comprehensive regression/acceptance pass.
+   - Execution order note: Task 22 is intentionally deferred until after Tasks 25–34 are completed. Continue normal per-task runtime verification during implementation, then execute this full checklist as the final comprehensive regression/acceptance pass.
    - Critical runtime verification checklist:
    - Single-invoice analyze → review → save.
    - Single-invoice “אבדוק מאוחר יותר” → close → resume.
@@ -189,7 +189,7 @@
 - memory usage during long review sessions
    - Status: Pending
    - Requirement: Task 23 remains required before the current phase is formally complete.
-   - Gate clarification: It is not automatically a hard blocker before every individual Tasks 25–33 feature slice unless performance testing reveals a concrete blocker.
+   - Gate clarification: It is not automatically a hard blocker before every individual Tasks 25–34 feature slice unless performance testing reveals a concrete blocker.
 
 24. [Quality & Accessibility] Accessibility Audit (Israel Standard 5568 / WCAG AA)
    - Status: Done
@@ -295,7 +295,27 @@
    - Result: Added multi-file document support for Z reports using a normalized attachment model, integrated into the Z-report entry and reopen/view flows while reusing the existing private storage and document-viewer patterns.
    - Verification: Completed and verified in production, including successful runtime testing of create, reopen, and attached-document viewing behavior.
 
-32. [Income] Add non-Z income with project-based activity classification and multi-file documents.
+32. [Post-release bug fixes & UX] Add global back navigation and independent screen scroll behavior.
+   - Status: Pending
+   - Scope:
+   - Every internal screen must include a standard Back button in the page header.
+   - The Dashboard is the root screen and must not display a Back button.
+   - The Back button must perform true history navigation to the previous screen rather than opening a fixed destination.
+   - The behavior must be consistent across the entire application.
+   - Screen scroll position must not be shared between views.
+   - Navigating to another screen must not inherit the previous screen's scroll position.
+   - Each screen should open from the top unless future requirements explicitly specify scroll restoration.
+   - Implementation:
+   - Implement both fixes.
+   - Validate on mobile.
+   - Verify that no regressions are introduced.
+   - Verification:
+   - Wait for Render deployment.
+   - Runtime-verify the behavior in production.
+   - Completion rule:
+   - Task 32 is complete only after runtime verification in production.
+
+33. [Income] Add non-Z income with project-based activity classification and multi-file documents.
    - Status: Pending
    - Scope:
    - `הכנסה חדשה` offers:
@@ -326,7 +346,7 @@
    - Verify saved data.
    - Verify attached-document viewing.
 
-33. [Finance aggregation] Include all approved income sources in financial and dashboard totals.
+34. [Finance aggregation] Include all approved income sources in financial and dashboard totals.
    - Status: Pending
    - Scope:
    - Income totals include both Z-report income and non-Z income where appropriate.
@@ -339,7 +359,7 @@
 
 # Current-phase completion rule
 
-- Task 22 is intentionally deferred and serves as the final comprehensive regression and acceptance gate after the currently planned implementation work (Tasks 25–33) has been completed.
+- Task 22 is intentionally deferred and serves as the final comprehensive regression and acceptance gate after the currently planned implementation work (Tasks 25–34) has been completed.
 - Task 23 remains required current-phase validation and must be completed before the current phase is formally closed.
 - Task 24 remains Done; all new UI work must preserve its accessibility improvements.
 - Calendar, Supplier Card, and Asset Card are intentionally NOT current implementation tasks.

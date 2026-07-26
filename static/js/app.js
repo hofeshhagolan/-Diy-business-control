@@ -40,6 +40,8 @@ const extractedPreviewSignedUrlCache = new Map();
 const zDocumentsSignedUrlCache = new Map();
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const ACTIVE_VIEW_KEY = "activeView";
+const VIEW_HISTORY_STATE_KEY = "appView";
+const ROOT_VIEW_ID = "homeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","teamView","alView"];
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
@@ -78,14 +80,79 @@ const clearSavedViewId = () => {
   try { sessionStorage.removeItem(ACTIVE_VIEW_KEY); } catch {}
 };
 
-const activateView = viewId => {
-  const target = AVAILABLE_VIEWS.includes(viewId) ? viewId : "homeView";
+const getActiveViewId = () => document.querySelector(".view.active")?.id || ROOT_VIEW_ID;
+
+const getHistoryViewId = state => {
+  const viewId = state && typeof state === "object" ? state[VIEW_HISTORY_STATE_KEY] : null;
+  return AVAILABLE_VIEWS.includes(viewId) ? viewId : null;
+};
+
+const setViewHistoryState = (viewId, mode) => {
+  if(!window.history) return;
+
+  const state = {[VIEW_HISTORY_STATE_KEY]: viewId};
+  if(mode === "replace"){
+    window.history.replaceState(state, "");
+    return;
+  }
+
+  if(mode === "push"){
+    window.history.pushState(state, "");
+  }
+};
+
+const syncBackButton = viewId => {
+  const backButton = $("viewBackButton");
+  if(!backButton) return;
+
+  const isRootView = viewId === ROOT_VIEW_ID;
+  backButton.classList.toggle("hidden", isRootView);
+  backButton.disabled = isRootView;
+};
+
+const resetViewScrollPosition = () => {
+  const applyScrollReset = () => {
+    document.querySelector("main")?.scrollTo?.(0, 0);
+    document.scrollingElement?.scrollTo?.(0, 0);
+    window.scrollTo(0, 0);
+  };
+
+  applyScrollReset();
+  window.requestAnimationFrame(applyScrollReset);
+};
+
+const activateView = (viewId, options = {}) => {
+  const {historyMode = "push", resetScroll = true} = options;
+  const target = AVAILABLE_VIEWS.includes(viewId) ? viewId : ROOT_VIEW_ID;
+  const currentViewId = getActiveViewId();
+
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === target));
   document.querySelectorAll(".bottom-nav button").forEach(button => {
     button.classList.toggle("active", button.dataset.view === target);
   });
+
+  syncBackButton(target);
   saveActiveViewId(target);
+
+  if(historyMode === "replace"){
+    setViewHistoryState(target, "replace");
+  } else if(historyMode === "push" && currentViewId !== target){
+    setViewHistoryState(target, "push");
+  }
+
+  if(resetScroll && currentViewId !== target){
+    resetViewScrollPosition();
+  }
 };
+
+if("scrollRestoration" in window.history){
+  window.history.scrollRestoration = "manual";
+}
+
+window.addEventListener("popstate", event => {
+  const targetViewId = getHistoryViewId(event.state) || ROOT_VIEW_ID;
+  activateView(targetViewId, {historyMode: "none"});
+});
 
 const money = n => new Intl.NumberFormat("he-IL", {
   style:"currency", currency:"ILS", minimumFractionDigits:2, maximumFractionDigits:2
@@ -3103,7 +3170,13 @@ async function enterApp(){
   userId = session.user.id;
   $("authScreen").classList.add("hidden");
   $("appShell").classList.remove("hidden");
-  activateView(getSavedViewId() || "homeView");
+
+  const initialViewId = getSavedViewId() || ROOT_VIEW_ID;
+  activateView(ROOT_VIEW_ID, {historyMode: "replace", resetScroll: false});
+  if(initialViewId !== ROOT_VIEW_ID){
+    activateView(initialViewId, {historyMode: "push", resetScroll: false});
+  }
+  resetViewScrollPosition();
 
   await loadBusiness();
   await loadLookups();
@@ -3349,6 +3422,7 @@ $("logoutButton").onclick = async () => {
   session = null;
   userId = null;
   clearSavedViewId();
+  activateView(ROOT_VIEW_ID, {historyMode: "replace", resetScroll: false});
   showAuth();
 
   if(error){
@@ -3969,6 +4043,8 @@ async function loadEmployees(){
 document.querySelectorAll(".bottom-nav button").forEach(button => {
   button.onclick = () => activateView(button.dataset.view);
 });
+
+$("viewBackButton").onclick = () => window.history.back();
 
 $("quickAddButton").onclick = () => $("quickAddDialog").showModal();
 

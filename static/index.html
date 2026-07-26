@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260726-2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260726-3">
 </head>
 <body>
 
@@ -55,7 +55,10 @@
 
 <section id="appShell" class="app hidden">
   <header class="topbar">
-    <strong id="businessTitle">העסק שלי</strong>
+    <div class="topbar-primary">
+      <button id="viewBackButton" class="topbar-back hidden" type="button" aria-label="חזרה למסך הקודם">חזרה</button>
+      <strong id="businessTitle" class="topbar-title">העסק שלי</strong>
+    </div>
     <button id="profileButton" aria-label="פרופיל העסק">👤</button>
   </header>
 
@@ -361,6 +364,6 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260726-2"></script>
+<script src="/static/js/app.js?v=20260726-3"></script>
 </body>
 </html>

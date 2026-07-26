@@ -27,6 +27,7 @@ let isZSaving = false;
 let pendingZReportId = "";
 let shouldResetZFormAfterClose = false;
 let pendingZSuccessToastMessage = "";
+let currentZReportEditId = "";
 let currentZDocuments = [];
 let currentZDocumentIndex = -1;
 let currentZViewerDocument = null;
@@ -688,9 +689,33 @@ function resetZFileSelection(){
   renderSelectedZFiles();
 }
 
+function resetZDialogMode(){
+  currentZReportEditId = "";
+  const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
+  if(submitButton) submitButton.textContent = "שמרי דו״ח Z";
+  const title = $("zDialog")?.querySelector(".modal-head strong");
+  if(title) title.textContent = "דו״ח Z";
+}
+
+function setZDialogEditMode(report){
+  currentZReportEditId = String(report?.id || "");
+  const title = $("zDialog")?.querySelector(".modal-head strong");
+  if(title) title.textContent = "עדכוני דו״ח Z";
+  const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
+  if(submitButton) submitButton.textContent = "עדכוני דו״ח Z";
+}
+
+function populateZDialogFromReport(report){
+  const safeReport = report || {};
+  $("zDate").value = safeReport.report_date || today();
+  $("zTotal").value = safeReport.total_income_ils == null ? "" : Number(safeReport.total_income_ils || 0).toFixed(2);
+  $("zProject").value = safeReport.project_id || "";
+}
+
 function applyZDialogResetAndToast(successMessage = "הכנסה חדשה נשמרה"){
   shouldResetZFormAfterClose = false;
   pendingZSuccessToastMessage = "";
+  resetZDialogMode();
   resetZFileSelection();
   $("zForm")?.reset();
   showToast(successMessage, "ok");
@@ -3749,9 +3774,69 @@ function resetZDocumentsViewerState(){
   clearZSignedUrlCache();
 }
 
+async function deleteZReport(zReportId){
+  const safeReportId = String(zReportId || "").trim();
+  if(!safeReportId) return;
+  if(!confirm("למחוק את דו״ח Z זה?")) return;
+
+  try {
+    const {data:attachedDocuments, error:documentsLookupError} = await sb.from("z_report_documents")
+      .select("storage_path")
+      .eq("user_id", userId)
+      .eq("z_report_id", safeReportId);
+
+    if(documentsLookupError){
+      throw documentsLookupError;
+    }
+
+    const storagePaths = (attachedDocuments || [])
+      .map(item => item?.storage_path)
+      .filter(Boolean);
+
+    if(storagePaths.length){
+      await sb.storage.from("invoice-documents").remove(storagePaths);
+    }
+
+    const {error} = await sb.from("daily_z_reports")
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", safeReportId);
+
+    if(error){
+      throw error;
+    }
+
+    await Promise.all([loadZReports(), loadDashboard()]);
+    showToast("דו״ח Z נמחק", "ok");
+  } catch(error){
+    console.error(error);
+    showToast(error?.message || "שגיאה במחיקת דו״ח Z", "error");
+  }
+}
+
+function startEditingZReport(button){
+  const safeReportId = String(button?.dataset?.zReportId || "").trim();
+  if(!safeReportId) return;
+
+  resetZFileSelection();
+  setZDialogEditMode({
+    id: safeReportId,
+    report_date: button.dataset.zReportDate || today(),
+    total_income_ils: button.dataset.zReportTotal || "",
+    project_id: button.dataset.zReportProjectId || ""
+  });
+  populateZDialogFromReport({
+    id: safeReportId,
+    report_date: button.dataset.zReportDate || today(),
+    total_income_ils: button.dataset.zReportTotal || "",
+    project_id: button.dataset.zReportProjectId || ""
+  });
+  $("zDialog")?.showModal();
+}
+
 async function loadZReports(){
   const {data,error} = await sb.from("daily_z_reports")
-    .select("id,report_date,total_income_ils,projects(name),z_report_documents(id)")
+    .select("id,report_date,total_income_ils,projects(id,name),z_report_documents(id)")
     .eq("user_id",userId)
     .order("report_date",{ascending:false})
     .limit(60);
@@ -3765,17 +3850,18 @@ async function loadZReports(){
     <table class="income-table" aria-label="טבלת הכנסות ודו״חות Z">
       <thead>
         <tr>
-          <th scope="col" aria-label="מצב צפייה במסמך">👁</th>
+          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
           <th scope="col">תאריך</th>
           <th scope="col">הכנסות</th>
           <th scope="col">פרויקט</th>
+          <th scope="col" aria-label="פעולות">פעולות</th>
         </tr>
       </thead>
       <tbody>
         ${(data || []).map(row => {
           const documentCount = Array.isArray(row.z_report_documents) ? row.z_report_documents.length : 0;
           const hasDocuments = documentCount > 0;
-          const eyeLabel = hasDocuments
+          const documentLabel = hasDocuments
             ? `פתיחת מסמכי דו״ח Z (${documentCount})`
             : "אין מסמכים מצורפים לדו״ח Z";
 
@@ -3783,28 +3869,56 @@ async function loadZReports(){
           <tr>
             <td>
               <button
-                class="eye eye-income"
+                class="doc-indicator ${hasDocuments ? "active" : "inactive"}"
                 type="button"
                 ${hasDocuments ? `data-z-report-id="${row.id}"` : "disabled aria-disabled=\"true\""}
-                aria-label="${eyeLabel}"
-                title="${eyeLabel}">
-                👁
+                aria-label="${documentLabel}"
+                title="${documentLabel}">
+                <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
+                <span class="doc-indicator-text">${hasDocuments ? `מסמכים (${documentCount})` : "ללא מסמכים"}</span>
               </button>
             </td>
             <td>${row.report_date}</td>
             <td>${money(row.total_income_ils)}</td>
             <td>${row.projects?.name || ""}</td>
+            <td>
+              <div class="row-actions">
+                <button
+                  class="row-action edit-action"
+                  type="button"
+                  data-z-report-id="${row.id}"
+                  data-z-report-date="${row.report_date}"
+                  data-z-report-total="${Number(row.total_income_ils || 0)}"
+                  data-z-report-project-id="${row.projects?.id || ""}">
+                  עריכה
+                </button>
+                <button
+                  class="row-action delete-action"
+                  type="button"
+                  data-z-report-id="${row.id}">
+                  מחיקה
+                </button>
+              </div>
+            </td>
           </tr>
         `;
-        }).join("")}
+        }).join("")} 
       </tbody>
     </table>
   ` : "אין עדיין דו״חות Z";
 
-  document.querySelectorAll(".eye-income[data-z-report-id]").forEach(button => {
+  document.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
     button.onclick = () => {
       void openZReportDocuments(button.dataset.zReportId || "");
     };
+  });
+
+  document.querySelectorAll(".edit-action[data-z-report-id]").forEach(button => {
+    button.onclick = () => startEditingZReport(button);
+  });
+
+  document.querySelectorAll(".delete-action[data-z-report-id]").forEach(button => {
+    button.onclick = () => void deleteZReport(button.dataset.zReportId || "");
   });
 }
 
@@ -3903,6 +4017,8 @@ async function openAction(action){
 
     $("expenseDialog").showModal();
   } else if(action === "z"){
+    resetZDialogMode();
+    resetZFileSelection();
     $("zDate").value = today();
     $("zDialog").showModal();
   }else{
@@ -3945,6 +4061,7 @@ $("zDialog")?.addEventListener("close", () => {
 
 $("zForm")?.addEventListener("reset", () => {
   pendingZReportId = "";
+  currentZReportEditId = "";
 });
 
 $("zDocumentsDialog")?.addEventListener("close", () => {
@@ -4754,19 +4871,37 @@ $("zForm").onsubmit = async event => {
   const submitButton = form.querySelector('button[type="submit"], button:not([type])');
   const zBrowseButton = $("zBrowseButton");
   const zBrowseInput = $("zBrowseInput");
+  const isEditingSession = Boolean(currentZReportEditId);
 
   isZSaving = true;
   if(submitButton) submitButton.disabled = true;
   if(zBrowseButton) zBrowseButton.disabled = true;
   if(zBrowseInput) zBrowseInput.disabled = true;
 
-  const isRetryingPendingZReport = Boolean(String(pendingZReportId || "").trim());
+  const isRetryingPendingZReport = !isEditingSession && Boolean(String(pendingZReportId || "").trim());
   let zReportId = String(pendingZReportId || "").trim();
   let uploadedPaths = [];
   let uploadCleanupAttempted = false;
 
   try {
-    if(!zReportId){
+    if(currentZReportEditId){
+      const {error:updateError} = await sb.from("daily_z_reports")
+        .update({
+          report_date:$("zDate").value,
+          project_id:$("zProject").value || null,
+          total_income_ils:Number($("zTotal").value || 0)
+        })
+        .eq("user_id", userId)
+        .eq("id", currentZReportEditId);
+
+      if(updateError){
+        setStatus($("zStatus"), updateError.message, "error");
+        return;
+      }
+
+      zReportId = currentZReportEditId;
+      pendingZReportId = "";
+    } else if(!zReportId){
       const {data:insertedReport, error:createError} = await sb.from("daily_z_reports")
         .insert({
           user_id:userId,
@@ -4793,8 +4928,9 @@ $("zForm").onsubmit = async event => {
 
     if(!selectedZFiles.length){
       pendingZReportId = "";
+      currentZReportEditId = "";
       await Promise.all([loadZReports(),loadDashboard()]);
-      queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
+      queueZDialogResetAfterClose(isEditingSession ? "דו״ח Z עודכן" : "הכנסה חדשה נשמרה");
       return;
     }
 
@@ -4861,11 +4997,28 @@ $("zForm").onsubmit = async event => {
       uploadPlan.splice(0, uploadPlan.length, ...missingUploadPlan);
     }
 
+    let nextDocumentOrder = 1;
+    if(!isRetryingPendingZReport){
+      const {data:existingDocumentOrders, error:existingDocumentOrdersError} = await sb.from("z_report_documents")
+        .select("document_order")
+        .eq("user_id", userId)
+        .eq("z_report_id", zReportId);
+
+      if(existingDocumentOrdersError){
+        setStatus($("zStatus"), existingDocumentOrdersError.message || "שגיאה בטעינת מסמכים קיימים", "error");
+        return;
+      }
+
+      nextDocumentOrder = (Array.isArray(existingDocumentOrders) ? existingDocumentOrders : [])
+        .reduce((maxOrder, row) => Math.max(maxOrder, Number(row?.document_order || 0)), 0) + 1;
+    }
+
     const documentRows = [];
 
-    for(const uploadItem of uploadPlan){
+    for(let uploadIndex = 0; uploadIndex < uploadPlan.length; uploadIndex++){
+      const uploadItem = uploadPlan[uploadIndex];
       const file = uploadItem.file;
-      const order = uploadItem.order;
+      const order = isRetryingPendingZReport ? uploadItem.order : nextDocumentOrder + uploadIndex;
       const storagePath = uploadItem.storagePath;
 
       const upload = await sb.storage
@@ -4911,8 +5064,9 @@ $("zForm").onsubmit = async event => {
     }
 
     pendingZReportId = "";
+    currentZReportEditId = "";
     await Promise.all([loadZReports(),loadDashboard()]);
-    queueZDialogResetAfterClose("הכנסה חדשה נשמרה");
+    queueZDialogResetAfterClose(isEditingSession ? "דו״ח Z עודכן" : "הכנסה חדשה נשמרה");
   } catch(error){
     console.error(error);
 

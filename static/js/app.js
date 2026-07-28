@@ -280,6 +280,20 @@ const getSelectedYear = () => {
 const yearStart = year => `${year}-01-01`;
 const yearEnd = year => `${year}-12-31`;
 
+async function fetchIncomeTotalInDateRange(fromDate, toDate){
+  const {data, error} = await sb.from("daily_z_reports")
+    .select("total_income_ils")
+    .eq("user_id", userId)
+    .gte("report_date", fromDate)
+    .lte("report_date", toDate);
+
+  if(error){
+    throw error;
+  }
+
+  return (data || []).reduce((sum, row) => sum + Number(row.total_income_ils || 0), 0);
+}
+
 const FIELD_ERROR_CLASS = "field-error-message";
 const AUDITED_VALIDATION_FORM_IDS = ["loginForm","signupForm","expenseForm","zForm","businessForm"];
 
@@ -3588,35 +3602,23 @@ async function loadDashboard(){
   const monthFrom = monthStart();
   const monthTo = monthEnd();
 
-  const [{data:expensesYear},{data:incomeYear},{data:expensesMonth},{data:incomeMonth}] = await Promise.all([
+  const [{data:expensesYear}, incomeYearTotal, {data:expensesMonth}, incomeMonthTotal] = await Promise.all([
     sb.from("expenses")
       .select("gross_ils")
       .eq("user_id",userId)
       .gte("document_date",from)
       .lte("document_date",to),
-    sb.from("daily_z_reports")
-      .select("total_income_ils")
-      .eq("user_id",userId)
-      .eq("is_from_z_report", true)
-      .gte("report_date",from)
-      .lte("report_date",to),
+    fetchIncomeTotalInDateRange(from, to),
     sb.from("expenses")
       .select("gross_ils")
       .eq("user_id",userId)
       .gte("document_date",monthFrom)
       .lte("document_date",monthTo),
-    sb.from("daily_z_reports")
-      .select("total_income_ils")
-      .eq("user_id",userId)
-      .eq("is_from_z_report", true)
-      .gte("report_date",monthFrom)
-      .lte("report_date",monthTo)
+    fetchIncomeTotalInDateRange(monthFrom, monthTo)
   ]);
 
   const expenseYearTotal = (expensesYear || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);
-  const incomeYearTotal = (incomeYear || []).reduce((s,x)=>s+Number(x.total_income_ils || 0),0);
   const expenseMonthTotal = (expensesMonth || []).reduce((s,x)=>s+Number(x.gross_ils || 0),0);
-  const incomeMonthTotal = (incomeMonth || []).reduce((s,x)=>s+Number(x.total_income_ils || 0),0);
 
   $("incomeMonthMetric").textContent = money(incomeMonthTotal);
   $("expenseMonthMetric").textContent = money(expenseMonthTotal);

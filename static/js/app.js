@@ -3064,30 +3064,82 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
 
 async function openNextPendingInvoice({
   sessionRows = null,
-  refreshWhenEmpty = false
+  refreshWhenEmpty = false,
+  excludeScanItemId = ""
 } = {}){
-  const normalizedSessionRows = Array.isArray(sessionRows) ? sessionRows.slice() : expenseReviewRows.slice();
+  const excludedId = String(excludeScanItemId || "").trim();
+  const mergeSessionWithPersistedRows = (preferredRows, persistedRows) => {
+    const preferred = Array.isArray(preferredRows) ? preferredRows : [];
+    const persisted = Array.isArray(persistedRows) ? persistedRows : [];
+    const persistedById = new Map(
+      persisted.map(row => [String(row?.scanItemId || "").trim(), row])
+    );
+
+    const merged = [];
+    const seenIds = new Set();
+
+    preferred.forEach(row => {
+      const scanItemId = String(row?.scanItemId || "").trim();
+      if(!scanItemId) return;
+      const persistedRow = persistedById.get(scanItemId);
+      if(!persistedRow || seenIds.has(scanItemId)) return;
+      merged.push(persistedRow);
+      seenIds.add(scanItemId);
+    });
+
+    persisted.forEach(row => {
+      const scanItemId = String(row?.scanItemId || "").trim();
+      if(!scanItemId || seenIds.has(scanItemId)) return;
+      merged.push(row);
+      seenIds.add(scanItemId);
+    });
+
+    return merged;
+  };
+
+  const pickNextRows = rows => {
+    const normalizedRows = Array.isArray(rows) ? rows.slice() : [];
+    if(!excludedId) return normalizedRows;
+    return normalizedRows.filter(row => String(row?.scanItemId || "").trim() !== excludedId);
+  };
+
+  const requestedSessionRows = Array.isArray(sessionRows) ? sessionRows.slice() : expenseReviewRows.slice();
+  const shouldRefresh = refreshWhenEmpty || !requestedSessionRows.length || Boolean(excludedId);
+  const persistedRows = shouldRefresh ? await loadPendingReviewRows() : [];
+  const normalizedSessionRows = shouldRefresh
+    ? mergeSessionWithPersistedRows(requestedSessionRows, persistedRows)
+    : requestedSessionRows;
+  const nextSessionRows = pickNextRows(normalizedSessionRows);
 
   expenseReviewRows = normalizedSessionRows;
   pendingExpenseEntryRows = normalizedSessionRows.slice();
 
-  if(normalizedSessionRows.length){
+  if(nextSessionRows.length){
     renderExpenseReviewList(normalizedSessionRows);
-    openExpenseReviewItem(normalizedSessionRows[0]);
+    openExpenseReviewItem(nextSessionRows[0]);
     void refreshPendingInvoiceCountIndicator();
     return true;
   }
 
   if(refreshWhenEmpty){
-    const refreshedRows = await loadPendingReviewRows();
+    const refreshedRows = persistedRows.length ? persistedRows : await loadPendingReviewRows();
+    const nextRefreshedRows = pickNextRows(refreshedRows);
     expenseReviewRows = refreshedRows;
     pendingExpenseEntryRows = refreshedRows.slice();
 
-    if(refreshedRows.length){
+    if(nextRefreshedRows.length){
       renderExpenseReviewList(refreshedRows);
-      openExpenseReviewItem(refreshedRows[0]);
+      openExpenseReviewItem(nextRefreshedRows[0]);
       void refreshPendingInvoiceCountIndicator();
       return true;
+    }
+
+    if(refreshedRows.length){
+      activeExpenseReviewContext = null;
+      hideExpenseReviewContext();
+      renderExpenseReviewList(refreshedRows);
+      void refreshPendingInvoiceCountIndicator();
+      return false;
     }
   }
 
@@ -3193,15 +3245,13 @@ async function deferActivePendingInvoiceAndOpenNext(){
     return;
   }
 
-  if(!otherRows.length){
-    setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
-    await openNextPendingInvoice({sessionRows: [], refreshWhenEmpty: false});
-    return;
-  }
-
   const reorderedRows = otherRows.concat(activeRow);
   setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
-  await openNextPendingInvoice({sessionRows: reorderedRows, refreshWhenEmpty: false});
+  await openNextPendingInvoice({
+    sessionRows: reorderedRows,
+    refreshWhenEmpty: true,
+    excludeScanItemId: activeScanItemId
+  });
 }
 
 async function reconcileExpenseReviewRowsAfterSave(batchId){
@@ -4931,17 +4981,29 @@ function updateFiles(input, mode){
   renderSelectedFiles();
 }
 
+function openFileInputPicker(input, {resetValue = false} = {}){
+  if(!input) return;
+  if(resetValue) input.value = "";
+
+  if(typeof input.showPicker === "function"){
+    input.showPicker();
+    return;
+  }
+
+  input.click();
+}
+
 $("singleCameraButton").onclick = event => {
   event.preventDefault();
-  $("singleCameraInput").click();
+  openFileInputPicker($("singleCameraInput"), {resetValue:true});
 };
 $("multiCameraButton").onclick = event => {
   event.preventDefault();
-  $("multiCameraInput").click();
+  openFileInputPicker($("multiCameraInput"), {resetValue:true});
 };
 $("browseButton").onclick = event => {
   event.preventDefault();
-  $("browseInput").click();
+  openFileInputPicker($("browseInput"), {resetValue:true});
 };
 $("zBrowseButton")?.addEventListener("click", event => {
   event.preventDefault();
@@ -5055,13 +5117,15 @@ async function runAnalyzeFlow({
       }
     }
 
-    if(isDeferredMode){
-      if(!isResumeMode){
-        setStatus($("expenseStatus"), "טיוטת המסמכים נשמרה בבטחה. אפשר לצאת ולהמשיך מאוחר יותר.", "ok");
-      }
-      if(checkpointOnly){
-        return {mode, operationId, uploadedScanFiles, selectionSignature, checkpointSecured: true};
-      }
+    if(isDeferredMode && checkpointOnly){
+      return {mode, operationId, uploadedScanFiles, selectionSignature, checkpointSecured: true};
+    }
+
+    if(isDeferredMode && !isResumeMode){
+      const deferredProgressMessage = filesToProcess.length === 1
+        ? "מחלצת נתונים מהחשבונית…"
+        : "מחלצת נתונים מהחשבוניות…";
+      setStatus($("expenseStatus"), deferredProgressMessage, "");
     }
 
     const formData = new FormData();
@@ -5155,7 +5219,7 @@ async function runAnalyzeFlow({
 
       if(isDeferredMode){
         void refreshPendingInvoiceCountIndicator();
-        setStatus($("expenseStatus"), "החשבוניות נשמרו לבדיקה מאוחרת.", "ok");
+        setStatus($("expenseStatus"), "החשבוניות חולצו ונשמרו לבדיקה מאוחרת.", "ok");
         return {mode, operationId, status: "persisted"};
       }
 
@@ -5211,7 +5275,7 @@ async function runAnalyzeFlow({
     if(isDeferredMode){
       canDeferSingleExtractedInvoice = false;
       void refreshPendingInvoiceCountIndicator();
-      setStatus($("expenseStatus"), "החשבונית נשמרה לבדיקה מאוחרת.", "ok");
+      setStatus($("expenseStatus"), "החשבונית חולצה ונשמרה לבדיקה מאוחרת.", "ok");
       return {mode, operationId, status: "persisted"};
     }
 

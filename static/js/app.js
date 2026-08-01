@@ -3418,7 +3418,7 @@ async function loadPendingReviewRows({batchId = null} = {}){
     batchId: item.batch_id,
     scanItemId: item.id,
     itemOrder: item.item_order,
-    label: `חשבונית ${item.item_order}`,
+    label: "",
     ...formatReviewCaptureDateTime(item.invoice_scan_batches?.completed_at),
     completedAt: item.invoice_scan_batches?.completed_at || "",
     pageCount: pageCountByItemId.get(item.id) || 0
@@ -3447,6 +3447,10 @@ async function loadPendingReviewRows({batchId = null} = {}){
     }
 
     return String(a.scanItemId).localeCompare(String(b.scanItemId));
+  });
+
+  rows.forEach((row,index) => {
+    row.label = `חשבונית ${index + 1}`;
   });
 
   return rows;
@@ -5173,7 +5177,7 @@ async function runAnalyzeFlow({
       return null;
     }
 
-    const rpcInput = buildScanBatchRpcInput(result);
+    const rpcInput = buildScanBatchRpcInput(result, {singleItemExtractedData: singleInvoice});
     if(!rpcInput){
       if(checkpointSecured){
         await markCheckpointTerminalFailure(operationId, "חסר מידע סריקה לשמירה אטומית");
@@ -5352,12 +5356,10 @@ async function handleExpenseContinueLaterAction(){
   if(!confirmManualGroupingDiscard()) return;
 
   if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
-    void runAnalyzeFlow({
-      mode: "defer-now",
-      onCheckpointSecured: () => {
-        $("expenseDialog")?.close();
-      }
-    });
+    const result = await runAnalyzeFlow({mode: "defer-now"});
+    if(result?.status === "persisted"){
+      $("expenseDialog")?.close();
+    }
     return;
   }
 
@@ -5401,6 +5403,55 @@ $("expenseDetailsViewDocumentButton").onclick = () => {
 $("expenseAssetFollowupCreateButton")?.addEventListener("click", () => {
   showToast("זמין בהמשך", "ok");
 });
+
+$("expenseAssetFollowupDismissButton")?.addEventListener("click", () => {
+  $("expenseAssetFollowupDialog")?.close();
+});
+
+function validateExpenseFormBeforeSave(){
+  const accountingTypeField = $("expenseAccountingType");
+  const dateField = $("expenseDate");
+  const supplierField = $("expenseSupplier");
+  const grossField = $("expenseGross");
+
+  if(!accountingTypeField.value){
+    setFieldInvalid(accountingTypeField, "סוג חשבונאי הוא שדה חובה");
+    accountingTypeField.focus();
+    setStatus($("expenseStatus"), "", "");
+    return null;
+  }
+
+  const documentDate = String(dateField.value || "").trim();
+  if(!documentDate){
+    setFieldInvalid(dateField, "תאריך הוא שדה חובה");
+    dateField.focus();
+    setStatus($("expenseStatus"), "", "");
+    return null;
+  }
+
+  const supplierName = String(supplierField.value || "").trim();
+  if(!supplierName){
+    setFieldInvalid(supplierField, "ספק הוא שדה חובה");
+    supplierField.focus();
+    setStatus($("expenseStatus"), "", "");
+    return null;
+  }
+
+  const grossRaw = String(grossField.value || "").trim();
+  const gross = Number(grossRaw);
+  if(!grossRaw || !Number.isFinite(gross) || gross <= 0){
+    setFieldInvalid(grossField, "סכום כולל חייב להיות גדול מ-0");
+    grossField.focus();
+    setStatus($("expenseStatus"), "", "");
+    return null;
+  }
+
+  return {
+    supplierName,
+    documentDate,
+    gross
+  };
+}
 
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
 $("expenseReviewNavNext").onclick = () => navigateExpenseReviewByOffset(1);
@@ -5449,18 +5500,16 @@ $("expenseForm").onsubmit = async event => {
   if(submitButton) submitButton.disabled = true;
 
   try {
-    if(!$("expenseAccountingType").value){
-      setFieldInvalid($("expenseAccountingType"), "סוג חשבונאי הוא שדה חובה");
-      $("expenseAccountingType").focus();
-      setStatus($("expenseStatus"), "", "");
+    const validated = validateExpenseFormBeforeSave();
+    if(!validated){
       return;
     }
 
-    const gross = Number($("expenseGross").value || 0);
+    const gross = validated.gross;
     const net = Math.round((gross / 1.18) * 100) / 100;
     const vat = Math.round((gross - net) * 100) / 100;
 
-    const supplierName = $("expenseSupplier").value.trim();
+    const supplierName = validated.supplierName;
     let supplierId = null;
 
     if(supplierName){
@@ -5496,7 +5545,7 @@ $("expenseForm").onsubmit = async event => {
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-      document_date:$("expenseDate").value || null,
+      document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
       notes:$("expenseNotes").value.trim(),

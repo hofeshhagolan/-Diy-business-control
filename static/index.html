@@ -189,7 +189,7 @@
       <button id="browseButton" class="secondary" type="button">עיון</button>
       <input id="singleCameraInput" type="file" accept="image/*" capture="environment">
       <input id="multiCameraInput" type="file" accept="image/*" capture="environment" multiple>
-      <input id="browseInput" type="file" accept="image/*,application/pdf" multiple>
+      <input id="browseInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf" multiple>
     </div>
 
     <div id="expenseFilePreview" class="file-preview">
@@ -327,6 +327,7 @@
     <p class="expense-asset-question">האם ליצור נכס מהוצאה זו?</p>
     <div class="asset-followup-actions">
       <button id="expenseAssetFollowupCreateButton" type="button" class="secondary">צור כרטיס נכס</button>
+      <button id="expenseAssetFollowupDismissButton" type="button" class="secondary">לא, תודה</button>
       <p class="expense-details-sub">זמין בהמשך</p>
     </div>
   </div>

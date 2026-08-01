@@ -287,12 +287,6 @@
       <div class="expense-details-actions">
         <button id="expenseDetailsViewDocumentButton" type="button" class="secondary">צפה בחשבונית</button>
       </div>
-
-      <section id="expenseDetailsAssetPrompt" class="expense-asset-prompt hidden" aria-label="יצירת נכס מהוצאה">
-        <p class="expense-asset-question">האם ליצור נכס מהוצאה זו?</p>
-        <button id="expenseDetailsCreateAssetButton" type="button" class="secondary">צור כרטיס נכס</button>
-        <p class="expense-details-sub">זמין בהמשך</p>
-      </section>
     </section>
 
     <form id="expenseForm" class="form-grid" style="margin-top:14px">
@@ -318,8 +312,22 @@
       <button id="expenseReviewNavPrev" type="button" class="review-item-nav-arrow" aria-label="חשבונית קודמת" title="חשבונית קודמת">→</button>
       <p id="expenseReviewPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
       <button id="expenseReviewNavNext" type="button" class="review-item-nav-arrow" aria-label="חשבונית הבאה" title="חשבונית הבאה">←</button>
-      <button id="expenseReviewDiscardButton" type="button" class="review-item-nav-back review-item-nav-danger">מחיקה מחשבוניות ממתינות</button>
+      <button id="expenseReviewDiscardButton" type="button" class="review-item-nav-back review-item-nav-danger">השלך חשבונית</button>
       <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="expenseAssetFollowupDialog" aria-labelledby="expenseAssetFollowupTitle">
+  <div class="modal-head">
+    <strong id="expenseAssetFollowupTitle">המשך לאחר שמירת הוצאה</strong>
+    <button data-close type="button" aria-label="סגירת חלון יצירת נכס">✕</button>
+  </div>
+  <div class="modal-body">
+    <p class="expense-asset-question">האם ליצור נכס מהוצאה זו?</p>
+    <div class="asset-followup-actions">
+      <button id="expenseAssetFollowupCreateButton" type="button" class="secondary">צור כרטיס נכס</button>
+      <p class="expense-details-sub">זמין בהמשך</p>
     </div>
   </div>
 </dialog>

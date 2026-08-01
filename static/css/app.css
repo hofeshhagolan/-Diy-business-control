@@ -152,6 +152,7 @@ dialog::backdrop{background:#07182a99}
 .expense-details-actions{display:flex;justify-content:flex-start}
 .expense-asset-prompt{padding:12px;border:1px solid #cfe0ef;border-radius:12px;background:#f8fbff;display:grid;gap:8px}
 .expense-asset-question{margin:0;color:var(--brand);font-weight:800}
+.asset-followup-actions{margin-top:12px;display:grid;gap:8px;justify-items:start}
 #expenseDialogHeaderActions{margin-inline-start:auto;margin-inline-end:8px}
 #expenseDialogHeaderActions .row-action{min-width:30px;min-height:30px}
 .expense-pending-choice{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}

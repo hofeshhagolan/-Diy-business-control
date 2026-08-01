@@ -3062,32 +3062,41 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   openExpenseReviewItem(nextRow);
 }
 
-function moveActiveExpenseReviewItemToLaterAndOpenNext(){
-  if(!expenseReviewRows.length) return false;
+async function openNextPendingInvoice({
+  sessionRows = null,
+  refreshWhenEmpty = false
+} = {}){
+  const normalizedSessionRows = Array.isArray(sessionRows) ? sessionRows.slice() : expenseReviewRows.slice();
 
-  const activeIndex = getActiveExpenseReviewRowIndex();
-  if(activeIndex < 0) return false;
+  expenseReviewRows = normalizedSessionRows;
+  pendingExpenseEntryRows = normalizedSessionRows.slice();
 
-  if(expenseReviewRows.length === 1){
-    setStatus($("expenseStatus"), "אין חשבוניות נוספות לבדיקה כרגע.", "ok");
+  if(normalizedSessionRows.length){
+    renderExpenseReviewList(normalizedSessionRows);
+    openExpenseReviewItem(normalizedSessionRows[0]);
+    void refreshPendingInvoiceCountIndicator();
     return true;
   }
 
-  const reorderedRows = expenseReviewRows.slice();
-  const [activeRow] = reorderedRows.splice(activeIndex, 1);
-  reorderedRows.push(activeRow);
+  if(refreshWhenEmpty){
+    const refreshedRows = await loadPendingReviewRows();
+    expenseReviewRows = refreshedRows;
+    pendingExpenseEntryRows = refreshedRows.slice();
 
-  const nextRow = reorderedRows[Math.min(activeIndex, reorderedRows.length - 1)] || reorderedRows[0] || null;
-  expenseReviewRows = reorderedRows;
-  pendingExpenseEntryRows = reorderedRows.slice();
-
-  renderExpenseReviewList(reorderedRows);
-  if(nextRow){
-    openExpenseReviewItem(nextRow);
+    if(refreshedRows.length){
+      renderExpenseReviewList(refreshedRows);
+      openExpenseReviewItem(refreshedRows[0]);
+      void refreshPendingInvoiceCountIndicator();
+      return true;
+    }
   }
 
-  setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
-  return true;
+  activeExpenseReviewContext = null;
+  hideExpenseReviewContext();
+  renderExpenseReviewList([]);
+  void refreshPendingInvoiceCountIndicator();
+  $("expenseDialog")?.close();
+  return false;
 }
 
 async function discardPendingInvoiceScanItem(row){
@@ -3120,25 +3129,13 @@ async function discardPendingInvoiceScanItem(row){
   }
 
   const removedScanItemId = String(discardRow.deleted_scan_item_id || "").trim();
-  const removedIndex = expenseReviewRows.findIndex(candidate => candidate.scanItemId === removedScanItemId);
   const remainingRows = expenseReviewRows.filter(candidate => candidate.scanItemId !== removedScanItemId);
-  const fallbackIndex = removedIndex >= 0 ? removedIndex : 0;
-  const nextRow = remainingRows[fallbackIndex] || remainingRows[Math.max(0, fallbackIndex - 1)] || remainingRows[0] || null;
 
-  expenseReviewRows = remainingRows;
-  pendingExpenseEntryRows = remainingRows.slice();
-  activeExpenseReviewContext = null;
+  await openNextPendingInvoice({
+    sessionRows: remainingRows,
+    refreshWhenEmpty: true
+  });
 
-  if(nextRow){
-    renderExpenseReviewList(remainingRows);
-    openExpenseReviewItem(nextRow);
-  } else {
-    hideExpenseReviewContext();
-    renderExpenseReviewList(remainingRows);
-    $("expenseDialog")?.close();
-  }
-
-  void refreshPendingInvoiceCountIndicator();
   if(storagePaths.length && getPendingExpenseStorageCleanupPaths().length){
     showToast("החשבונית הוסרה. ניקוי קבצי המסמך יושלם אוטומטית.", "ok");
   } else {
@@ -3169,6 +3166,27 @@ async function confirmAndDiscardActiveReviewInvoice(){
     console.error(error);
     setStatus($("expenseStatus"), error?.message || "שגיאה במחיקת החשבונית הממתינה", "error");
   }
+}
+
+async function deferActivePendingInvoiceAndOpenNext(){
+  const activeIndex = getActiveExpenseReviewRowIndex();
+  if(activeIndex < 0){
+    setStatus($("expenseStatus"), "לא נמצאה חשבונית פעילה לבדיקה מאוחרת.", "error");
+    return;
+  }
+
+  const activeRow = expenseReviewRows[activeIndex];
+  const otherRows = expenseReviewRows.filter((_, index) => index !== activeIndex);
+
+  if(!otherRows.length){
+    setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
+    await openNextPendingInvoice({sessionRows: [], refreshWhenEmpty: false});
+    return;
+  }
+
+  const reorderedRows = otherRows.concat(activeRow);
+  setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
+  await openNextPendingInvoice({sessionRows: reorderedRows, refreshWhenEmpty: false});
 }
 
 async function reconcileExpenseReviewRowsAfterSave(batchId){
@@ -3855,10 +3873,12 @@ function isFixedAssetAccountingTypeName(name){
   return normalized.includes("רכוש") && normalized.includes("קבוע");
 }
 
-function updateExpenseAssetPromptVisibility(accountingTypeName){
-  const prompt = $("expenseDetailsAssetPrompt");
-  if(!prompt) return;
-  prompt.classList.toggle("hidden", !isFixedAssetAccountingTypeName(accountingTypeName));
+function shouldShowExpenseAssetFollowupFromForm(){
+  const select = $("expenseAccountingType");
+  if(!select) return false;
+
+  const selectedName = select.options?.[select.selectedIndex]?.textContent || "";
+  return isFixedAssetAccountingTypeName(selectedName);
 }
 
 function populateExpenseFormFromExistingExpense(expenseRecord){
@@ -3876,8 +3896,6 @@ function populateExpenseFormFromExistingExpense(expenseRecord){
   $("expensePaymentMethod").value = expenseRecord.payment_method_id || "";
   $("expenseDescription").value = expenseRecord.description || "";
   $("expenseNotes").value = expenseRecord.notes || "";
-
-  updateExpenseAssetPromptVisibility(expenseRecord.accounting_types?.name || "");
 }
 
 function renderExpenseDetailsReadOnly(expenseRecord){
@@ -3900,8 +3918,6 @@ function renderExpenseDetailsReadOnly(expenseRecord){
   setExpenseDetailsValue("expenseDetailsProject", expenseRecord.projects?.name);
   setExpenseDetailsValue("expenseDetailsPaymentSource", expenseRecord.payment_sources?.name);
   setExpenseDetailsValue("expenseDetailsPaymentMethod", expenseRecord.payment_methods?.name);
-
-  updateExpenseAssetPromptVisibility(accountingTypeName);
 }
 
 function setExpenseDialogMode(mode){
@@ -3923,7 +3939,6 @@ function setExpenseDialogMode(mode){
       deferButton.classList.remove("hidden");
     }
     if(submitButton) submitButton.textContent = "שמרי חשבונית בהוצאות";
-    updateExpenseAssetPromptVisibility("");
     return;
   }
 
@@ -5318,7 +5333,7 @@ $("expensePendingScanNew").onclick = () => {
   resetExpenseDialogState();
 };
 
-function handleExpenseContinueLaterAction(){
+async function handleExpenseContinueLaterAction(){
   if(!confirmManualGroupingDiscard()) return;
 
   if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
@@ -5332,27 +5347,12 @@ function handleExpenseContinueLaterAction(){
   }
 
   if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT){
-    const moved = moveActiveExpenseReviewItemToLaterAndOpenNext();
-    if(moved) return;
-
-    if(expenseReviewRows.length){
-      openExpenseReviewItem(expenseReviewRows[0]);
-      return;
-    }
-
-    canDeferSingleExtractedInvoice = false;
-    $("expenseDialog")?.close();
+    await deferActivePendingInvoiceAndOpenNext();
     return;
   }
 
   if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST){
-    if(expenseReviewRows.length){
-      openExpenseReviewItem(expenseReviewRows[0]);
-      return;
-    }
-
-    canDeferSingleExtractedInvoice = false;
-    $("expenseDialog")?.close();
+    await openNextPendingInvoice({sessionRows: expenseReviewRows.slice(), refreshWhenEmpty: true});
     return;
   }
 
@@ -5362,11 +5362,11 @@ function handleExpenseContinueLaterAction(){
 
 $("queueButton").onclick = () => {
   if($("queueButton").disabled) return;
-  handleExpenseContinueLaterAction();
+  void handleExpenseContinueLaterAction();
 };
 
 $("expenseFormDeferButton").onclick = () => {
-  handleExpenseContinueLaterAction();
+  void handleExpenseContinueLaterAction();
 };
 
 $("expenseDetailsEditButton").onclick = () => {
@@ -5383,13 +5383,8 @@ $("expenseDetailsViewDocumentButton").onclick = () => {
   void openExpenseDocument(expenseId);
 };
 
-$("expenseDetailsCreateAssetButton").onclick = () => {
-  showToast("יצירת כרטיס נכס - זמין בהמשך", "ok");
-};
-
-$("expenseAccountingType")?.addEventListener("change", event => {
-  const selectedName = event.target.options[event.target.selectedIndex]?.textContent || "";
-  updateExpenseAssetPromptVisibility(selectedName);
+$("expenseAssetFollowupCreateButton")?.addEventListener("click", () => {
+  showToast("זמין בהמשך", "ok");
 });
 
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
@@ -5432,6 +5427,7 @@ $("expenseForm").onsubmit = async event => {
     currentExpenseDialogMode === EXPENSE_DIALOG_MODES.DETAILS_EDIT
     && Boolean(String(currentExpenseEditId || "").trim())
   );
+  const shouldShowAssetFollowupAfterSave = !isEditingDetailsMode && shouldShowExpenseAssetFollowupFromForm();
 
   const submitButton = event.target.querySelector('button[type="submit"], button:not([type])');
   isExpenseSaving = true;
@@ -5642,7 +5638,12 @@ $("expenseForm").onsubmit = async event => {
       reviewQueueSyncError ? "error" : "ok"
     );
 
-    setTimeout(() => $("expenseDialog").close(),650);
+    setTimeout(() => {
+      $("expenseDialog")?.close();
+      if(shouldShowAssetFollowupAfterSave){
+        $("expenseAssetFollowupDialog")?.showModal();
+      }
+    },650);
     return;
   
 } catch(error){

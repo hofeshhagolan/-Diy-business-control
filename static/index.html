@@ -174,7 +174,14 @@
 </dialog>
 
 <dialog id="expenseDialog">
-  <div class="modal-head"><strong id="expenseDialogTitle">הוצאה חדשה</strong><button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button></div>
+  <div class="modal-head">
+    <strong id="expenseDialogTitle">הוצאה חדשה</strong>
+    <div id="expenseDialogHeaderActions" class="row-actions hidden" aria-label="פעולות הוצאה">
+      <button id="expenseDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הוצאה" title="עריכת הוצאה">✏️</button>
+      <button id="expenseDetailsDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת הוצאה" title="מחיקת הוצאה">❌</button>
+    </div>
+    <button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button>
+  </div>
   <div class="modal-body">
     <div class="file-actions">
       <button id="singleCameraButton" class="secondary" type="button">צילום חשבונית</button>
@@ -249,6 +256,43 @@
           <p class="review-document-state">בחרי חשבונית להצגת המסמך.</p>
         </div>
       </div>
+    </section>
+
+    <section id="expenseDetailsView" class="expense-details hidden" aria-label="פרטי הוצאה">
+      <div class="expense-details-head">
+        <div>
+          <p class="expense-details-label">ספק</p>
+          <p id="expenseDetailsSupplier" class="expense-details-supplier">-</p>
+          <p id="expenseDetailsSupplierReg" class="expense-details-sub">-</p>
+        </div>
+        <button id="expenseDetailsSupplierCardButton" type="button" class="secondary" disabled aria-disabled="true">כרטיס ספק - זמין בהמשך</button>
+      </div>
+
+      <div class="expense-details-grid">
+        <div class="expense-details-item"><span>מספר חשבונית</span><strong id="expenseDetailsDocumentNumber">-</strong></div>
+        <div class="expense-details-item"><span>תאריך מסמך</span><strong id="expenseDetailsDate">-</strong></div>
+        <div class="expense-details-item"><span>תיאור</span><strong id="expenseDetailsDescription">-</strong></div>
+        <div class="expense-details-item"><span>הערות</span><strong id="expenseDetailsNotes">-</strong></div>
+        <div class="expense-details-item"><span>ברוטו</span><strong id="expenseDetailsGross">-</strong></div>
+        <div class="expense-details-item"><span>נטו</span><strong id="expenseDetailsNet">-</strong></div>
+        <div class="expense-details-item"><span>מע״מ</span><strong id="expenseDetailsVat">-</strong></div>
+        <div class="expense-details-item"><span>סוג חשבונאי</span><strong id="expenseDetailsAccountingType">-</strong></div>
+        <div class="expense-details-item"><span>חיוב / זיכוי</span><strong id="expenseDetailsDebitCredit">-</strong></div>
+        <div class="expense-details-item"><span>קטגוריה</span><strong id="expenseDetailsCategory">-</strong></div>
+        <div class="expense-details-item"><span>פרויקט</span><strong id="expenseDetailsProject">-</strong></div>
+        <div class="expense-details-item"><span>מקור תשלום</span><strong id="expenseDetailsPaymentSource">-</strong></div>
+        <div class="expense-details-item"><span>אמצעי תשלום</span><strong id="expenseDetailsPaymentMethod">-</strong></div>
+      </div>
+
+      <div class="expense-details-actions">
+        <button id="expenseDetailsViewDocumentButton" type="button" class="secondary">צפה בחשבונית</button>
+      </div>
+
+      <section id="expenseDetailsAssetPrompt" class="expense-asset-prompt hidden" aria-label="יצירת נכס מהוצאה">
+        <p class="expense-asset-question">האם ליצור נכס מהוצאה זו?</p>
+        <button id="expenseDetailsCreateAssetButton" type="button" class="secondary">צור כרטיס נכס</button>
+        <p class="expense-details-sub">זמין בהמשך</p>
+      </section>
     </section>
 
     <form id="expenseForm" class="form-grid" style="margin-top:14px">

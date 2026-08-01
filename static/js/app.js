@@ -48,6 +48,7 @@ const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","teamView","alView"];
+const EXPENSE_STORAGE_CLEANUP_QUEUE_KEY = "expenseStorageCleanupQueue";
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
   PENDING_CHOICE: "pendingChoice",
@@ -58,6 +59,15 @@ const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
 });
 let currentExpenseDialogPrimaryState = EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD;
 let canDeferSingleExtractedInvoice = false;
+const EXPENSE_DIALOG_MODES = Object.freeze({
+  NEW: "new",
+  DETAILS_READONLY: "detailsReadonly",
+  DETAILS_EDIT: "detailsEdit"
+});
+let currentExpenseDialogMode = EXPENSE_DIALOG_MODES.NEW;
+let currentExpenseDetailsRecord = null;
+let currentExpenseEditId = "";
+let currentExpensePermissions = {canEdit:true, canDelete:true};
 
 const showLoading = () => {
   $("loadingScreen")?.classList.remove("hidden");
@@ -710,6 +720,63 @@ async function cleanupUploadedScanFiles(paths){
   if(error){
     console.warn("Failed to clean up incomplete scan uploads", error);
   }
+}
+
+function getPendingExpenseStorageCleanupPaths(){
+  try {
+    const raw = localStorage.getItem(EXPENSE_STORAGE_CLEANUP_QUEUE_KEY);
+    if(!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map(path => String(path || "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function setPendingExpenseStorageCleanupPaths(paths){
+  const normalized = Array.from(new Set((Array.isArray(paths) ? paths : [])
+    .map(path => String(path || "").trim())
+    .filter(Boolean)));
+
+  try {
+    if(!normalized.length){
+      localStorage.removeItem(EXPENSE_STORAGE_CLEANUP_QUEUE_KEY);
+      return;
+    }
+
+    localStorage.setItem(EXPENSE_STORAGE_CLEANUP_QUEUE_KEY, JSON.stringify(normalized));
+  } catch {}
+}
+
+function enqueuePendingExpenseStorageCleanup(paths){
+  const currentPaths = getPendingExpenseStorageCleanupPaths();
+  setPendingExpenseStorageCleanupPaths(currentPaths.concat(paths || []));
+}
+
+async function cleanupUploadedExpenseFiles(paths){
+  if(!Array.isArray(paths) || !paths.length) return null;
+  const {error} = await sb.storage.from("invoice-documents").remove(paths);
+  return error || null;
+}
+
+async function flushPendingExpenseStorageCleanup(){
+  if(!sb || !userId) return;
+
+  const pendingPaths = getPendingExpenseStorageCleanupPaths();
+  if(!pendingPaths.length) return;
+
+  const cleanupError = await cleanupUploadedExpenseFiles(pendingPaths);
+  if(cleanupError){
+    console.warn("Failed to flush pending expense storage cleanup", cleanupError);
+    return;
+  }
+
+  setPendingExpenseStorageCleanupPaths([]);
 }
 
 async function computeFileSha256(file){
@@ -3305,6 +3372,7 @@ async function enterApp(){
   resetViewScrollPosition();
 
   await loadBusiness();
+  void flushPendingExpenseStorageCleanup();
   await loadLookups();
   await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees(), loadIncomeTypeSuggestions()]);
   void refreshPendingInvoiceCountIndicator();
@@ -3646,6 +3714,228 @@ async function loadDashboard(){
     `<div>🟢 מצב העסק: הכנסות החודש ${money(incomeMonthTotal)}, הוצאות החודש ${money(expenseMonthTotal)}.</div>`;
 }
 
+function readExpensePermissions(expenseRecord){
+  const hasExpense = Boolean(String(expenseRecord?.id || "").trim());
+  return {
+    canEdit: hasExpense,
+    canDelete: hasExpense
+  };
+}
+
+function expenseDisplayValue(value, fallback = "-"){
+  const normalized = String(value || "").trim();
+  return normalized || fallback;
+}
+
+function setExpenseDetailsValue(id, value, fallback = "-"){
+  const el = $(id);
+  if(!el) return;
+  el.textContent = expenseDisplayValue(value, fallback);
+}
+
+function isFixedAssetAccountingTypeName(name){
+  return String(name || "").trim() === "רכוש קבוע";
+}
+
+function updateExpenseAssetPromptVisibility(accountingTypeName){
+  const prompt = $("expenseDetailsAssetPrompt");
+  if(!prompt) return;
+  prompt.classList.toggle("hidden", !isFixedAssetAccountingTypeName(accountingTypeName));
+}
+
+function populateExpenseFormFromExistingExpense(expenseRecord){
+  if(!expenseRecord) return;
+
+  $("expenseDate").value = expenseRecord.document_date || "";
+  $("expenseGross").value = Number(expenseRecord.gross_ils || 0) || "";
+  $("expenseSupplier").value = expenseRecord.supplier_name_snapshot || "";
+  $("expenseSupplierReg").value = expenseRecord.supplier_registration_snapshot || "";
+  $("expenseDocumentNumber").value = expenseRecord.document_number || "";
+  $("expenseAccountingType").value = expenseRecord.accounting_type_id || "";
+  $("expenseCategory").value = expenseRecord.category_id || "";
+  $("expenseProject").value = expenseRecord.project_id || "";
+  $("expensePaymentSource").value = expenseRecord.payment_source_id || "";
+  $("expensePaymentMethod").value = expenseRecord.payment_method_id || "";
+  $("expenseDescription").value = expenseRecord.description || "";
+  $("expenseNotes").value = expenseRecord.notes || "";
+
+  updateExpenseAssetPromptVisibility(expenseRecord.accounting_types?.name || "");
+}
+
+function renderExpenseDetailsReadOnly(expenseRecord){
+  if(!expenseRecord) return;
+
+  const accountingTypeName = expenseRecord.accounting_types?.name || "";
+  const debitCreditValue = expenseRecord.debit_credit || expenseRecord.debit_or_credit || "";
+  setExpenseDetailsValue("expenseDetailsSupplier", expenseRecord.supplier_name_snapshot);
+  setExpenseDetailsValue("expenseDetailsSupplierReg", expenseRecord.supplier_registration_snapshot, "ללא מספר זיהוי ספק");
+  setExpenseDetailsValue("expenseDetailsDocumentNumber", expenseRecord.document_number);
+  setExpenseDetailsValue("expenseDetailsDate", expenseRecord.document_date);
+  setExpenseDetailsValue("expenseDetailsDescription", expenseRecord.description);
+  setExpenseDetailsValue("expenseDetailsNotes", expenseRecord.notes, "ללא הערות");
+  setExpenseDetailsValue("expenseDetailsGross", money(expenseRecord.gross_ils || 0));
+  setExpenseDetailsValue("expenseDetailsNet", money(expenseRecord.net_ils || 0));
+  setExpenseDetailsValue("expenseDetailsVat", money(expenseRecord.vat_ils || 0));
+  setExpenseDetailsValue("expenseDetailsAccountingType", accountingTypeName);
+  setExpenseDetailsValue("expenseDetailsDebitCredit", debitCreditValue, "לא צוין");
+  setExpenseDetailsValue("expenseDetailsCategory", expenseRecord.categories?.name);
+  setExpenseDetailsValue("expenseDetailsProject", expenseRecord.projects?.name);
+  setExpenseDetailsValue("expenseDetailsPaymentSource", expenseRecord.payment_sources?.name);
+  setExpenseDetailsValue("expenseDetailsPaymentMethod", expenseRecord.payment_methods?.name);
+
+  updateExpenseAssetPromptVisibility(accountingTypeName);
+}
+
+function setExpenseDialogMode(mode){
+  currentExpenseDialogMode = mode;
+
+  const title = $("expenseDialogTitle");
+  const detailsView = $("expenseDetailsView");
+  const detailsActions = $("expenseDialogHeaderActions");
+  const expenseForm = $("expenseForm");
+  const deferButton = $("expenseFormDeferButton");
+  const submitButton = expenseForm?.querySelector('button[type="submit"], button:not([type])');
+
+  if(mode === EXPENSE_DIALOG_MODES.NEW){
+    detailsView?.classList.add("hidden");
+    detailsActions?.classList.add("hidden");
+    if(title) title.textContent = "הוצאה חדשה";
+    if(deferButton){
+      deferButton.textContent = "אבדוק מאוחר יותר";
+      deferButton.classList.remove("hidden");
+    }
+    if(submitButton) submitButton.textContent = "שמרי חשבונית בהוצאות";
+    updateExpenseAssetPromptVisibility("");
+    return;
+  }
+
+  [
+    $("expenseFilePreview"),
+    $("expenseExtractedPreview"),
+    $("expensePendingChoice"),
+    $("expenseGroupingGate"),
+    $("expenseManualGroupingWorkspace"),
+    $("expenseReviewList"),
+    $("expenseReviewContext"),
+    $("expenseReviewPosition")?.closest(".review-item-nav"),
+    document.querySelector("#expenseDialog .file-actions"),
+    document.querySelector("#expenseDialog .expense-actions")
+  ].forEach(section => section?.classList.add("hidden"));
+
+  setStatus($("expenseStatus"), "", "");
+  if(title) title.textContent = "פרטי הוצאה";
+  detailsActions?.classList.remove("hidden");
+  if(detailsView) detailsView.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_READONLY);
+  if(expenseForm) expenseForm.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_EDIT);
+
+  if(deferButton) deferButton.classList.add("hidden");
+  if(submitButton){
+    submitButton.textContent = mode === EXPENSE_DIALOG_MODES.DETAILS_EDIT
+      ? "שמרי שינויים"
+      : "שמרי חשבונית בהוצאות";
+  }
+
+  const editButton = $("expenseDetailsEditButton");
+  const deleteButton = $("expenseDetailsDeleteButton");
+  if(editButton) editButton.disabled = !currentExpensePermissions.canEdit || mode === EXPENSE_DIALOG_MODES.DETAILS_EDIT;
+  if(deleteButton) deleteButton.disabled = !currentExpensePermissions.canDelete;
+}
+
+async function getExpenseRecordForDetails(expenseId){
+  const safeExpenseId = String(expenseId || "").trim();
+  if(!safeExpenseId) return null;
+
+  const {data, error} = await sb.from("expenses")
+    .select(`
+      *,
+      accounting_types(name),
+      categories(name),
+      projects(name),
+      payment_sources(name),
+      payment_methods(name)
+    `)
+    .eq("user_id", userId)
+    .eq("id", safeExpenseId)
+    .maybeSingle();
+
+  if(error) throw error;
+  return data || null;
+}
+
+async function openExpenseDetailsDialog(expenseId){
+  try {
+    const expenseRecord = await getExpenseRecordForDetails(expenseId);
+    if(!expenseRecord){
+      showToast("ההוצאה לא נמצאה", "error");
+      return;
+    }
+
+    resetExpenseDialogState();
+    currentExpenseDetailsRecord = expenseRecord;
+    currentExpenseEditId = expenseRecord.id;
+    currentExpensePermissions = readExpensePermissions(expenseRecord);
+    renderExpenseDetailsReadOnly(expenseRecord);
+    setExpenseDialogMode(EXPENSE_DIALOG_MODES.DETAILS_READONLY);
+    $("expenseDialog")?.showModal();
+  } catch(error){
+    console.error(error);
+    showToast(error?.message || "שגיאה בטעינת פרטי הוצאה", "error");
+  }
+}
+
+function startEditingCurrentExpense(){
+  if(!currentExpenseDetailsRecord || !currentExpensePermissions.canEdit) return;
+  clearFormFieldValidation($("expenseForm"));
+  populateExpenseFormFromExistingExpense(currentExpenseDetailsRecord);
+  setExpenseDialogMode(EXPENSE_DIALOG_MODES.DETAILS_EDIT);
+}
+
+async function confirmAndDeleteCurrentExpense(){
+  if(!currentExpenseDetailsRecord || !currentExpensePermissions.canDelete) return;
+  if(!window.confirm("למחוק את ההוצאה? הפעולה אינה ניתנת לביטול.")) return;
+
+  const expenseId = String(currentExpenseDetailsRecord.id || "").trim();
+  if(!expenseId) return;
+
+  try {
+    const {data:deleteResult, error:deleteError} = await sb.rpc(
+      "delete_expense_atomic",
+      {p_expense_id: expenseId}
+    );
+
+    if(deleteError){
+      throw deleteError;
+    }
+
+    const deleteRow = Array.isArray(deleteResult) ? deleteResult[0] : deleteResult;
+    if(!deleteRow?.deleted_expense_id){
+      throw new Error("תשובת מחיקת ההוצאה אינה תקינה");
+    }
+
+    const storagePaths = (Array.isArray(deleteRow.storage_paths) ? deleteRow.storage_paths : [])
+      .map(path => String(path || "").trim())
+      .filter(Boolean);
+
+    if(storagePaths.length){
+      const cleanupError = await cleanupUploadedExpenseFiles(storagePaths);
+      if(cleanupError){
+        enqueuePendingExpenseStorageCleanup(storagePaths);
+      }
+    }
+
+    $("expenseDialog")?.close();
+    await Promise.all([loadExpenses(), loadDashboard()]);
+    if(storagePaths.length && getPendingExpenseStorageCleanupPaths().length){
+      showToast("ההוצאה נמחקה. ניקוי קבצי המסמך יושלם אוטומטית.", "ok");
+    } else {
+      showToast("ההוצאה נמחקה", "ok");
+    }
+  } catch(error){
+    console.error(error);
+    showToast(error?.message || "שגיאה במחיקת הוצאה", "error");
+  }
+}
+
 async function loadExpenses(){
   const {data,error} = await sb.from("expenses")
     .select(`
@@ -3685,8 +3975,8 @@ async function loadExpenses(){
       </thead>
       <tbody>
         ${(data || []).map(row => `
-          <tr>
-            <td><button class="eye eye-expense" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
+          <tr class="expense-row" data-expense="${row.id}" tabindex="0" role="button" aria-label="פתיחת פרטי הוצאה">
+            <td><button class="eye eye-expense" type="button" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
             <td>${row.document_date || ""}</td>
             <td>${money(row.gross_ils)}</td>
             <td>${row.supplier_name_snapshot || ""}</td>
@@ -3699,7 +3989,21 @@ async function loadExpenses(){
   `;
 
   document.querySelectorAll(".eye-expense").forEach(btn => {
-    btn.onclick = () => openExpenseDocument(btn.dataset.expense);
+    btn.onclick = event => {
+      event.stopPropagation();
+      void openExpenseDocument(btn.dataset.expense);
+    };
+  });
+
+  document.querySelectorAll(".expense-row[data-expense]").forEach(row => {
+    row.onclick = () => {
+      void openExpenseDetailsDialog(row.dataset.expense);
+    };
+    row.onkeydown = event => {
+      if(event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      void openExpenseDetailsDialog(row.dataset.expense);
+    };
   });
 }
 
@@ -4512,12 +4816,17 @@ function resetExpenseDialogState(){
   pendingExpenseEntryRows = [];
   canDeferSingleExtractedInvoice = false;
   isDeferredAnalyzeInFlight = false;
+  currentExpenseDialogMode = EXPENSE_DIALOG_MODES.NEW;
+  currentExpenseDetailsRecord = null;
+  currentExpenseEditId = "";
+  currentExpensePermissions = {canEdit:true, canDelete:true};
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
   clearExpenseInvoiceDerivedFields();
   renderSelectedFiles();
   setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
+  setExpenseDialogMode(EXPENSE_DIALOG_MODES.NEW);
 }
 
 async function runAnalyzeFlow({
@@ -4917,6 +5226,29 @@ $("expenseFormDeferButton").onclick = () => {
   handleExpenseContinueLaterAction();
 };
 
+$("expenseDetailsEditButton").onclick = () => {
+  startEditingCurrentExpense();
+};
+
+$("expenseDetailsDeleteButton").onclick = () => {
+  void confirmAndDeleteCurrentExpense();
+};
+
+$("expenseDetailsViewDocumentButton").onclick = () => {
+  const expenseId = String(currentExpenseDetailsRecord?.id || "").trim();
+  if(!expenseId) return;
+  void openExpenseDocument(expenseId);
+};
+
+$("expenseDetailsCreateAssetButton").onclick = () => {
+  showToast("יצירת כרטיס נכס - זמין בהמשך", "ok");
+};
+
+$("expenseAccountingType")?.addEventListener("change", event => {
+  const selectedName = event.target.options[event.target.selectedIndex]?.textContent || "";
+  updateExpenseAssetPromptVisibility(selectedName);
+});
+
 $("expenseReviewNavPrev").onclick = () => navigateExpenseReviewByOffset(-1);
 $("expenseReviewNavNext").onclick = () => navigateExpenseReviewByOffset(1);
 $("expenseReviewBackToList").onclick = () => returnToExpenseReviewList();
@@ -4950,6 +5282,11 @@ $("expenseForm").onsubmit = async event => {
   if(isExpenseSaving) return;
   clearFormFieldValidation(event.target);
 
+  const isEditingDetailsMode = (
+    currentExpenseDialogMode === EXPENSE_DIALOG_MODES.DETAILS_EDIT
+    && Boolean(String(currentExpenseEditId || "").trim())
+  );
+
   const submitButton = event.target.querySelector('button[type="submit"], button:not([type])');
   isExpenseSaving = true;
   if(submitButton) submitButton.disabled = true;
@@ -4963,176 +5300,204 @@ $("expenseForm").onsubmit = async event => {
     }
 
     const gross = Number($("expenseGross").value || 0);
-  const net = Math.round((gross / 1.18) * 100) / 100;
-  const vat = Math.round((gross - net) * 100) / 100;
+    const net = Math.round((gross / 1.18) * 100) / 100;
+    const vat = Math.round((gross - net) * 100) / 100;
 
-  const supplierName = $("expenseSupplier").value.trim();
-  let supplierId = null;
+    const supplierName = $("expenseSupplier").value.trim();
+    let supplierId = null;
 
-  if(supplierName){
-    let {data:existingSupplier} = await sb.from("suppliers")
-      .select("id")
-      .eq("user_id",userId)
-      .ilike("name",supplierName)
-      .maybeSingle();
+    if(supplierName){
+      let {data:existingSupplier} = await sb.from("suppliers")
+        .select("id")
+        .eq("user_id",userId)
+        .ilike("name",supplierName)
+        .maybeSingle();
 
-    if(!existingSupplier){
-      const {data:createdSupplier,error:supplierError} = await sb.from("suppliers")
-        .insert({
-          user_id:userId,
-          name:supplierName,
-          registration_number:$("expenseSupplierReg").value.trim()
-        })
+      if(!existingSupplier){
+        const {data:createdSupplier,error:supplierError} = await sb.from("suppliers")
+          .insert({
+            user_id:userId,
+            name:supplierName,
+            registration_number:$("expenseSupplierReg").value.trim()
+          })
+          .select("id")
+          .single();
+
+        if(supplierError){
+          setStatus($("expenseStatus"), supplierError.message, "error");
+          return;
+        }
+
+        existingSupplier = createdSupplier;
+      }
+
+      supplierId = existingSupplier.id;
+    }
+
+    const payload = {
+      user_id:userId,
+      supplier_id:supplierId,
+      supplier_name_snapshot:supplierName,
+      supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
+      document_date:$("expenseDate").value || null,
+      document_number:$("expenseDocumentNumber").value.trim(),
+      description:$("expenseDescription").value.trim(),
+      notes:$("expenseNotes").value.trim(),
+      category_id:$("expenseCategory").value || null,
+      accounting_type_id:$("expenseAccountingType").value,
+      project_id:$("expenseProject").value || null,
+      payment_source_id:$("expensePaymentSource").value || null,
+      payment_method_id:$("expensePaymentMethod").value || null,
+      gross_ils:gross,
+      net_ils:net,
+      vat_ils:vat
+    };
+
+    const reviewContextSnapshot = activeExpenseReviewContext?.enteredFromReviewList
+      ? {
+          batchId: activeExpenseReviewContext.batchId,
+          scanItemId: activeExpenseReviewContext.scanItemId
+        }
+      : null;
+
+    let expenseId = null;
+    let reviewQueueSyncError = "";
+
+    if(isEditingDetailsMode){
+      const {data:updatedExpense,error:updateError} = await sb.from("expenses")
+        .update(payload)
+        .eq("user_id", userId)
+        .eq("id", currentExpenseEditId)
         .select("id")
         .single();
 
-      if(supplierError){
-        setStatus($("expenseStatus"), supplierError.message, "error");
+      if(updateError){
+        setStatus($("expenseStatus"), updateError.message || "שגיאה בעדכון ההוצאה", "error");
         return;
       }
 
-      existingSupplier = createdSupplier;
+      expenseId = updatedExpense.id;
+    } else if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
+      const {data:saveResult, error:saveError} = await sb.rpc(
+        "save_current_invoice_expense_atomic",
+        {
+          p_scan_item_id: reviewContextSnapshot.scanItemId,
+          p_batch_id: reviewContextSnapshot.batchId,
+          p_expense: {
+            supplier_id: payload.supplier_id,
+            supplier_name_snapshot: payload.supplier_name_snapshot,
+            supplier_registration_snapshot: payload.supplier_registration_snapshot,
+            document_date: payload.document_date,
+            document_number: payload.document_number,
+            description: payload.description,
+            notes: payload.notes,
+            category_id: payload.category_id,
+            accounting_type_id: payload.accounting_type_id,
+            project_id: payload.project_id,
+            payment_source_id: payload.payment_source_id,
+            payment_method_id: payload.payment_method_id,
+            gross_ils: payload.gross_ils,
+            net_ils: payload.net_ils,
+            vat_ils: payload.vat_ils
+          }
+        }
+      );
+
+      if(saveError){
+        const duplicateSave = saveError.code === "23505";
+        setStatus(
+          $("expenseStatus"),
+          duplicateSave ? "החשבונית הזו כבר נשמרה." : (saveError.message || "שגיאה בשמירת החשבונית"),
+          "error"
+        );
+        return;
+      }
+
+      const saveRow = Array.isArray(saveResult) ? saveResult[0] : saveResult;
+      if(!saveRow?.expense_id){
+        setStatus($("expenseStatus"), "תשובת שמירת החשבונית אינה תקינה", "error");
+        return;
+      }
+
+      expenseId = saveRow.expense_id;
+
+      try {
+        removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
+      } catch(uiError){
+        console.error(uiError);
+        setStatus($("expenseStatus"), uiError?.message || "שגיאה בעדכון רשימת החשבוניות", "error");
+        return;
+      }
+
+      try {
+        await reconcileExpenseReviewRowsAfterSave(reviewContextSnapshot.batchId);
+      } catch(syncError){
+        console.error(syncError);
+        reviewQueueSyncError = "החשבונית נשמרה, אך סנכרון רשימת החשבוניות נכשל.";
+      }
+    } else {
+      const {data:expense,error} = await sb.from("expenses")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if(error){
+        setStatus($("expenseStatus"), error.message, "error");
+        return;
+      }
+
+      expenseId = expense.id;
     }
 
-    supplierId = existingSupplier.id;
-  }
+    for(let i=0;i<selectedFiles.length;i++){
+      const file = selectedFiles[i];
+      const path = `${userId}/${expenseId}/${String(i+1).padStart(3,"0")}-${file.name}`;
 
-  const payload = {
-    user_id:userId,
-    supplier_id:supplierId,
-    supplier_name_snapshot:supplierName,
-    supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-    document_date:$("expenseDate").value || null,
-    document_number:$("expenseDocumentNumber").value.trim(),
-    description:$("expenseDescription").value.trim(),
-    notes:$("expenseNotes").value.trim(),
-    category_id:$("expenseCategory").value || null,
-    accounting_type_id:$("expenseAccountingType").value,
-    project_id:$("expenseProject").value || null,
-    payment_source_id:$("expensePaymentSource").value || null,
-    payment_method_id:$("expensePaymentMethod").value || null,
-    gross_ils:gross,
-    net_ils:net,
-    vat_ils:vat
-  };
+      const upload = await sb.storage
+        .from("invoice-documents")
+        .upload(path,file,{contentType:file.type,upsert:false});
 
-  const reviewContextSnapshot = activeExpenseReviewContext?.enteredFromReviewList
-    ? {
-        batchId: activeExpenseReviewContext.batchId,
-        scanItemId: activeExpenseReviewContext.scanItemId
+      if(!upload.error){
+        await sb.from("expense_documents").insert({
+          user_id:userId,
+          expense_id:expenseId,
+          storage_path:path,
+          original_filename:file.name,
+          mime_type:file.type,
+          page_number:i+1,
+          document_type:file.type === "application/pdf" ? "pdf" : "image",
+          generated_by_app:false
+        });
       }
-    : null;
+    }
 
-  let expenseId = null;
-  let reviewQueueSyncError = "";
+    await Promise.all([loadExpenses(),loadDashboard()]);
+    void refreshPendingInvoiceCountIndicator();
 
-  if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
-    const {data:saveResult, error:saveError} = await sb.rpc(
-      "save_current_invoice_expense_atomic",
-      {
-        p_scan_item_id: reviewContextSnapshot.scanItemId,
-        p_batch_id: reviewContextSnapshot.batchId,
-        p_expense: {
-          supplier_id: payload.supplier_id,
-          supplier_name_snapshot: payload.supplier_name_snapshot,
-          supplier_registration_snapshot: payload.supplier_registration_snapshot,
-          document_date: payload.document_date,
-          document_number: payload.document_number,
-          description: payload.description,
-          notes: payload.notes,
-          category_id: payload.category_id,
-          accounting_type_id: payload.accounting_type_id,
-          project_id: payload.project_id,
-          payment_source_id: payload.payment_source_id,
-          payment_method_id: payload.payment_method_id,
-          gross_ils: payload.gross_ils,
-          net_ils: payload.net_ils,
-          vat_ils: payload.vat_ils
-        }
+    if(isEditingDetailsMode){
+      const refreshedExpense = await getExpenseRecordForDetails(expenseId);
+      if(refreshedExpense){
+        currentExpenseDetailsRecord = refreshedExpense;
+        currentExpensePermissions = readExpensePermissions(refreshedExpense);
+        renderExpenseDetailsReadOnly(refreshedExpense);
       }
+
+      setStatus($("expenseStatus"), "ההוצאה עודכנה", "ok");
+      setExpenseDialogMode(EXPENSE_DIALOG_MODES.DETAILS_READONLY);
+      return;
+    }
+
+    event.target.reset();
+    selectedFiles = [];
+    clearLocalFileObjectUrls();
+    setStatus(
+      $("expenseStatus"),
+      reviewQueueSyncError || "החשבונית נשמרה",
+      reviewQueueSyncError ? "error" : "ok"
     );
 
-    if(saveError){
-      const duplicateSave = saveError.code === "23505";
-      setStatus(
-        $("expenseStatus"),
-        duplicateSave ? "החשבונית הזו כבר נשמרה." : (saveError.message || "שגיאה בשמירת החשבונית"),
-        "error"
-      );
-      return;
-    }
-
-    const saveRow = Array.isArray(saveResult) ? saveResult[0] : saveResult;
-    if(!saveRow?.expense_id){
-      setStatus($("expenseStatus"), "תשובת שמירת החשבונית אינה תקינה", "error");
-      return;
-    }
-
-    expenseId = saveRow.expense_id;
-
-    try {
-      removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
-    } catch(uiError){
-      console.error(uiError);
-      setStatus($("expenseStatus"), uiError?.message || "שגיאה בעדכון רשימת החשבוניות", "error");
-      return;
-    }
-
-    try {
-      await reconcileExpenseReviewRowsAfterSave(reviewContextSnapshot.batchId);
-    } catch(syncError){
-      console.error(syncError);
-      reviewQueueSyncError = "החשבונית נשמרה, אך סנכרון רשימת החשבוניות נכשל.";
-    }
-  } else {
-    const {data:expense,error} = await sb.from("expenses")
-      .insert(payload)
-      .select("id")
-      .single();
-
-    if(error){
-      setStatus($("expenseStatus"), error.message, "error");
-      return;
-    }
-
-    expenseId = expense.id;
-  }
-
-  for(let i=0;i<selectedFiles.length;i++){
-    const file = selectedFiles[i];
-    const path = `${userId}/${expenseId}/${String(i+1).padStart(3,"0")}-${file.name}`;
-
-    const upload = await sb.storage
-      .from("invoice-documents")
-      .upload(path,file,{contentType:file.type,upsert:false});
-
-    if(!upload.error){
-      await sb.from("expense_documents").insert({
-        user_id:userId,
-        expense_id:expenseId,
-        storage_path:path,
-        original_filename:file.name,
-        mime_type:file.type,
-        page_number:i+1,
-        document_type:file.type === "application/pdf" ? "pdf" : "image",
-        generated_by_app:false
-      });
-    }
-  }
-
-  event.target.reset();
-  selectedFiles = [];
-  clearLocalFileObjectUrls();
-  setStatus(
-    $("expenseStatus"),
-    reviewQueueSyncError || "החשבונית נשמרה",
-    reviewQueueSyncError ? "error" : "ok"
-  );
-
-  await Promise.all([loadExpenses(),loadDashboard()]);
-  void refreshPendingInvoiceCountIndicator();
-  setTimeout(() => $("expenseDialog").close(),650);
-  return;
+    setTimeout(() => $("expenseDialog").close(),650);
+    return;
   
 } catch(error){
     console.error(error);

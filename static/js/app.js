@@ -3263,14 +3263,18 @@ async function deferActivePendingInvoiceAndOpenNext(){
   }
 
   const persistedRows = await loadPendingReviewRows();
-  const activeRow = persistedRows.find(row => row.scanItemId === activeScanItemId) || null;
-  const otherRows = persistedRows.filter(row => row.scanItemId !== activeScanItemId);
+  const persistedActiveIndex = persistedRows.findIndex(row => row.scanItemId === activeScanItemId);
+  const activeRow = persistedActiveIndex >= 0 ? persistedRows[persistedActiveIndex] : null;
+  const afterActiveRows = persistedActiveIndex >= 0 ? persistedRows.slice(persistedActiveIndex + 1) : [];
+  const beforeActiveRows = persistedActiveIndex >= 0 ? persistedRows.slice(0, persistedActiveIndex) : persistedRows.slice();
+  const otherRows = afterActiveRows.concat(beforeActiveRows);
 
   console.info("expense_defer_trace:deferActive:persistedRows", {
     activeScanItemId,
     persistedRowCount: persistedRows.length,
     otherRowCount: otherRows.length,
-    foundActiveRow: Boolean(activeRow)
+    foundActiveRow: Boolean(activeRow),
+    persistedActiveIndex
   });
 
   if(!activeRow){
@@ -3370,6 +3374,19 @@ async function loadExpenseReviewItemData(row, loadToken){
   if(isStaleLoad()) return;
 }
 
+function resetExpenseReviewScrollPosition(){
+  const dialogBody = $("expenseDialog")?.querySelector(".modal-body");
+  if(!dialogBody) return;
+
+  const applyScrollReset = () => {
+    dialogBody.scrollTo?.(0, 0);
+    dialogBody.scrollTop = 0;
+  };
+
+  applyScrollReset();
+  window.requestAnimationFrame(applyScrollReset);
+}
+
 async function openExpenseReviewItem(row){
   if(!row || !row.scanItemId || !row.batchId || !Number.isInteger(row.itemOrder)) return;
 
@@ -3394,6 +3411,7 @@ async function openExpenseReviewItem(row){
   });
 
   hideExpenseReviewList();
+  resetExpenseReviewScrollPosition();
 
   clearExpenseReviewPageSelection();
   clearExpenseInvoiceDerivedFields();

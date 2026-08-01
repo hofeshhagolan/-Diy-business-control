@@ -3067,6 +3067,13 @@ async function openNextPendingInvoice({
   refreshWhenEmpty = false,
   excludeScanItemId = ""
 } = {}){
+  console.info("expense_defer_trace:openNextPendingInvoice:start", {
+    currentState: currentExpenseDialogPrimaryState,
+    sessionRowCount: Array.isArray(sessionRows) ? sessionRows.length : expenseReviewRows.length,
+    refreshWhenEmpty,
+    excludeScanItemId
+  });
+
   const excludedId = String(excludeScanItemId || "").trim();
   const mergeSessionWithPersistedRows = (preferredRows, persistedRows) => {
     const preferred = Array.isArray(preferredRows) ? preferredRows : [];
@@ -3111,6 +3118,14 @@ async function openNextPendingInvoice({
     : requestedSessionRows;
   const nextSessionRows = pickNextRows(normalizedSessionRows);
 
+  console.info("expense_defer_trace:openNextPendingInvoice:resolved", {
+    shouldRefresh,
+    persistedRowCount: persistedRows.length,
+    normalizedSessionRowCount: normalizedSessionRows.length,
+    nextSessionRowCount: nextSessionRows.length,
+    nextScanItemId: String(nextSessionRows[0]?.scanItemId || "")
+  });
+
   expenseReviewRows = normalizedSessionRows;
   pendingExpenseEntryRows = normalizedSessionRows.slice();
 
@@ -3118,6 +3133,9 @@ async function openNextPendingInvoice({
     renderExpenseReviewList(normalizedSessionRows);
     openExpenseReviewItem(nextSessionRows[0]);
     void refreshPendingInvoiceCountIndicator();
+    console.info("expense_defer_trace:openNextPendingInvoice:opened", {
+      nextScanItemId: String(nextSessionRows[0]?.scanItemId || "")
+    });
     return true;
   }
 
@@ -3131,6 +3149,9 @@ async function openNextPendingInvoice({
       renderExpenseReviewList(refreshedRows);
       openExpenseReviewItem(nextRefreshedRows[0]);
       void refreshPendingInvoiceCountIndicator();
+      console.info("expense_defer_trace:openNextPendingInvoice:openedAfterRefresh", {
+        nextScanItemId: String(nextRefreshedRows[0]?.scanItemId || "")
+      });
       return true;
     }
 
@@ -3147,6 +3168,7 @@ async function openNextPendingInvoice({
   hideExpenseReviewContext();
   renderExpenseReviewList([]);
   void refreshPendingInvoiceCountIndicator();
+  console.info("expense_defer_trace:openNextPendingInvoice:closingDialog");
   $("expenseDialog")?.close();
   return false;
 }
@@ -3222,6 +3244,13 @@ async function confirmAndDiscardActiveReviewInvoice(){
 
 async function deferActivePendingInvoiceAndOpenNext(){
   const activeIndex = getActiveExpenseReviewRowIndex();
+  console.info("expense_defer_trace:deferActive:start", {
+    activeIndex,
+    currentState: currentExpenseDialogPrimaryState,
+    reviewRowCount: expenseReviewRows.length,
+    activeScanItemId: String(activeExpenseReviewContext?.scanItemId || "")
+  });
+
   if(activeIndex < 0){
     setStatus($("expenseStatus"), "לא נמצאה חשבונית פעילה לבדיקה מאוחרת.", "error");
     return;
@@ -3236,6 +3265,13 @@ async function deferActivePendingInvoiceAndOpenNext(){
   const persistedRows = await loadPendingReviewRows();
   const activeRow = persistedRows.find(row => row.scanItemId === activeScanItemId) || null;
   const otherRows = persistedRows.filter(row => row.scanItemId !== activeScanItemId);
+
+  console.info("expense_defer_trace:deferActive:persistedRows", {
+    activeScanItemId,
+    persistedRowCount: persistedRows.length,
+    otherRowCount: otherRows.length,
+    foundActiveRow: Boolean(activeRow)
+  });
 
   if(!activeRow){
     await openNextPendingInvoice({
@@ -5417,28 +5453,41 @@ $("expensePendingScanNew").onclick = () => {
 };
 
 async function handleExpenseContinueLaterAction(){
+  console.info("expense_defer_trace:handleContinueLater:click", {
+    currentState: currentExpenseDialogPrimaryState,
+    reviewRowCount: expenseReviewRows.length,
+    activeScanItemId: String(activeExpenseReviewContext?.scanItemId || "")
+  });
+
   if(!confirmManualGroupingDiscard()) return;
 
-  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
-    const result = await runAnalyzeFlow({mode: "defer-now"});
-    if(result?.status === "persisted"){
-      $("expenseDialog")?.close();
+  try {
+    if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD){
+      const result = await runAnalyzeFlow({mode: "defer-now"});
+      if(result?.status === "persisted"){
+        $("expenseDialog")?.close();
+      }
+      return;
     }
-    return;
-  }
 
-  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT){
-    await deferActivePendingInvoiceAndOpenNext();
-    return;
-  }
+    if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT){
+      setStatus($("expenseStatus"), "מעבירה לחשבונית הבאה…", "");
+      await deferActivePendingInvoiceAndOpenNext();
+      return;
+    }
 
-  if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST){
-    await openNextPendingInvoice({sessionRows: expenseReviewRows.slice(), refreshWhenEmpty: true});
-    return;
-  }
+    if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST){
+      setStatus($("expenseStatus"), "טוענת את החשבונית הבאה…", "");
+      await openNextPendingInvoice({sessionRows: expenseReviewRows.slice(), refreshWhenEmpty: true});
+      return;
+    }
 
-  canDeferSingleExtractedInvoice = false;
-  $("expenseDialog")?.close();
+    canDeferSingleExtractedInvoice = false;
+    $("expenseDialog")?.close();
+  } catch(error){
+    console.error("expense_defer_trace:handleContinueLater:error", error);
+    setStatus($("expenseStatus"), error?.message || "שגיאה במעבר לחשבונית הבאה", "error");
+  }
 }
 
 $("queueButton").onclick = () => {
@@ -5447,6 +5496,11 @@ $("queueButton").onclick = () => {
 };
 
 $("expenseFormDeferButton").onclick = () => {
+  console.info("expense_defer_trace:deferButton:domClick", {
+    disabled: Boolean($("expenseFormDeferButton")?.disabled),
+    hidden: $("expenseFormDeferButton")?.classList.contains("hidden") || false,
+    currentState: currentExpenseDialogPrimaryState
+  });
   void handleExpenseContinueLaterAction();
 };
 

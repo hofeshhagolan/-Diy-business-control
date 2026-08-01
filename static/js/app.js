@@ -3175,8 +3175,23 @@ async function deferActivePendingInvoiceAndOpenNext(){
     return;
   }
 
-  const activeRow = expenseReviewRows[activeIndex];
-  const otherRows = expenseReviewRows.filter((_, index) => index !== activeIndex);
+  const activeScanItemId = String(expenseReviewRows[activeIndex]?.scanItemId || "").trim();
+  if(!activeScanItemId){
+    setStatus($("expenseStatus"), "לא נמצאה חשבונית פעילה לבדיקה מאוחרת.", "error");
+    return;
+  }
+
+  const persistedRows = await loadPendingReviewRows();
+  const activeRow = persistedRows.find(row => row.scanItemId === activeScanItemId) || null;
+  const otherRows = persistedRows.filter(row => row.scanItemId !== activeScanItemId);
+
+  if(!activeRow){
+    await openNextPendingInvoice({
+      sessionRows: otherRows,
+      refreshWhenEmpty: true
+    });
+    return;
+  }
 
   if(!otherRows.length){
     setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");

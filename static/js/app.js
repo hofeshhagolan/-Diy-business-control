@@ -3062,6 +3062,13 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   openExpenseReviewItem(nextRow);
 }
 
+function relabelExpenseReviewRows(rows){
+  return (Array.isArray(rows) ? rows : []).map((row, index) => ({
+    ...row,
+    label: `חשבונית ${index + 1}`
+  }));
+}
+
 async function openNextPendingInvoice({
   sessionRows = null,
   refreshWhenEmpty = false,
@@ -3116,21 +3123,22 @@ async function openNextPendingInvoice({
   const normalizedSessionRows = shouldRefresh
     ? mergeSessionWithPersistedRows(requestedSessionRows, persistedRows)
     : requestedSessionRows;
-  const nextSessionRows = pickNextRows(normalizedSessionRows);
+  const relabeledSessionRows = relabelExpenseReviewRows(normalizedSessionRows);
+  const nextSessionRows = pickNextRows(relabeledSessionRows);
 
   console.info("expense_defer_trace:openNextPendingInvoice:resolved", {
     shouldRefresh,
     persistedRowCount: persistedRows.length,
-    normalizedSessionRowCount: normalizedSessionRows.length,
+    normalizedSessionRowCount: relabeledSessionRows.length,
     nextSessionRowCount: nextSessionRows.length,
     nextScanItemId: String(nextSessionRows[0]?.scanItemId || "")
   });
 
-  expenseReviewRows = normalizedSessionRows;
-  pendingExpenseEntryRows = normalizedSessionRows.slice();
+  expenseReviewRows = relabeledSessionRows;
+  pendingExpenseEntryRows = relabeledSessionRows.slice();
 
   if(nextSessionRows.length){
-    renderExpenseReviewList(normalizedSessionRows);
+    renderExpenseReviewList(relabeledSessionRows);
     openExpenseReviewItem(nextSessionRows[0]);
     void refreshPendingInvoiceCountIndicator();
     console.info("expense_defer_trace:openNextPendingInvoice:opened", {
@@ -3141,12 +3149,13 @@ async function openNextPendingInvoice({
 
   if(refreshWhenEmpty){
     const refreshedRows = persistedRows.length ? persistedRows : await loadPendingReviewRows();
-    const nextRefreshedRows = pickNextRows(refreshedRows);
-    expenseReviewRows = refreshedRows;
-    pendingExpenseEntryRows = refreshedRows.slice();
+    const relabeledRefreshedRows = relabelExpenseReviewRows(refreshedRows);
+    const nextRefreshedRows = pickNextRows(relabeledRefreshedRows);
+    expenseReviewRows = relabeledRefreshedRows;
+    pendingExpenseEntryRows = relabeledRefreshedRows.slice();
 
     if(nextRefreshedRows.length){
-      renderExpenseReviewList(refreshedRows);
+      renderExpenseReviewList(relabeledRefreshedRows);
       openExpenseReviewItem(nextRefreshedRows[0]);
       void refreshPendingInvoiceCountIndicator();
       console.info("expense_defer_trace:openNextPendingInvoice:openedAfterRefresh", {
@@ -3155,10 +3164,10 @@ async function openNextPendingInvoice({
       return true;
     }
 
-    if(refreshedRows.length){
+    if(relabeledRefreshedRows.length){
       activeExpenseReviewContext = null;
       hideExpenseReviewContext();
-      renderExpenseReviewList(refreshedRows);
+      renderExpenseReviewList(relabeledRefreshedRows);
       void refreshPendingInvoiceCountIndicator();
       return false;
     }
@@ -3263,15 +3272,23 @@ async function deferActivePendingInvoiceAndOpenNext(){
   }
 
   const persistedRows = await loadPendingReviewRows();
-  const persistedActiveIndex = persistedRows.findIndex(row => row.scanItemId === activeScanItemId);
-  const activeRow = persistedActiveIndex >= 0 ? persistedRows[persistedActiveIndex] : null;
-  const afterActiveRows = persistedActiveIndex >= 0 ? persistedRows.slice(persistedActiveIndex + 1) : [];
-  const beforeActiveRows = persistedActiveIndex >= 0 ? persistedRows.slice(0, persistedActiveIndex) : persistedRows.slice();
+  const persistedById = new Map(
+    persistedRows.map(row => [String(row?.scanItemId || "").trim(), row])
+  );
+  const sessionOrderedRows = expenseReviewRows
+    .map(row => persistedById.get(String(row?.scanItemId || "").trim()) || null)
+    .filter(Boolean);
+
+  const persistedActiveIndex = sessionOrderedRows.findIndex(row => row.scanItemId === activeScanItemId);
+  const activeRow = persistedActiveIndex >= 0 ? sessionOrderedRows[persistedActiveIndex] : null;
+  const afterActiveRows = persistedActiveIndex >= 0 ? sessionOrderedRows.slice(persistedActiveIndex + 1) : [];
+  const beforeActiveRows = persistedActiveIndex >= 0 ? sessionOrderedRows.slice(0, persistedActiveIndex) : sessionOrderedRows.slice();
   const otherRows = afterActiveRows.concat(beforeActiveRows);
 
   console.info("expense_defer_trace:deferActive:persistedRows", {
     activeScanItemId,
     persistedRowCount: persistedRows.length,
+    sessionOrderedRowCount: sessionOrderedRows.length,
     otherRowCount: otherRows.length,
     foundActiveRow: Boolean(activeRow),
     persistedActiveIndex

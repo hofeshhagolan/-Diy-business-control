@@ -3062,13 +3062,6 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   openExpenseReviewItem(nextRow);
 }
 
-function relabelExpenseReviewRows(rows){
-  return (Array.isArray(rows) ? rows : []).map((row, index) => ({
-    ...row,
-    label: `חשבונית ${index + 1}`
-  }));
-}
-
 async function openNextPendingInvoice({
   sessionRows = null,
   refreshWhenEmpty = false,
@@ -3123,22 +3116,21 @@ async function openNextPendingInvoice({
   const normalizedSessionRows = shouldRefresh
     ? mergeSessionWithPersistedRows(requestedSessionRows, persistedRows)
     : requestedSessionRows;
-  const relabeledSessionRows = relabelExpenseReviewRows(normalizedSessionRows);
-  const nextSessionRows = pickNextRows(relabeledSessionRows);
+  const nextSessionRows = pickNextRows(normalizedSessionRows);
 
   console.info("expense_defer_trace:openNextPendingInvoice:resolved", {
     shouldRefresh,
     persistedRowCount: persistedRows.length,
-    normalizedSessionRowCount: relabeledSessionRows.length,
+    normalizedSessionRowCount: normalizedSessionRows.length,
     nextSessionRowCount: nextSessionRows.length,
     nextScanItemId: String(nextSessionRows[0]?.scanItemId || "")
   });
 
-  expenseReviewRows = relabeledSessionRows;
-  pendingExpenseEntryRows = relabeledSessionRows.slice();
+  expenseReviewRows = normalizedSessionRows;
+  pendingExpenseEntryRows = normalizedSessionRows.slice();
 
   if(nextSessionRows.length){
-    renderExpenseReviewList(relabeledSessionRows);
+    renderExpenseReviewList(normalizedSessionRows);
     openExpenseReviewItem(nextSessionRows[0]);
     void refreshPendingInvoiceCountIndicator();
     console.info("expense_defer_trace:openNextPendingInvoice:opened", {
@@ -3149,13 +3141,12 @@ async function openNextPendingInvoice({
 
   if(refreshWhenEmpty){
     const refreshedRows = persistedRows.length ? persistedRows : await loadPendingReviewRows();
-    const relabeledRefreshedRows = relabelExpenseReviewRows(refreshedRows);
-    const nextRefreshedRows = pickNextRows(relabeledRefreshedRows);
-    expenseReviewRows = relabeledRefreshedRows;
-    pendingExpenseEntryRows = relabeledRefreshedRows.slice();
+    const nextRefreshedRows = pickNextRows(refreshedRows);
+    expenseReviewRows = refreshedRows;
+    pendingExpenseEntryRows = refreshedRows.slice();
 
     if(nextRefreshedRows.length){
-      renderExpenseReviewList(relabeledRefreshedRows);
+      renderExpenseReviewList(refreshedRows);
       openExpenseReviewItem(nextRefreshedRows[0]);
       void refreshPendingInvoiceCountIndicator();
       console.info("expense_defer_trace:openNextPendingInvoice:openedAfterRefresh", {
@@ -3164,10 +3155,10 @@ async function openNextPendingInvoice({
       return true;
     }
 
-    if(relabeledRefreshedRows.length){
+    if(refreshedRows.length){
       activeExpenseReviewContext = null;
       hideExpenseReviewContext();
-      renderExpenseReviewList(relabeledRefreshedRows);
+      renderExpenseReviewList(refreshedRows);
       void refreshPendingInvoiceCountIndicator();
       return false;
     }
@@ -3249,66 +3240,6 @@ async function confirmAndDiscardActiveReviewInvoice(){
     console.error(error);
     setStatus($("expenseStatus"), error?.message || "שגיאה במחיקת החשבונית הממתינה", "error");
   }
-}
-
-async function deferActivePendingInvoiceAndOpenNext(){
-  const activeIndex = getActiveExpenseReviewRowIndex();
-  console.info("expense_defer_trace:deferActive:start", {
-    activeIndex,
-    currentState: currentExpenseDialogPrimaryState,
-    reviewRowCount: expenseReviewRows.length,
-    activeScanItemId: String(activeExpenseReviewContext?.scanItemId || "")
-  });
-
-  if(activeIndex < 0){
-    setStatus($("expenseStatus"), "לא נמצאה חשבונית פעילה לבדיקה מאוחרת.", "error");
-    return;
-  }
-
-  const activeScanItemId = String(expenseReviewRows[activeIndex]?.scanItemId || "").trim();
-  if(!activeScanItemId){
-    setStatus($("expenseStatus"), "לא נמצאה חשבונית פעילה לבדיקה מאוחרת.", "error");
-    return;
-  }
-
-  const persistedRows = await loadPendingReviewRows();
-  const persistedById = new Map(
-    persistedRows.map(row => [String(row?.scanItemId || "").trim(), row])
-  );
-  const sessionOrderedRows = expenseReviewRows
-    .map(row => persistedById.get(String(row?.scanItemId || "").trim()) || null)
-    .filter(Boolean);
-
-  const persistedActiveIndex = sessionOrderedRows.findIndex(row => row.scanItemId === activeScanItemId);
-  const activeRow = persistedActiveIndex >= 0 ? sessionOrderedRows[persistedActiveIndex] : null;
-  const afterActiveRows = persistedActiveIndex >= 0 ? sessionOrderedRows.slice(persistedActiveIndex + 1) : [];
-  const beforeActiveRows = persistedActiveIndex >= 0 ? sessionOrderedRows.slice(0, persistedActiveIndex) : sessionOrderedRows.slice();
-  const otherRows = afterActiveRows.concat(beforeActiveRows);
-
-  console.info("expense_defer_trace:deferActive:persistedRows", {
-    activeScanItemId,
-    persistedRowCount: persistedRows.length,
-    sessionOrderedRowCount: sessionOrderedRows.length,
-    otherRowCount: otherRows.length,
-    foundActiveRow: Boolean(activeRow),
-    persistedActiveIndex
-  });
-
-  if(!activeRow){
-    await openNextPendingInvoice({
-      sessionRows: otherRows,
-      refreshWhenEmpty: true
-    });
-    return;
-  }
-
-  const reorderedRows = otherRows.concat(activeRow);
-  setStatus($("expenseStatus"), "החשבונית סומנה לבדיקה מאוחרת.", "ok");
-  await openNextPendingInvoice({
-    sessionRows: reorderedRows,
-    refreshWhenEmpty: true,
-    excludeScanItemId: activeScanItemId
-  });
 }
 
 async function reconcileExpenseReviewRowsAfterSave(batchId){
@@ -5506,14 +5437,14 @@ async function handleExpenseContinueLaterAction(){
     }
 
     if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.REVIEW_CONTEXT){
-      setStatus($("expenseStatus"), "מעבירה לחשבונית הבאה…", "");
-      await deferActivePendingInvoiceAndOpenNext();
+      setStatus($("expenseStatus"), "החשבונית נשארה לבדיקה מאוחרת.", "ok");
+      $("expenseDialog")?.close();
       return;
     }
 
     if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST){
-      setStatus($("expenseStatus"), "טוענת את החשבונית הבאה…", "");
-      await openNextPendingInvoice({sessionRows: expenseReviewRows.slice(), refreshWhenEmpty: true});
+      setStatus($("expenseStatus"), "החשבוניות נשארו לבדיקה מאוחרת.", "ok");
+      $("expenseDialog")?.close();
       return;
     }
 

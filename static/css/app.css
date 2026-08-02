@@ -105,12 +105,11 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .company-document-card-title{margin:0;color:var(--brand);font-size:1.05rem}
 .company-document-card-meta{margin:6px 0 0;color:var(--muted);line-height:1.5;word-break:break-word}
 .company-document-card-actions{display:flex;align-items:center;gap:8px}
-.company-document-card-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#eef3f8;color:var(--brand2);font-size:.78rem;font-weight:700}
-.company-document-card-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.company-document-card-hint{margin:0;color:var(--muted);font-size:.88rem}
 .company-documents-manage-form{margin-bottom:18px}
 .company-documents-manage-form h3{margin:0;color:var(--brand)}
 .company-document-editor-form{gap:14px}
+.company-document-editor-actions{display:flex;align-items:center;justify-content:flex-start;gap:10px;flex-wrap:wrap}
+.company-document-editor-actions .row-action{min-width:44px;min-height:44px}
 .company-document-editor-current-file{display:grid;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .company-document-editor-current-file strong{color:var(--brand)}
 .company-document-editor-file-name{margin:0;color:var(--muted);word-break:break-word}
@@ -315,7 +314,6 @@ dialog::backdrop{background:#07182a99}
   .review-fullscreen-content iframe{width:100%;height:100%}
   .review-list{padding:10px}
   .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
-  .company-document-card-footer{align-items:flex-start}
   .company-documents-manage-item{align-items:flex-start;flex-direction:column}
   .company-documents-manage-item .delete-action{align-self:flex-start}
   .expense-details-grid{grid-template-columns:1fr}

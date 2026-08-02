@@ -452,6 +452,7 @@
       <h3>➕ הוספת מסמך</h3>
       <label>אפשרות הוספה
         <select id="companyDocumentsAddMode">
+          <option value="">בחרי אפשרות</option>
           <option value="existing_type">בחירת סוג מסמך</option>
           <option value="custom">מותאם אישית</option>
         </select>
@@ -474,7 +475,7 @@
         <button id="companyDocumentsAddCustomSubmit" class="primary" type="submit">הוסיפי מסמך מותאם אישית</button>
       </section>
 
-      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">כל מסמכי ברירת המחדל קיימים.</p>
+      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">בחרי אפשרות כדי להמשיך.</p>
       <div id="companyDocumentsManageStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
     <section class="company-documents-manage-section" aria-label="מסמכים קיימים">
@@ -497,13 +498,13 @@
         <p id="companyDocumentEditorCurrentFile" class="company-document-editor-file-name">לא הועלה מסמך</p>
       </div>
       <div class="file-actions">
-        <button id="companyDocumentEditorBrowseButton" class="secondary" type="button">בחרי קובץ חלופי</button>
+        <button id="companyDocumentEditorBrowseButton" class="secondary" type="button">החליפי קובץ</button>
         <input id="companyDocumentEditorFileInput" type="file" accept="image/*,application/pdf">
       </div>
-      <div id="companyDocumentEditorSelectedFile" class="file-preview-empty">לא נבחר קובץ חדש.</div>
-      <div class="row-actions">
+      <div id="companyDocumentEditorSelectedFile" class="file-preview-empty hidden"></div>
+      <div class="row-actions company-document-editor-actions">
         <button class="primary" type="submit">שמרי שינויים</button>
-        <button id="companyDocumentEditorDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
+        <button id="companyDocumentEditorDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑</button>
       </div>
       <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>

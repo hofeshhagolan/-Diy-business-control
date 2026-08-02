@@ -139,6 +139,15 @@ const syncBackButton = viewId => {
   backButton.disabled = isRootView;
 };
 
+const syncQuickAddButtonVisibility = viewId => {
+  const quickAddButton = $("quickAddButton");
+  if(!quickAddButton) return;
+
+  const hideQuickAdd = viewId === "companyDocumentsView";
+  quickAddButton.classList.toggle("hidden", hideQuickAdd);
+  quickAddButton.disabled = hideQuickAdd;
+};
+
 const resetViewScrollPosition = () => {
   const applyScrollReset = () => {
     document.querySelector("main")?.scrollTo?.(0, 0);
@@ -161,6 +170,7 @@ const activateView = (viewId, options = {}) => {
   });
 
   syncBackButton(target);
+  syncQuickAddButtonVisibility(target);
   saveActiveViewId(target);
 
   if(historyMode === "replace"){
@@ -944,11 +954,38 @@ function updateCompanyDocumentsAddModeState(){
   const modeField = $("companyDocumentsAddMode");
   const existingTypeSection = $("companyDocumentsAddExistingTypeSection");
   const customSection = $("companyDocumentsAddCustomSection");
+  const hint = $("companyDocumentsRestoreDefaultsHint");
   if(!modeField || !existingTypeSection || !customSection) return;
 
+  const hasMissingDefaults = getMissingDefaultCompanyDocumentDefinitions().length > 0;
+  const existingTypeOption = modeField.querySelector('option[value="existing_type"]');
+  if(existingTypeOption){
+    existingTypeOption.hidden = !hasMissingDefaults;
+    existingTypeOption.disabled = !hasMissingDefaults;
+  }
+
+  if(!hasMissingDefaults && modeField.value === "existing_type"){
+    modeField.value = "";
+  }
+
+  const isExistingType = modeField.value === "existing_type";
   const isCustom = modeField.value === "custom";
-  existingTypeSection.classList.toggle("hidden", isCustom);
+
+  existingTypeSection.classList.toggle("hidden", !isExistingType || !hasMissingDefaults);
   customSection.classList.toggle("hidden", !isCustom);
+
+  if(hint){
+    if(!hasMissingDefaults){
+      hint.textContent = "אין סוגי מסמך חסרים כרגע.";
+      hint.classList.remove("hidden");
+    } else if(modeField.value){
+      hint.textContent = "";
+      hint.classList.add("hidden");
+    } else {
+      hint.textContent = "בחרי אפשרות כדי להמשיך.";
+      hint.classList.remove("hidden");
+    }
+  }
 
   const customNameField = $("companyDocumentsCustomName");
   if(customNameField) customNameField.required = isCustom;
@@ -1091,14 +1128,23 @@ function updateCompanyDocumentsRestoreDefaultsState(){
   if(!button || !hint || !select) return;
 
   const missingDefaults = getMissingDefaultCompanyDocumentDefinitions();
-  select.innerHTML = missingDefaults.map(definition => (
-    `<option value="${escapeHtml(definition.key)}">${escapeHtml(definition.label)}</option>`
-  )).join("");
+  if(missingDefaults.length){
+    select.innerHTML = missingDefaults.map(definition => (
+      `<option value="${escapeHtml(definition.key)}">${escapeHtml(definition.label)}</option>`
+    )).join("");
+  } else {
+    select.innerHTML = "";
+  }
+
   select.disabled = !missingDefaults.length;
   button.disabled = !missingDefaults.length;
-  hint.textContent = missingDefaults.length
-    ? "בחרי מסמך ברירת מחדל חסר לשחזור."
-    : "כל מסמכי ברירת המחדל קיימים.";
+
+  if(hint && !missingDefaults.length){
+    hint.textContent = "אין סוגי מסמך חסרים כרגע.";
+    hint.classList.remove("hidden");
+  }
+
+  updateCompanyDocumentsAddModeState();
 }
 
 async function retryCompanyDocumentsStorageCleanupFromUI(){
@@ -1253,7 +1299,7 @@ function updateCompanyDocumentsSelectedFileLabel(){
 
 function resetCompanyDocumentsManageForm(){
   $("companyDocumentsManageForm")?.reset();
-  if($("companyDocumentsAddMode")) $("companyDocumentsAddMode").value = "existing_type";
+  if($("companyDocumentsAddMode")) $("companyDocumentsAddMode").value = "";
   if($("companyDocumentsFileInput")) $("companyDocumentsFileInput").value = "";
   updateCompanyDocumentsSelectedFileLabel();
   setCompanyDocumentsManageStatus("", "");
@@ -1267,7 +1313,14 @@ function updateCompanyDocumentEditorSelectedFileLabel(){
   const input = $("companyDocumentEditorFileInput");
   if(!label || !input) return;
   const selectedFile = input.files?.[0];
-  label.textContent = selectedFile ? selectedFile.name || "קובץ" : "לא נבחר קובץ חדש.";
+  if(selectedFile){
+    label.textContent = selectedFile.name || "קובץ";
+    label.classList.remove("hidden");
+    return;
+  }
+
+  label.textContent = "";
+  label.classList.add("hidden");
 }
 
 function resetCompanyDocumentEditorForm(){
@@ -1369,10 +1422,6 @@ function renderCompanyDocuments(){
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
           </div>
-        </div>
-        <div class="company-document-card-footer">
-          <p class="company-document-card-hint">${hasFile ? "הקישי לפתיחת המסמך בתצוגה הקיימת." : "העלי קובץ ראשון דרך סמל העריכה."}</p>
-          ${row.is_default ? "" : '<span class="company-document-card-tag">מותאם אישית</span>'}
         </div>
       </article>
     `;
@@ -5827,10 +5876,6 @@ $("companyDocumentsFileInput")?.addEventListener("change", () => {
 
 $("companyDocumentEditorFileInput")?.addEventListener("change", () => {
   updateCompanyDocumentEditorSelectedFileLabel();
-});
-
-$("companyDocumentEditorDeleteButton")?.addEventListener("click", () => {
-  deleteCurrentCompanyDocumentFromEditor();
 });
 
 $("companyDocumentEditorDeleteButton")?.addEventListener("click", () => {

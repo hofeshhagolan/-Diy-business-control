@@ -109,6 +109,7 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .company-document-card-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .company-document-card-hint{margin:0;color:var(--muted);font-size:.88rem}
 .company-documents-manage-form{margin-bottom:18px}
+.company-documents-manage-form h3{margin:0;color:var(--brand)}
 .company-document-editor-form{gap:14px}
 .company-document-editor-current-file{display:grid;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .company-document-editor-current-file strong{color:var(--brand)}

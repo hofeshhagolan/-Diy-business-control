@@ -940,6 +940,20 @@ function updateCompanyDocumentsCleanupRetryState(){
   retryButton.disabled = !getCompanyDocumentsStorageCleanupQueue().length;
 }
 
+function updateCompanyDocumentsAddModeState(){
+  const modeField = $("companyDocumentsAddMode");
+  const existingTypeSection = $("companyDocumentsAddExistingTypeSection");
+  const customSection = $("companyDocumentsAddCustomSection");
+  if(!modeField || !existingTypeSection || !customSection) return;
+
+  const isCustom = modeField.value === "custom";
+  existingTypeSection.classList.toggle("hidden", isCustom);
+  customSection.classList.toggle("hidden", !isCustom);
+
+  const customNameField = $("companyDocumentsCustomName");
+  if(customNameField) customNameField.required = isCustom;
+}
+
 async function retryQueuedCompanyDocumentStorageCleanup(){
   const queuedPaths = getCompanyDocumentsStorageCleanupQueue();
   if(!queuedPaths.length){
@@ -1239,10 +1253,12 @@ function updateCompanyDocumentsSelectedFileLabel(){
 
 function resetCompanyDocumentsManageForm(){
   $("companyDocumentsManageForm")?.reset();
+  if($("companyDocumentsAddMode")) $("companyDocumentsAddMode").value = "existing_type";
   if($("companyDocumentsFileInput")) $("companyDocumentsFileInput").value = "";
   updateCompanyDocumentsSelectedFileLabel();
   setCompanyDocumentsManageStatus("", "");
   updateCompanyDocumentsRestoreDefaultsState();
+  updateCompanyDocumentsAddModeState();
   updateCompanyDocumentsCleanupRetryState();
 }
 
@@ -1286,13 +1302,22 @@ function renderCompanyDocumentsManageList(){
         <h4>${escapeHtml(row.display_name || "מסמך חברה")}</h4>
         <p>${escapeHtml(row.original_filename || "לא הועלה מסמך")}</p>
       </div>
-      <button type="button" class="row-action delete-action" data-company-document-delete-id="${escapeHtml(row.id || "")}" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
+      <button
+        type="button"
+        class="row-action edit-action"
+        data-company-document-edit-id="${escapeHtml(row.id || "")}"
+        data-company-document-edit-key="${escapeHtml(row.document_key || "")}"
+        aria-label="עריכת מסמך"
+        title="עריכת מסמך">✏️</button>
     </div>
   `).join("");
 
-  container.querySelectorAll("[data-company-document-delete-id]").forEach(button => {
+  container.querySelectorAll("[data-company-document-edit-id], [data-company-document-edit-key]").forEach(button => {
     button.addEventListener("click", () => {
-      void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
+      openCompanyDocumentEditor({
+        documentId: button.dataset.companyDocumentEditId || "",
+        documentKey: button.dataset.companyDocumentEditKey || ""
+      });
     });
   });
 
@@ -1343,7 +1368,6 @@ function renderCompanyDocuments(){
           </div>
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
-            <button type="button" class="row-action delete-action" data-company-document-delete-id="${safeId}" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
           </div>
         </div>
         <div class="company-document-card-footer">
@@ -1375,14 +1399,6 @@ function renderCompanyDocuments(){
         documentId: button.dataset.companyDocumentEditId || "",
         documentKey: button.dataset.companyDocumentEditKey || ""
       });
-    });
-  });
-
-  container.querySelectorAll("[data-company-document-delete-id]").forEach(button => {
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      event.preventDefault();
-      void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
     });
   });
 
@@ -1507,10 +1523,27 @@ function openCompanyDocumentEditor(target){
   nameField.setAttribute("aria-disabled", "false");
   currentFile.textContent = currentCompanyDocumentEditTarget.original_filename || "לא הועלה מסמך";
   if(title) title.textContent = "עריכת מסמך חברה";
+  const deleteButton = $("companyDocumentEditorDeleteButton");
+  if(deleteButton){
+    const canDelete = Boolean(String(currentCompanyDocumentEditTarget.id || "").trim());
+    deleteButton.disabled = !canDelete;
+  }
   if($("companyDocumentEditorFileInput")) $("companyDocumentEditorFileInput").value = "";
   updateCompanyDocumentEditorSelectedFileLabel();
   setCompanyDocumentEditorStatus("", "");
   dialog.showModal();
+}
+
+function deleteCurrentCompanyDocumentFromEditor(){
+  const target = currentCompanyDocumentEditTarget;
+  const documentId = String(target?.id || "").trim();
+  if(!documentId){
+    setCompanyDocumentEditorStatus("אין מסמך קיים למחיקה.", "error");
+    return;
+  }
+
+  $("companyDocumentEditorDialog")?.close();
+  void deleteCompanyDocument(documentId);
 }
 
 async function saveCompanyDocumentEditorChanges(event){
@@ -1615,6 +1648,9 @@ async function openCompanyDocument(documentId){
 
 async function createCustomCompanyDocument(event){
   event.preventDefault();
+
+  const addMode = String($("companyDocumentsAddMode")?.value || "existing_type");
+  if(addMode !== "custom") return;
 
   const nameField = $("companyDocumentsCustomName");
   const fileInput = $("companyDocumentsFileInput");
@@ -5755,6 +5791,10 @@ $("companyDocumentsSearchInput")?.addEventListener("input", event => {
   renderCompanyDocuments();
 });
 
+$("companyDocumentsAddMode")?.addEventListener("change", () => {
+  updateCompanyDocumentsAddModeState();
+});
+
 $("companyDocumentsManageDialog")?.addEventListener("close", () => {
   resetCompanyDocumentsManageForm();
 });
@@ -5789,12 +5829,16 @@ $("companyDocumentEditorFileInput")?.addEventListener("change", () => {
   updateCompanyDocumentEditorSelectedFileLabel();
 });
 
-$("companyDocumentsRestoreDefaultsButton")?.addEventListener("click", () => {
-  void restoreMissingDefaultCompanyDocuments();
+$("companyDocumentEditorDeleteButton")?.addEventListener("click", () => {
+  deleteCurrentCompanyDocumentFromEditor();
 });
 
-$("companyDocumentsRetryCleanupButton")?.addEventListener("click", () => {
-  void retryCompanyDocumentsStorageCleanupFromUI();
+$("companyDocumentEditorDeleteButton")?.addEventListener("click", () => {
+  deleteCurrentCompanyDocumentFromEditor();
+});
+
+$("companyDocumentsRestoreDefaultsButton")?.addEventListener("click", () => {
+  void restoreMissingDefaultCompanyDocuments();
 });
 
 $("profileButton").onclick = () => $("businessDialog").showModal();

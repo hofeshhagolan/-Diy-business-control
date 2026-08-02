@@ -449,31 +449,37 @@
   </div>
   <div class="modal-body">
     <form id="companyDocumentsManageForm" class="stack company-documents-manage-form">
-      <label>שם המסמך<input id="companyDocumentsCustomName" maxlength="120" required></label>
-      <div class="file-actions">
-        <button id="companyDocumentsBrowseButton" class="secondary" type="button">בחרי קובץ</button>
-        <input id="companyDocumentsFileInput" type="file" accept="image/*,application/pdf">
-      </div>
-      <div id="companyDocumentsSelectedFile" class="file-preview-empty">לא נבחר קובץ.</div>
-      <button class="primary" type="submit">הוסיפי מסמך מותאם אישית</button>
+      <h3>➕ הוספת מסמך</h3>
+      <label>אפשרות הוספה
+        <select id="companyDocumentsAddMode">
+          <option value="existing_type">בחירת סוג מסמך</option>
+          <option value="custom">מותאם אישית</option>
+        </select>
+      </label>
+
+      <section id="companyDocumentsAddExistingTypeSection" class="stack">
+        <label>סוג מסמך חסר
+          <select id="companyDocumentsRestoreDefaultSelect" disabled></select>
+        </label>
+        <button id="companyDocumentsRestoreDefaultsButton" type="button" class="secondary">הוסיפי סוג מסמך</button>
+      </section>
+
+      <section id="companyDocumentsAddCustomSection" class="stack hidden">
+        <label>שם המסמך<input id="companyDocumentsCustomName" maxlength="120"></label>
+        <div class="file-actions">
+          <button id="companyDocumentsBrowseButton" class="secondary" type="button">בחרי קובץ</button>
+          <input id="companyDocumentsFileInput" type="file" accept="image/*,application/pdf">
+        </div>
+        <div id="companyDocumentsSelectedFile" class="file-preview-empty">לא נבחר קובץ.</div>
+        <button id="companyDocumentsAddCustomSubmit" class="primary" type="submit">הוסיפי מסמך מותאם אישית</button>
+      </section>
+
+      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">כל מסמכי ברירת המחדל קיימים.</p>
       <div id="companyDocumentsManageStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
-    <section class="company-documents-manage-section" aria-label="מסמכים מותאמים אישית">
-      <h3>מסמכים מותאמים אישית</h3>
+    <section class="company-documents-manage-section" aria-label="מסמכים קיימים">
+      <h3>מסמכים קיימים</h3>
       <div id="companyDocumentsCustomList" class="company-documents-manage-list"></div>
-    </section>
-    <section class="company-documents-manage-section" aria-label="שחזור מסמכי ברירת מחדל">
-      <h3>שחזור מסמכי ברירת מחדל</h3>
-      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">כל מסמכי ברירת המחדל קיימים.</p>
-      <label>מסמך ברירת מחדל חסר
-        <select id="companyDocumentsRestoreDefaultSelect" disabled></select>
-      </label>
-      <button id="companyDocumentsRestoreDefaultsButton" type="button" class="secondary">שחזור מסמך נבחר</button>
-    </section>
-    <section class="company-documents-manage-section" aria-label="ניקוי קבצים שנכשל">
-      <h3>ניקוי קבצים שנכשל</h3>
-      <p class="company-documents-manage-empty">אם מחיקת הקובץ מהאחסון נכשלה, ניתן לנסות ניקוי חוזר.</p>
-      <button id="companyDocumentsRetryCleanupButton" type="button" class="secondary">נסי ניקוי חוזר</button>
     </section>
   </div>
 </dialog>
@@ -495,7 +501,10 @@
         <input id="companyDocumentEditorFileInput" type="file" accept="image/*,application/pdf">
       </div>
       <div id="companyDocumentEditorSelectedFile" class="file-preview-empty">לא נבחר קובץ חדש.</div>
-      <button class="primary" type="submit">שמרי שינויים</button>
+      <div class="row-actions">
+        <button class="primary" type="submit">שמרי שינויים</button>
+        <button id="companyDocumentEditorDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
+      </div>
       <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>

@@ -51,13 +51,14 @@ const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
 const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","companyDocumentsView","teamView","alView"];
 const DEFAULT_COMPANY_DOCUMENTS = Object.freeze([
-  {key:"certificate_of_incorporation", label:"Certificate of Incorporation"},
-  {key:"withholding_tax_certificate", label:"Withholding Tax Certificate"},
-  {key:"tax_deductions_file_certificate", label:"Tax Deductions File Certificate"},
-  {key:"bank_account_management_certificate", label:"Bank Account Management Certificate"},
-  {key:"shareholders_resolution", label:"Shareholders Resolution"},
-  {key:"board_resolution", label:"Board Resolution"}
+  {key:"certificate_of_incorporation", label:"תעודת התאגדות"},
+  {key:"withholding_tax_certificate", label:"אישור ניכוי מס במקור"},
+  {key:"tax_deductions_file_certificate", label:"אישור תיק ניכויים"},
+  {key:"bank_account_management_certificate", label:"אישור ניהול חשבון"},
+  {key:"shareholders_resolution", label:"פרוטוקול בעלי מניות"},
+  {key:"board_resolution", label:"פרוטוקול דירקטוריון"}
 ]);
+const COMPANY_DOCUMENTS_SEEDED_FLAG_PREFIX = "companyDocumentsDefaultsSeeded";
 const EXPENSE_STORAGE_CLEANUP_QUEUE_KEY = "expenseStorageCleanupQueue";
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
@@ -885,35 +886,83 @@ function getDefaultCompanyDocumentDefinition(documentKey){
   return DEFAULT_COMPANY_DOCUMENTS.find(item => item.key === documentKey) || null;
 }
 
-function buildCompanyDocumentsPresentationRows(){
-  const rowsByKey = new Map();
-  const customRows = [];
+function getCompanyDocumentsSeededFlagKey(){
+  const safeUserId = String(userId || "").trim();
+  if(!safeUserId) return "";
+  return `${COMPANY_DOCUMENTS_SEEDED_FLAG_PREFIX}:${safeUserId}`;
+}
 
-  companyDocumentRows.forEach(row => {
-    if(row.is_default && row.document_key){
-      rowsByKey.set(row.document_key, row);
-      return;
+function hasSeededCompanyDocumentsDefaults(){
+  const key = getCompanyDocumentsSeededFlagKey();
+  if(!key) return false;
+
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markCompanyDocumentsDefaultsSeeded(){
+  const key = getCompanyDocumentsSeededFlagKey();
+  if(!key) return;
+
+  try {
+    localStorage.setItem(key, "1");
+  } catch {}
+}
+
+function shouldSeedCompanyDocumentsDefaults(rows){
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if(safeRows.length) return false;
+  return !hasSeededCompanyDocumentsDefaults();
+}
+
+async function seedDefaultCompanyDocuments(){
+  const payload = DEFAULT_COMPANY_DOCUMENTS.map(definition => ({
+    id: generateClientSideUuid(),
+    user_id: userId,
+    document_key: definition.key,
+    display_name: definition.label,
+    is_default: true,
+    storage_path: null,
+    original_filename: null,
+    mime_type: null
+  }));
+
+  const {error} = await sb.from("company_documents").insert(payload);
+  if(error){
+    if(error.code === "23505"){
+      markCompanyDocumentsDefaultsSeeded();
+      return true;
     }
 
-    customRows.push(row);
-  });
+    console.error(error);
+    setCompanyDocumentsStatus(error.message || "שגיאה ביצירת מסמכי ברירת מחדל", "error");
+    return false;
+  }
 
-  const defaultRows = DEFAULT_COMPANY_DOCUMENTS.map(definition => {
-    const stored = rowsByKey.get(definition.key);
-    return stored ? stored : {
-      id: "",
-      user_id: userId,
-      document_key: definition.key,
-      display_name: definition.label,
-      is_default: true,
-      storage_path: null,
-      original_filename: null,
-      mime_type: null
-    };
-  });
+  markCompanyDocumentsDefaultsSeeded();
+  return true;
+}
 
-  customRows.sort((left, right) => String(left.display_name || "").localeCompare(String(right.display_name || "")));
-  return [...defaultRows, ...customRows];
+function buildCompanyDocumentsPresentationRows(){
+  const defaultOrder = new Map(DEFAULT_COMPANY_DOCUMENTS.map((definition, index) => [definition.key, index]));
+
+  return [...companyDocumentRows].sort((left, right) => {
+    const leftIsDefault = Boolean(left?.is_default);
+    const rightIsDefault = Boolean(right?.is_default);
+
+    if(leftIsDefault && rightIsDefault){
+      const leftOrder = defaultOrder.get(left?.document_key) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = defaultOrder.get(right?.document_key) ?? Number.MAX_SAFE_INTEGER;
+      if(leftOrder !== rightOrder) return leftOrder - rightOrder;
+    } else if(leftIsDefault !== rightIsDefault){
+      return leftIsDefault ? -1 : 1;
+    }
+
+    return String(left?.display_name || "").localeCompare(String(right?.display_name || ""), "he");
+  });
 }
 
 function getCompanyDocumentRowById(documentId){
@@ -1028,37 +1077,35 @@ function resetCompanyDocumentEditorForm(){
     $("companyDocumentEditorName").disabled = false;
     $("companyDocumentEditorName").removeAttribute("aria-disabled");
   }
-  if($("companyDocumentEditorCurrentFile")) $("companyDocumentEditorCurrentFile").textContent = "No document uploaded";
+  if($("companyDocumentEditorCurrentFile")) $("companyDocumentEditorCurrentFile").textContent = "לא הועלה מסמך";
   updateCompanyDocumentEditorSelectedFileLabel();
   setCompanyDocumentEditorStatus("", "");
 }
 
-function renderCompanyDocumentsManageCustomList(){
+function renderCompanyDocumentsManageList(){
   const container = $("companyDocumentsCustomList");
   if(!container) return;
 
-  const customRows = companyDocumentRows
-    .filter(row => !row.is_default)
-    .sort((left, right) => String(left.display_name || "").localeCompare(String(right.display_name || "")));
+  const rows = buildCompanyDocumentsPresentationRows();
 
-  if(!customRows.length){
-    container.innerHTML = '<p class="company-documents-manage-empty">אין עדיין מסמכים מותאמים אישית.</p>';
+  if(!rows.length){
+    container.innerHTML = '<p class="company-documents-manage-empty">אין עדיין מסמכים.</p>';
     return;
   }
 
-  container.innerHTML = customRows.map(row => `
+  container.innerHTML = rows.map(row => `
     <div class="company-documents-manage-item">
       <div>
-        <h4>${escapeHtml(row.display_name || "מסמך מותאם אישית")}</h4>
-        <p>${escapeHtml(row.original_filename || "No document uploaded")}</p>
+        <h4>${escapeHtml(row.display_name || "מסמך חברה")}</h4>
+        <p>${escapeHtml(row.original_filename || "לא הועלה מסמך")}</p>
       </div>
-      <button type="button" class="row-action delete-action" data-company-document-delete-id="${escapeHtml(row.id || "")}" aria-label="מחיקת מסמך מותאם אישית" title="מחיקת מסמך מותאם אישית">❌</button>
+      <button type="button" class="row-action delete-action" data-company-document-delete-id="${escapeHtml(row.id || "")}" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
     </div>
   `).join("");
 
   container.querySelectorAll("[data-company-document-delete-id]").forEach(button => {
     button.addEventListener("click", () => {
-      void deleteCustomCompanyDocument(button.dataset.companyDocumentDeleteId || "");
+      void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
     });
   });
 }
@@ -1081,15 +1128,16 @@ function renderCompanyDocuments(){
         <div class="company-document-card-head">
           <div>
             <h3 class="company-document-card-title">${safeName}</h3>
-            <p class="company-document-card-meta">${hasFile ? safeFilename : "No document uploaded"}</p>
+            <p class="company-document-card-meta">${hasFile ? safeFilename : "לא הועלה מסמך"}</p>
           </div>
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
+            <button type="button" class="row-action delete-action" data-company-document-delete-id="${safeId}" aria-label="מחיקת מסמך" title="מחיקת מסמך">❌</button>
           </div>
         </div>
         <div class="company-document-card-footer">
-          <p class="company-document-card-hint">${hasFile ? "הקישי לפתיחת המסמך בתצוגה הקיימת." : "העלי קובץ ראשון או ערכי שם דרך סמל העריכה."}</p>
-          ${row.is_default ? "" : '<span class="company-document-card-tag">Custom</span>'}
+          <p class="company-document-card-hint">${hasFile ? "הקישי לפתיחת המסמך בתצוגה הקיימת." : "העלי קובץ ראשון דרך סמל העריכה."}</p>
+          ${row.is_default ? "" : '<span class="company-document-card-tag">מותאם אישית</span>'}
         </div>
       </article>
     `;
@@ -1118,6 +1166,14 @@ function renderCompanyDocuments(){
       });
     });
   });
+
+  container.querySelectorAll("[data-company-document-delete-id]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      event.preventDefault();
+      void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
+    });
+  });
 }
 
 async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך", fullscreenTitle = "מסמך במסך מלא", emptyMessage = "אין מסמך להצגה.", statusElement = null} = {}){
@@ -1139,22 +1195,41 @@ async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך",
 
 async function loadCompanyDocuments(){
   renderCompanyDocuments();
-  renderCompanyDocumentsManageCustomList();
+  renderCompanyDocumentsManageList();
 
-  const {data, error} = await sb.from("company_documents")
+  const fetchDocuments = async () => sb.from("company_documents")
     .select("id,user_id,document_key,display_name,is_default,storage_path,original_filename,mime_type,created_at")
     .eq("user_id", userId)
     .order("created_at", {ascending: true});
 
+  let {data, error} = await fetchDocuments();
   if(error){
     setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
     return;
   }
 
-  companyDocumentRows = Array.isArray(data) ? data : [];
+  let nextRows = Array.isArray(data) ? data : [];
+
+  if(shouldSeedCompanyDocumentsDefaults(nextRows)){
+    const seeded = await seedDefaultCompanyDocuments();
+    if(seeded){
+      const refetchResult = await fetchDocuments();
+      data = refetchResult.data;
+      error = refetchResult.error;
+      if(error){
+        setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
+        return;
+      }
+      nextRows = Array.isArray(data) ? data : [];
+    }
+  } else if(nextRows.length){
+    markCompanyDocumentsDefaultsSeeded();
+  }
+
+  companyDocumentRows = nextRows;
   setCompanyDocumentsStatus("", "");
   renderCompanyDocuments();
-  renderCompanyDocumentsManageCustomList();
+  renderCompanyDocumentsManageList();
 }
 
 function getCompanyDocumentReplacementTarget({documentId = "", documentKey = ""} = {}){
@@ -1190,7 +1265,7 @@ function openCompanyDocumentEditor(target){
   nameField.value = currentCompanyDocumentEditTarget.display_name || "";
   nameField.disabled = false;
   nameField.setAttribute("aria-disabled", "false");
-  currentFile.textContent = currentCompanyDocumentEditTarget.original_filename || "No document uploaded";
+  currentFile.textContent = currentCompanyDocumentEditTarget.original_filename || "לא הועלה מסמך";
   if(title) title.textContent = "עריכת מסמך חברה";
   if($("companyDocumentEditorFileInput")) $("companyDocumentEditorFileInput").value = "";
   updateCompanyDocumentEditorSelectedFileLabel();
@@ -1358,24 +1433,25 @@ async function createCustomCompanyDocument(event){
   showToast("המסמך המותאם אישית נוסף", "ok");
 }
 
-async function deleteCustomCompanyDocument(documentId){
+async function deleteCompanyDocument(documentId){
   const row = getCompanyDocumentRowById(documentId);
   if(!row){
-    setCompanyDocumentsManageStatus("מסמך מותאם אישית לא נמצא.", "error");
-    return;
-  }
-
-  if(row.is_default){
-    setCompanyDocumentsManageStatus("לא ניתן למחוק מסמך ברירת מחדל.", "error");
+    setCompanyDocumentsManageStatus("מסמך לא נמצא.", "error");
     return;
   }
 
   if(!confirm(`למחוק את המסמך "${row.display_name || "מסמך"}"?`)) return;
 
   setCompanyDocumentsManageStatus("מוחקת מסמך...", "");
-  const cleanupError = await cleanupUploadedZReportFiles([row.storage_path]);
+  setCompanyDocumentsStatus("מוחקת מסמך...", "");
+
+  const cleanupError = row.storage_path
+    ? await cleanupUploadedZReportFiles([row.storage_path])
+    : null;
+
   if(cleanupError){
     setCompanyDocumentsManageStatus(cleanupError.message || "שגיאה במחיקת קובץ המסמך", "error");
+    setCompanyDocumentsStatus(cleanupError.message || "שגיאה במחיקת קובץ המסמך", "error");
     return;
   }
 
@@ -1386,12 +1462,14 @@ async function deleteCustomCompanyDocument(documentId){
 
   if(deleteError){
     setCompanyDocumentsManageStatus(deleteError.message || "שגיאה במחיקת המסמך", "error");
+    setCompanyDocumentsStatus(deleteError.message || "שגיאה במחיקת המסמך", "error");
     return;
   }
 
   setCompanyDocumentsManageStatus("", "");
+  setCompanyDocumentsStatus("", "");
   await loadCompanyDocuments();
-  showToast("המסמך המותאם אישית נמחק", "ok");
+  showToast("המסמך נמחק", "ok");
 }
 
 function clearSelectedZFileObjectUrls(){
@@ -1546,8 +1624,12 @@ function updateZFiles(input){
 }
 
 async function cleanupUploadedZReportFiles(paths){
-  if(!Array.isArray(paths) || !paths.length) return null;
-  const {error} = await sb.storage.from("invoice-documents").remove(paths);
+  const safePaths = (Array.isArray(paths) ? paths : [])
+    .map(path => String(path || "").trim())
+    .filter(Boolean);
+
+  if(!safePaths.length) return null;
+  const {error} = await sb.storage.from("invoice-documents").remove(safePaths);
   return error || null;
 }
 
@@ -4229,7 +4311,7 @@ setupDashboardCardNavigation();
 setAuthTab($("signupTab").classList.contains("active") ? "signupTab" : "loginTab");
 setAlTab($("chatTab").classList.contains("active") ? "chatTab" : "insightsTab");
 renderCompanyDocuments();
-renderCompanyDocumentsManageCustomList();
+renderCompanyDocumentsManageList();
 updateCompanyDocumentsSelectedFileLabel();
 updateCompanyDocumentEditorSelectedFileLabel();
 
@@ -5416,7 +5498,7 @@ $("zDocumentsFullscreenNext")?.addEventListener("click", () => navigateZDocument
 
 $("companyDocumentsManageButton")?.addEventListener("click", () => {
   setCompanyDocumentsManageStatus("", "");
-  renderCompanyDocumentsManageCustomList();
+  renderCompanyDocumentsManageList();
   $("companyDocumentsManageDialog")?.showModal();
 });
 

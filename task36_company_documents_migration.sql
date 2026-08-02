@@ -95,11 +95,12 @@ using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
 drop policy if exists company_documents_delete_custom_own on public.company_documents;
-create policy company_documents_delete_custom_own
+drop policy if exists company_documents_delete_own on public.company_documents;
+create policy company_documents_delete_own
 on public.company_documents
 for delete
 to authenticated
-using (auth.uid() = user_id and is_default = false);
+using (auth.uid() = user_id);
 
 revoke all on table public.company_documents from public;
 revoke all on table public.company_documents from anon;

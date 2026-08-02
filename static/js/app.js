@@ -45,6 +45,7 @@ const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
 const zDocumentsSignedUrlCache = new Map();
 const incomeTypeSuggestions = new Map();
+const VIEWER_PDF_DEBUG = true;
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const Z_INCOME_TYPE_DEFAULT = 'דו"ח Z';
 const NON_Z_INCOME_SOURCE = "non_z";
@@ -1522,6 +1523,125 @@ function renderCompanyDocuments(){
 
 function getFriendlyViewerErrorMessage(){
   return "לא ניתן לפתוח את המסמך כרגע. נסי שוב בעוד רגע.";
+}
+
+function logViewerPdfDebug(eventName, details = {}){
+  if(!VIEWER_PDF_DEBUG) return;
+  console.debug(`[viewer-pdf:${eventName}]`, details);
+}
+
+function summarizeHeaders(headers){
+  if(!headers) return {};
+
+  const headerNames = [
+    "content-type",
+    "content-disposition",
+    "x-frame-options",
+    "content-security-policy",
+    "cross-origin-opener-policy",
+    "cross-origin-embedder-policy",
+    "cross-origin-resource-policy",
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-expose-headers",
+    "cache-control",
+    "content-length",
+    "etag",
+    "last-modified"
+  ];
+
+  return headerNames.reduce((accumulator, name) => {
+    const value = headers.get(name);
+    if(value != null) accumulator[name] = value;
+    return accumulator;
+  }, {});
+}
+
+async function inspectViewerPdfResponse(signedUrl, storagePath){
+  try {
+    const headResponse = await fetch(signedUrl, {
+      method: "HEAD",
+      cache: "no-store",
+      mode: "cors",
+      credentials: "omit"
+    });
+
+    logViewerPdfDebug("response-head", {
+      storagePath,
+      url: signedUrl,
+      ok: headResponse.ok,
+      status: headResponse.status,
+      statusText: headResponse.statusText,
+      headers: summarizeHeaders(headResponse.headers)
+    });
+
+    return headResponse;
+  } catch(headError){
+    logViewerPdfDebug("response-head-error", {
+      storagePath,
+      url: signedUrl,
+      error: String(headError?.message || headError)
+    });
+
+    try {
+      const getResponse = await fetch(signedUrl, {
+        method: "GET",
+        cache: "no-store",
+        mode: "cors",
+        credentials: "omit"
+      });
+
+      logViewerPdfDebug("response-get", {
+        storagePath,
+        url: signedUrl,
+        ok: getResponse.ok,
+        status: getResponse.status,
+        statusText: getResponse.statusText,
+        headers: summarizeHeaders(getResponse.headers)
+      });
+
+      return getResponse;
+    } catch(getError){
+      logViewerPdfDebug("response-get-error", {
+        storagePath,
+        url: signedUrl,
+        error: String(getError?.message || getError)
+      });
+      return null;
+    }
+  }
+}
+
+function attachViewerFrameDebug(frame, {storagePath, signedUrl, mimeType, fullscreen = false} = {}){
+  if(!frame) return;
+
+  const prefix = fullscreen ? "fullscreen" : "inline";
+  frame.addEventListener("load", () => {
+    logViewerPdfDebug(`${prefix}-load`, {
+      storagePath,
+      url: signedUrl,
+      mimeType,
+      tagName: frame.tagName,
+      currentSrc: frame.currentSrc || frame.src || ""
+    });
+  });
+
+  frame.addEventListener("error", event => {
+    logViewerPdfDebug(`${prefix}-error`, {
+      storagePath,
+      url: signedUrl,
+      mimeType,
+      tagName: frame.tagName,
+      eventType: event?.type || "error",
+      browserError: event?.message || event?.error?.message || "iframe/object error event fired"
+    });
+    console.error(fullscreen ? "document_fullscreen_frame_failed" : "document_viewer_frame_failed", {
+      storagePath,
+      url: signedUrl,
+      mimeType,
+      event
+    });
+  });
 }
 
 async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך", fullscreenTitle = "מסמך במסך מלא", emptyMessage = "אין מסמך להצגה.", statusElement = null} = {}){
@@ -5297,9 +5417,11 @@ function renderZViewerFile({signedUrl, mimeType}){
   frame.src = `${signedUrl}#page=1&view=FitH`;
   frame.title = "מסמך הכנסה";
   frame.loading = "lazy";
-  frame.addEventListener("error", () => {
-    console.error("document_viewer_iframe_failed", {mimeType});
-    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
+  attachViewerFrameDebug(frame, {
+    storagePath: currentZViewerDocument?.storage_path || "",
+    signedUrl,
+    mimeType,
+    fullscreen: false
   });
   panel.appendChild(frame);
 }
@@ -5333,12 +5455,11 @@ function renderZFullscreenContent(){
   frame.src = `${currentZViewerDocument.signedUrl}#page=1&view=FitH`;
   frame.title = "מסמך הכנסה במסך מלא";
   frame.loading = "lazy";
-  frame.addEventListener("error", () => {
-    console.error("document_fullscreen_iframe_failed", {
-      storagePath: currentZViewerDocument?.storage_path || "",
-      mimeType: currentZViewerDocument?.mime_type || ""
-    });
-    content.innerHTML = '<p class="review-document-state error">לא ניתן לפתוח את המסמך כרגע. נסי שוב בעוד רגע.</p>';
+  attachViewerFrameDebug(frame, {
+    storagePath: currentZViewerDocument?.storage_path || "",
+    signedUrl: currentZViewerDocument?.signedUrl || "",
+    mimeType: currentZViewerDocument?.mime_type || "",
+    fullscreen: true
   });
   content.appendChild(frame);
 }
@@ -5350,6 +5471,11 @@ async function openZDocumentsFullscreen(){
 
   try {
     const freshSignedUrl = await getSignedUrlForZDocument(currentZViewerDocument.storage_path, {forceRefresh: true});
+    logViewerPdfDebug("fullscreen-fresh-url", {
+      storagePath: currentZViewerDocument.storage_path,
+      signedUrl: freshSignedUrl,
+      mimeType: currentZViewerDocument?.mime_type || ""
+    });
     currentZViewerDocument = {
       ...currentZViewerDocument,
       signedUrl: freshSignedUrl
@@ -5427,6 +5553,19 @@ async function renderCurrentZDocument(){
     const isPdfDocument = String(documentMeta.mime_type || "").toLowerCase() === "application/pdf";
     const signedUrl = await getSignedUrlForZDocument(documentMeta.storage_path, {forceRefresh: isPdfDocument});
     if(loadToken !== zDocumentsLoadToken) return;
+
+    logViewerPdfDebug("render-request", {
+      storagePath: documentMeta.storage_path,
+      signedUrl,
+      mimeType: documentMeta.mime_type || "",
+      isPdfDocument,
+      userAgent: navigator.userAgent,
+      viewport: {width: window.innerWidth, height: window.innerHeight}
+    });
+
+    if(isPdfDocument){
+      void inspectViewerPdfResponse(signedUrl, documentMeta.storage_path);
+    }
 
     currentZViewerDocument = {
       ...documentMeta,

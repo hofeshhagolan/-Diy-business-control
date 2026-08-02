@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260726-6">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260802-1">
 </head>
 <body>
 
@@ -139,16 +139,24 @@
           <h3>מע״מ</h3>
           <div class="empty">זמין בהמשך</div>
         </div>
-        <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
+        <div class="card finance-hub-card finance-hub-card-active" data-dashboard-view="companyDocumentsView" data-dashboard-label="מסמכי חברה">
           <h3>מסמכי חברה</h3>
-          <div class="empty">זמין בהמשך</div>
+          <div class="empty">מעבר למסמכי החברה הפרטיים.</div>
         </div>
         <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
           <h3>הלוואות בעלים</h3>
           <div class="empty">זמין בהמשך</div>
         </div>
       </div>
+    </section>
+
+    <section id="companyDocumentsView" class="view">
+      <div class="card-head-inline company-documents-head">
+        <h2>מסמכי חברה</h2>
+        <button id="companyDocumentsManageButton" type="button" class="secondary">Manage Documents</button>
       </div>
+      <div id="companyDocumentsStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="companyDocumentsList" class="company-documents-list" aria-label="רשימת מסמכי חברה"></div>
     </section>
 
     <section id="teamView" class="view">
@@ -429,6 +437,52 @@
   </div>
 </dialog>
 
+<dialog id="companyDocumentsManageDialog" aria-labelledby="companyDocumentsManageTitle">
+  <div class="modal-head">
+    <strong id="companyDocumentsManageTitle">Manage Documents</strong>
+    <button data-close type="button" aria-label="סגירת חלון ניהול מסמכי חברה">✕</button>
+  </div>
+  <div class="modal-body">
+    <form id="companyDocumentsManageForm" class="stack company-documents-manage-form">
+      <label>שם המסמך<input id="companyDocumentsCustomName" maxlength="120" required></label>
+      <div class="file-actions">
+        <button id="companyDocumentsBrowseButton" class="secondary" type="button">בחרי קובץ</button>
+        <input id="companyDocumentsFileInput" type="file" accept="image/*,application/pdf">
+      </div>
+      <div id="companyDocumentsSelectedFile" class="file-preview-empty">לא נבחר קובץ.</div>
+      <button class="primary" type="submit">הוסיפי מסמך מותאם אישית</button>
+      <div id="companyDocumentsManageStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+    </form>
+    <section class="company-documents-manage-section" aria-label="מסמכים מותאמים אישית">
+      <h3>מסמכים מותאמים אישית</h3>
+      <div id="companyDocumentsCustomList" class="company-documents-manage-list"></div>
+    </section>
+  </div>
+</dialog>
+
+<dialog id="companyDocumentEditorDialog" aria-labelledby="companyDocumentEditorTitle">
+  <div class="modal-head">
+    <strong id="companyDocumentEditorTitle">עריכת מסמך חברה</strong>
+    <button data-close type="button" aria-label="סגירת חלון עריכת מסמך חברה">✕</button>
+  </div>
+  <div class="modal-body">
+    <form id="companyDocumentEditorForm" class="stack company-document-editor-form">
+      <label>שם המסמך<input id="companyDocumentEditorName" maxlength="120" required></label>
+      <div class="company-document-editor-current-file">
+        <strong>קובץ נוכחי</strong>
+        <p id="companyDocumentEditorCurrentFile" class="company-document-editor-file-name">No document uploaded</p>
+      </div>
+      <div class="file-actions">
+        <button id="companyDocumentEditorBrowseButton" class="secondary" type="button">בחרי קובץ חלופי</button>
+        <input id="companyDocumentEditorFileInput" type="file" accept="image/*,application/pdf">
+      </div>
+      <div id="companyDocumentEditorSelectedFile" class="file-preview-empty">לא נבחר קובץ חדש.</div>
+      <button class="primary" type="submit">שמרי שינויים</button>
+      <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+    </form>
+  </div>
+</dialog>
+
 <dialog id="businessDialog">
   <div class="modal-head"><strong>העסק שלי</strong><button data-close aria-label="סגירת חלון פרטי העסק">✕</button></div>
   <div class="modal-body">
@@ -449,6 +503,6 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260726-6"></script>
+<script src="/static/js/app.js?v=20260802-1"></script>
 </body>
 </html>

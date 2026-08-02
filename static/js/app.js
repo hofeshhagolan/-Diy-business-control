@@ -978,12 +978,9 @@ function updateCompanyDocumentsAddModeState(){
     if(!hasMissingDefaults){
       hint.textContent = "אין סוגי מסמך חסרים כרגע.";
       hint.classList.remove("hidden");
-    } else if(modeField.value){
+    } else {
       hint.textContent = "";
       hint.classList.add("hidden");
-    } else {
-      hint.textContent = "בחרי אפשרות כדי להמשיך.";
-      hint.classList.remove("hidden");
     }
   }
 
@@ -1395,8 +1392,9 @@ function renderCompanyDocuments(){
     const safeId = escapeHtml(row.id || "");
     const safeKey = escapeHtml(row.document_key || "");
     const safeName = escapeHtml(row.display_name || "מסמך חברה");
-    const safeFilename = escapeHtml(row.original_filename || "");
     const hasFile = Boolean(row.storage_path);
+    const safeMimeType = String(row.mime_type || "").toLowerCase();
+    const isPdf = safeMimeType === "application/pdf";
     const cardClasses = [
       "card",
       "company-document-card",
@@ -1417,12 +1415,13 @@ function renderCompanyDocuments(){
         <div class="company-document-card-head">
           <div>
             <h3 class="company-document-card-title">${safeName}</h3>
-            <p class="company-document-card-meta">${hasFile ? safeFilename : "לא הועלה מסמך"}</p>
+            <p class="company-document-card-meta">${hasFile ? (isPdf ? "PDF" : "תמונה") : "לא הועלה מסמך"}</p>
           </div>
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
           </div>
         </div>
+        ${hasFile ? `<div class="company-document-card-preview" data-company-document-preview-id="${safeId}" aria-label="תצוגה מקדימה של ${safeName}"><p class="company-document-card-preview-loading">טוען תצוגה מקדימה...</p></div>` : ""}
       </article>
     `;
   }).join("");
@@ -1491,7 +1490,52 @@ function renderCompanyDocuments(){
     });
   });
 
+  void hydrateCompanyDocumentCardPreviews(presentationRows);
+
   updateCompanyDocumentsSearchEmptyState();
+}
+
+async function hydrateCompanyDocumentCardPreviews(rows){
+  const safeRows = Array.isArray(rows) ? rows : [];
+
+  for(const row of safeRows){
+    const storagePath = String(row?.storage_path || "").trim();
+    const rowId = String(row?.id || "").trim();
+    if(!rowId || !storagePath) continue;
+
+    const previewContainer = document.querySelector(`[data-company-document-preview-id="${CSS.escape(rowId)}"]`);
+    if(!previewContainer) continue;
+
+    try {
+      const signedUrl = await getSignedUrlForZDocument(storagePath);
+      const mimeType = String(row?.mime_type || "").toLowerCase();
+      const isPdf = mimeType === "application/pdf";
+
+      if(isPdf){
+        previewContainer.innerHTML = `
+          <object data="${escapeHtml(signedUrl)}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" aria-label="תצוגה מקדימה של PDF">
+            <div class="company-document-card-preview-fallback" aria-label="PDF">
+              <span aria-hidden="true">📄</span>
+              <span>PDF</span>
+            </div>
+          </object>
+        `;
+      } else {
+        const image = document.createElement("img");
+        image.src = signedUrl;
+        image.alt = row.display_name ? `תצוגה מקדימה של ${row.display_name}` : "תצוגה מקדימה של מסמך חברה";
+        previewContainer.innerHTML = "";
+        previewContainer.appendChild(image);
+      }
+    } catch(error){
+      console.error("company_document_preview_failed", {documentId: rowId, storagePath, error});
+      previewContainer.innerHTML = '<p class="company-document-card-preview-empty">לא ניתן לטעון תצוגה מקדימה.</p>';
+    }
+  }
+}
+
+function getFriendlyViewerErrorMessage(){
+  return "לא ניתן לפתוח את המסמך כרגע. נסי שוב בעוד רגע.";
 }
 
 async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך", fullscreenTitle = "מסמך במסך מלא", emptyMessage = "אין מסמך להצגה.", statusElement = null} = {}){
@@ -5299,14 +5343,29 @@ function renderZFullscreenContent(){
   content.appendChild(frame);
 }
 
-function openZDocumentsFullscreen(){
-  if(!currentZViewerDocument?.signedUrl || !currentZViewerDocument?.mime_type) return;
+async function openZDocumentsFullscreen(){
+  if(!currentZViewerDocument?.mime_type || !currentZViewerDocument?.storage_path) return;
   const dialog = $("zDocumentsFullscreenDialog");
   if(!dialog) return;
-  renderZFullscreenContent();
-  updateZViewerNavigation();
-  dialog.showModal();
-  $("zDocumentsFullscreenClose")?.focus();
+
+  try {
+    const freshSignedUrl = await getSignedUrlForZDocument(currentZViewerDocument.storage_path);
+    currentZViewerDocument = {
+      ...currentZViewerDocument,
+      signedUrl: freshSignedUrl
+    };
+
+    renderZFullscreenContent();
+    updateZViewerNavigation();
+    dialog.showModal();
+    $("zDocumentsFullscreenClose")?.focus();
+  } catch(error){
+    console.error("document_fullscreen_open_failed", {
+      storagePath: currentZViewerDocument.storage_path,
+      error
+    });
+    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
+  }
 }
 
 function closeZDocumentsFullscreen({restoreFocus = true} = {}){
@@ -5333,7 +5392,7 @@ async function getSignedUrlForZDocument(storagePath){
 
   const {data:signed, error} = await sb.storage
     .from("invoice-documents")
-    .createSignedUrl(storagePath, 60);
+    .createSignedUrl(storagePath, 300);
 
   if(error || !signed?.signedUrl){
     throw new Error(error?.message || "שגיאה בטעינת מסמך דו״ח Z");
@@ -5381,9 +5440,12 @@ async function renderCurrentZDocument(){
     }
   } catch(error){
     if(loadToken !== zDocumentsLoadToken) return;
-    console.error(error);
+    console.error("document_viewer_load_failed", {
+      storagePath: documentMeta.storage_path,
+      error
+    });
     currentZViewerDocument = null;
-    renderZViewerState({message: error?.message || "שגיאה בטעינת מסמך", isError: true});
+    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
     updateZViewerNavigation();
   }
 }

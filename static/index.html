@@ -450,13 +450,11 @@
   <div class="modal-body">
     <form id="companyDocumentsManageForm" class="stack company-documents-manage-form">
       <h3>➕ הוספת מסמך</h3>
-      <label>אפשרות הוספה
-        <select id="companyDocumentsAddMode">
-          <option value="">בחרי אפשרות</option>
-          <option value="existing_type">בחירת סוג מסמך</option>
-          <option value="custom">מותאם אישית</option>
-        </select>
-      </label>
+      <select id="companyDocumentsAddMode" aria-label="אפשרות הוספה">
+        <option value="">בחרי אפשרות</option>
+        <option value="existing_type">בחירת סוג מסמך</option>
+        <option value="custom">מותאם אישית</option>
+      </select>
 
       <section id="companyDocumentsAddExistingTypeSection" class="stack">
         <label>סוג מסמך חסר
@@ -475,7 +473,7 @@
         <button id="companyDocumentsAddCustomSubmit" class="primary" type="submit">הוסיפי מסמך מותאם אישית</button>
       </section>
 
-      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">בחרי אפשרות כדי להמשיך.</p>
+      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty hidden"></p>
       <div id="companyDocumentsManageStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
     <section class="company-documents-manage-section" aria-label="מסמכים קיימים">

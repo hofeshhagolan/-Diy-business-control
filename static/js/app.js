@@ -1425,35 +1425,30 @@ function renderCompanyDocuments(){
     const safeKey = escapeHtml(row.document_key || "");
     const safeName = escapeHtml(row.display_name || "מסמך חברה");
     const hasFile = Boolean(row.storage_path);
-    const safeMimeType = String(row.mime_type || "").toLowerCase();
-    const isPdf = safeMimeType === "application/pdf";
     const cardClasses = [
       "card",
       "company-document-card",
       "company-document-card-openable",
       hasFile ? "" : "company-document-card-empty"
     ].join(" ").trim();
+    const openAttributes = `data-company-document-open-id="${safeId}" role="button" tabindex="0" aria-label="פתיחת ${safeName}" title="פתיחת ${safeName}"`;
+    const uploadStatus = hasFile ? "הועלה מסמך" : "לא הועלה מסמך";
 
     return `
       <article
         data-company-document-id="${safeId}"
         data-company-document-draggable="${reorderEnabled ? "1" : "0"}"
         class="${cardClasses}"
-        data-company-document-open-id="${safeId}"
-        role="button"
-        tabindex="0"
-        aria-label="פתיחת ${safeName}"
-        title="פתיחת ${safeName}">
+        ${openAttributes}>
         <div class="company-document-card-head">
           <div>
             <h3 class="company-document-card-title">${safeName}</h3>
-            ${hasFile ? "" : '<p class="company-document-card-meta">לא הועלה מסמך</p>'}
+            <p class="company-document-card-meta">${uploadStatus}</p>
           </div>
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
           </div>
         </div>
-        ${hasFile ? `<div class="company-document-card-preview" data-company-document-preview-id="${safeId}" aria-label="תצוגה מקדימה של ${safeName}"><p class="company-document-card-preview-loading">טוען תצוגה מקדימה...</p></div>` : ""}
       </article>
     `;
   }).join("");
@@ -1522,48 +1517,7 @@ function renderCompanyDocuments(){
     });
   });
 
-  void hydrateCompanyDocumentCardPreviews(presentationRows);
-
   updateCompanyDocumentsSearchEmptyState();
-}
-
-async function hydrateCompanyDocumentCardPreviews(rows){
-  const safeRows = Array.isArray(rows) ? rows : [];
-
-  for(const row of safeRows){
-    const storagePath = String(row?.storage_path || "").trim();
-    const rowId = String(row?.id || "").trim();
-    if(!rowId || !storagePath) continue;
-
-    const previewContainer = document.querySelector(`[data-company-document-preview-id="${CSS.escape(rowId)}"]`);
-    if(!previewContainer) continue;
-
-    try {
-      const signedUrl = await getSignedUrlForZDocument(storagePath);
-      const mimeType = String(row?.mime_type || "").toLowerCase();
-      const isPdf = mimeType === "application/pdf";
-
-      if(isPdf){
-        previewContainer.innerHTML = `
-          <object data="${escapeHtml(signedUrl)}#page=1&view=FitH&toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" aria-label="תצוגה מקדימה של PDF">
-            <div class="company-document-card-preview-fallback" aria-label="PDF">
-              <span aria-hidden="true">📄</span>
-              <span>PDF</span>
-            </div>
-          </object>
-        `;
-      } else {
-        const image = document.createElement("img");
-        image.src = signedUrl;
-        image.alt = row.display_name ? `תצוגה מקדימה של ${row.display_name}` : "תצוגה מקדימה של מסמך חברה";
-        previewContainer.innerHTML = "";
-        previewContainer.appendChild(image);
-      }
-    } catch(error){
-      console.error("company_document_preview_failed", {documentId: rowId, storagePath, error});
-      previewContainer.innerHTML = '<p class="company-document-card-preview-empty">לא ניתן לטעון תצוגה מקדימה.</p>';
-    }
-  }
 }
 
 function getFriendlyViewerErrorMessage(){
@@ -5395,7 +5349,7 @@ async function openZDocumentsFullscreen(){
   if(!dialog) return;
 
   try {
-    const freshSignedUrl = await getSignedUrlForZDocument(currentZViewerDocument.storage_path);
+    const freshSignedUrl = await getSignedUrlForZDocument(currentZViewerDocument.storage_path, {forceRefresh: true});
     currentZViewerDocument = {
       ...currentZViewerDocument,
       signedUrl: freshSignedUrl
@@ -5429,9 +5383,9 @@ function closeZDocumentsFullscreen({restoreFocus = true} = {}){
   zDocumentsFullscreenOpener = null;
 }
 
-async function getSignedUrlForZDocument(storagePath){
+async function getSignedUrlForZDocument(storagePath, {forceRefresh = false} = {}){
   const now = Date.now();
-  const cached = zDocumentsSignedUrlCache.get(storagePath);
+  const cached = forceRefresh ? null : zDocumentsSignedUrlCache.get(storagePath);
   if(cached && cached.expiresAt > (now + 2000)){
     return cached.signedUrl;
   }
@@ -5470,7 +5424,8 @@ async function renderCurrentZDocument(){
   renderZViewerState({message: "טוען מסמך..."});
 
   try {
-    const signedUrl = await getSignedUrlForZDocument(documentMeta.storage_path);
+    const isPdfDocument = String(documentMeta.mime_type || "").toLowerCase() === "application/pdf";
+    const signedUrl = await getSignedUrlForZDocument(documentMeta.storage_path, {forceRefresh: isPdfDocument});
     if(loadToken !== zDocumentsLoadToken) return;
 
     currentZViewerDocument = {

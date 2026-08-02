@@ -58,7 +58,7 @@ const DEFAULT_COMPANY_DOCUMENTS = Object.freeze([
   {key:"shareholders_resolution", label:"פרוטוקול בעלי מניות"},
   {key:"board_resolution", label:"פרוטוקול דירקטוריון"}
 ]);
-const COMPANY_DOCUMENTS_SEEDED_FLAG_PREFIX = "companyDocumentsDefaultsSeeded";
+const COMPANY_DOCUMENTS_INIT_MARKER_TABLE = "company_documents_default_initializations";
 const EXPENSE_STORAGE_CLEANUP_QUEUE_KEY = "expenseStorageCleanupQueue";
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
@@ -886,40 +886,45 @@ function getDefaultCompanyDocumentDefinition(documentKey){
   return DEFAULT_COMPANY_DOCUMENTS.find(item => item.key === documentKey) || null;
 }
 
-function getCompanyDocumentsSeededFlagKey(){
-  const safeUserId = String(userId || "").trim();
-  if(!safeUserId) return "";
-  return `${COMPANY_DOCUMENTS_SEEDED_FLAG_PREFIX}:${safeUserId}`;
+function deriveMissingDefaultCompanyDocumentDefinitions(rows){
+  const existingDefaultKeys = new Set(
+    (Array.isArray(rows) ? rows : [])
+      .filter(row => row?.is_default && row?.document_key)
+      .map(row => String(row.document_key || "").trim())
+      .filter(Boolean)
+  );
+
+  return DEFAULT_COMPANY_DOCUMENTS.filter(definition => !existingDefaultKeys.has(definition.key));
 }
 
-function hasSeededCompanyDocumentsDefaults(){
-  const key = getCompanyDocumentsSeededFlagKey();
-  if(!key) return false;
+function shouldInitializeCompanyDocumentsDefaults({hasMarker = false} = {}){
+  return !hasMarker;
+}
 
-  try {
-    return localStorage.getItem(key) === "1";
-  } catch {
-    return false;
+async function getCompanyDocumentsInitializationMarker(){
+  const {data, error} = await sb.from(COMPANY_DOCUMENTS_INIT_MARKER_TABLE)
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if(error){
+    return {hasMarker:false, error};
   }
+
+  return {hasMarker:Boolean(data?.user_id), error:null};
 }
 
-function markCompanyDocumentsDefaultsSeeded(){
-  const key = getCompanyDocumentsSeededFlagKey();
-  if(!key) return;
-
-  try {
-    localStorage.setItem(key, "1");
-  } catch {}
+async function upsertCompanyDocumentsInitializationMarker(){
+  const {error} = await sb.from(COMPANY_DOCUMENTS_INIT_MARKER_TABLE)
+    .upsert({user_id: userId}, {onConflict: "user_id"});
+  return error || null;
 }
 
-function shouldSeedCompanyDocumentsDefaults(rows){
-  const safeRows = Array.isArray(rows) ? rows : [];
-  if(safeRows.length) return false;
-  return !hasSeededCompanyDocumentsDefaults();
-}
+async function seedDefaultCompanyDocuments(definitions){
+  const safeDefinitions = Array.isArray(definitions) ? definitions : [];
+  if(!safeDefinitions.length) return true;
 
-async function seedDefaultCompanyDocuments(){
-  const payload = DEFAULT_COMPANY_DOCUMENTS.map(definition => ({
+  const payload = safeDefinitions.map(definition => ({
     id: generateClientSideUuid(),
     user_id: userId,
     document_key: definition.key,
@@ -933,7 +938,6 @@ async function seedDefaultCompanyDocuments(){
   const {error} = await sb.from("company_documents").insert(payload);
   if(error){
     if(error.code === "23505"){
-      markCompanyDocumentsDefaultsSeeded();
       return true;
     }
 
@@ -942,7 +946,6 @@ async function seedDefaultCompanyDocuments(){
     return false;
   }
 
-  markCompanyDocumentsDefaultsSeeded();
   return true;
 }
 
@@ -1202,7 +1205,12 @@ async function loadCompanyDocuments(){
     .eq("user_id", userId)
     .order("created_at", {ascending: true});
 
-  let {data, error} = await fetchDocuments();
+  const [documentsResult, markerResult] = await Promise.all([
+    fetchDocuments(),
+    getCompanyDocumentsInitializationMarker()
+  ]);
+
+  let {data, error} = documentsResult;
   if(error){
     setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
     return;
@@ -1210,9 +1218,21 @@ async function loadCompanyDocuments(){
 
   let nextRows = Array.isArray(data) ? data : [];
 
-  if(shouldSeedCompanyDocumentsDefaults(nextRows)){
-    const seeded = await seedDefaultCompanyDocuments();
+  if(markerResult.error){
+    setCompanyDocumentsStatus(markerResult.error.message || "שגיאה בטעינת מסמכי ברירת מחדל", "error");
+    return;
+  }
+
+  if(shouldInitializeCompanyDocumentsDefaults({hasMarker: markerResult.hasMarker})){
+    const missingDefinitions = deriveMissingDefaultCompanyDocumentDefinitions(nextRows);
+    const seeded = await seedDefaultCompanyDocuments(missingDefinitions);
     if(seeded){
+      const markerError = await upsertCompanyDocumentsInitializationMarker();
+      if(markerError){
+        setCompanyDocumentsStatus(markerError.message || "שגיאה בעדכון אתחול מסמכי ברירת מחדל", "error");
+        return;
+      }
+
       const refetchResult = await fetchDocuments();
       data = refetchResult.data;
       error = refetchResult.error;
@@ -1220,10 +1240,9 @@ async function loadCompanyDocuments(){
         setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
         return;
       }
+
       nextRows = Array.isArray(data) ? data : [];
     }
-  } else if(nextRows.length){
-    markCompanyDocumentsDefaultsSeeded();
   }
 
   companyDocumentRows = nextRows;

@@ -155,6 +155,11 @@
         <h2>מסמכי חברה</h2>
         <button id="companyDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
       </div>
+      <label class="company-documents-search" for="companyDocumentsSearchInput">
+        חיפוש מקומי
+        <input id="companyDocumentsSearchInput" type="search" placeholder="חיפוש לפי שם מסמך או קובץ" autocomplete="off">
+      </label>
+      <p id="companyDocumentsSearchEmptyMessage" class="company-documents-search-note hidden">גרירה לסידור כרטיסים זמינה רק כשהחיפוש ריק.</p>
       <div id="companyDocumentsStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="companyDocumentsList" class="company-documents-list" aria-label="רשימת מסמכי חברה"></div>
     </section>
@@ -456,6 +461,19 @@
     <section class="company-documents-manage-section" aria-label="מסמכים מותאמים אישית">
       <h3>מסמכים מותאמים אישית</h3>
       <div id="companyDocumentsCustomList" class="company-documents-manage-list"></div>
+    </section>
+    <section class="company-documents-manage-section" aria-label="שחזור מסמכי ברירת מחדל">
+      <h3>שחזור מסמכי ברירת מחדל</h3>
+      <p id="companyDocumentsRestoreDefaultsHint" class="company-documents-manage-empty">כל מסמכי ברירת המחדל קיימים.</p>
+      <label>מסמך ברירת מחדל חסר
+        <select id="companyDocumentsRestoreDefaultSelect" disabled></select>
+      </label>
+      <button id="companyDocumentsRestoreDefaultsButton" type="button" class="secondary">שחזור מסמך נבחר</button>
+    </section>
+    <section class="company-documents-manage-section" aria-label="ניקוי קבצים שנכשל">
+      <h3>ניקוי קבצים שנכשל</h3>
+      <p class="company-documents-manage-empty">אם מחיקת הקובץ מהאחסון נכשלה, ניתן לנסות ניקוי חוזר.</p>
+      <button id="companyDocumentsRetryCleanupButton" type="button" class="secondary">נסי ניקוי חוזר</button>
     </section>
   </div>
 </dialog>

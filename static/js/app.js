@@ -35,6 +35,9 @@ let currentZViewerDocument = null;
 let zDocumentsFullscreenOpener = null;
 let zDocumentsLoadToken = 0;
 let companyDocumentRows = [];
+let companyDocumentsSearchTerm = "";
+let isCompanyDocumentsReorderSaving = false;
+let companyDocumentDraggedId = "";
 let currentCompanyDocumentEditTarget = null;
 let toastHideTimer = null;
 const fileSha256Cache = new WeakMap();
@@ -58,7 +61,7 @@ const DEFAULT_COMPANY_DOCUMENTS = Object.freeze([
   {key:"shareholders_resolution", label:"פרוטוקול בעלי מניות"},
   {key:"board_resolution", label:"פרוטוקול דירקטוריון"}
 ]);
-const COMPANY_DOCUMENTS_INIT_MARKER_TABLE = "company_documents_default_initializations";
+const COMPANY_DOCUMENTS_STORAGE_CLEANUP_QUEUE_PREFIX = "companyDocumentsStorageCleanupQueue";
 const EXPENSE_STORAGE_CLEANUP_QUEUE_KEY = "expenseStorageCleanupQueue";
 const EXPENSE_DIALOG_PRIMARY_STATES = Object.freeze({
   UPLOAD: "upload",
@@ -886,86 +889,263 @@ function getDefaultCompanyDocumentDefinition(documentKey){
   return DEFAULT_COMPANY_DOCUMENTS.find(item => item.key === documentKey) || null;
 }
 
-function deriveMissingDefaultCompanyDocumentDefinitions(rows){
-  const existingDefaultKeys = new Set(
-    (Array.isArray(rows) ? rows : [])
-      .filter(row => row?.is_default && row?.document_key)
-      .map(row => String(row.document_key || "").trim())
+function getCompanyDocumentsStorageCleanupQueueKey(){
+  const safeUserId = String(userId || "").trim();
+  if(!safeUserId) return "";
+  return `${COMPANY_DOCUMENTS_STORAGE_CLEANUP_QUEUE_PREFIX}:${safeUserId}`;
+}
+
+function getCompanyDocumentsStorageCleanupQueue(){
+  const key = getCompanyDocumentsStorageCleanupQueueKey();
+  if(!key) return [];
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    if(!Array.isArray(parsed)) return [];
+    return parsed.map(item => String(item || "").trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function setCompanyDocumentsStorageCleanupQueue(paths){
+  const key = getCompanyDocumentsStorageCleanupQueueKey();
+  if(!key) return;
+
+  const normalized = (Array.isArray(paths) ? paths : [])
+    .map(path => String(path || "").trim())
+    .filter(Boolean);
+
+  try {
+    if(!normalized.length){
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(Array.from(new Set(normalized))));
+  } catch {}
+}
+
+function enqueueCompanyDocumentStorageCleanupPath(path){
+  const safePath = String(path || "").trim();
+  if(!safePath) return;
+
+  const existing = getCompanyDocumentsStorageCleanupQueue();
+  existing.push(safePath);
+  setCompanyDocumentsStorageCleanupQueue(existing);
+}
+
+function updateCompanyDocumentsCleanupRetryState(){
+  const retryButton = $("companyDocumentsRetryCleanupButton");
+  if(!retryButton) return;
+  retryButton.disabled = !getCompanyDocumentsStorageCleanupQueue().length;
+}
+
+async function retryQueuedCompanyDocumentStorageCleanup(){
+  const queuedPaths = getCompanyDocumentsStorageCleanupQueue();
+  if(!queuedPaths.length){
+    updateCompanyDocumentsCleanupRetryState();
+    return;
+  }
+
+  const cleanupError = await cleanupUploadedZReportFiles(queuedPaths);
+  if(cleanupError){
+    updateCompanyDocumentsCleanupRetryState();
+    return;
+  }
+
+  setCompanyDocumentsStorageCleanupQueue([]);
+  updateCompanyDocumentsCleanupRetryState();
+}
+
+function buildCompanyDocumentsPresentationRows({applySearch = true} = {}){
+  const normalizedSearch = String(companyDocumentsSearchTerm || "").trim().toLocaleLowerCase("he");
+
+  const orderedRows = [...companyDocumentRows].sort((left, right) => {
+    const leftOrder = Number(left?.sort_order || 0);
+    const rightOrder = Number(right?.sort_order || 0);
+
+    if(leftOrder && rightOrder && leftOrder !== rightOrder){
+      return leftOrder - rightOrder;
+    }
+
+    const leftCreatedAt = Date.parse(String(left?.created_at || "")) || 0;
+    const rightCreatedAt = Date.parse(String(right?.created_at || "")) || 0;
+    if(leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt;
+
+    return String(left?.id || "").localeCompare(String(right?.id || ""));
+  });
+
+  if(!applySearch || !normalizedSearch) return orderedRows;
+
+  return orderedRows.filter(row => {
+    const name = String(row?.display_name || "").toLocaleLowerCase("he");
+    const filename = String(row?.original_filename || "").toLocaleLowerCase("he");
+    return name.includes(normalizedSearch) || filename.includes(normalizedSearch);
+  });
+}
+
+function getNextCompanyDocumentSortOrder(){
+  const currentMax = companyDocumentRows.reduce((maxOrder, row) => {
+    const order = Number(row?.sort_order || 0);
+    return order > maxOrder ? order : maxOrder;
+  }, 0);
+
+  return currentMax + 1;
+}
+
+function getMissingDefaultCompanyDocumentDefinitions(){
+  const existingKeys = new Set(
+    companyDocumentRows
+      .filter(row => Boolean(row?.is_default))
+      .map(row => String(row?.document_key || "").trim())
       .filter(Boolean)
   );
 
-  return DEFAULT_COMPANY_DOCUMENTS.filter(definition => !existingDefaultKeys.has(definition.key));
+  return DEFAULT_COMPANY_DOCUMENTS.filter(definition => !existingKeys.has(definition.key));
 }
 
-function shouldInitializeCompanyDocumentsDefaults({hasMarker = false} = {}){
-  return !hasMarker;
+function canReorderCompanyDocuments(){
+  return !String(companyDocumentsSearchTerm || "").trim() && !isCompanyDocumentsReorderSaving;
 }
 
-async function getCompanyDocumentsInitializationMarker(){
-  const {data, error} = await sb.from(COMPANY_DOCUMENTS_INIT_MARKER_TABLE)
-    .select("user_id")
-    .eq("user_id", userId)
-    .maybeSingle();
+async function persistCompanyDocumentsOrder(orderedRows){
+  const safeRows = Array.isArray(orderedRows) ? orderedRows : [];
+  const orderedIds = safeRows
+    .map(row => String(row?.id || "").trim())
+    .filter(Boolean);
 
-  if(error){
-    return {hasMarker:false, error};
+  if(!orderedIds.length) return;
+
+  const {error} = await sb.rpc("reorder_company_documents", {
+    p_document_ids: orderedIds
+  });
+
+  if(error) throw error;
+}
+
+async function moveCompanyDocumentCard(draggedDocumentId, targetDocumentId){
+  if(!canReorderCompanyDocuments()) return;
+
+  const safeDraggedId = String(draggedDocumentId || "").trim();
+  const safeTargetId = String(targetDocumentId || "").trim();
+  if(!safeDraggedId || !safeTargetId || safeDraggedId === safeTargetId) return;
+
+  const previousRows = companyDocumentRows.map(row => ({...row}));
+  const reorderedRows = [...companyDocumentRows].sort((left, right) => Number(left?.sort_order || 0) - Number(right?.sort_order || 0));
+  const fromIndex = reorderedRows.findIndex(row => String(row?.id || "") === safeDraggedId);
+  const toIndex = reorderedRows.findIndex(row => String(row?.id || "") === safeTargetId);
+  if(fromIndex < 0 || toIndex < 0) return;
+
+  const [movedRow] = reorderedRows.splice(fromIndex, 1);
+  reorderedRows.splice(toIndex, 0, movedRow);
+
+  const normalizedRows = reorderedRows.map((row, index) => ({
+    ...row,
+    sort_order: index + 1
+  }));
+
+  isCompanyDocumentsReorderSaving = true;
+  companyDocumentRows = normalizedRows;
+  renderCompanyDocuments();
+  renderCompanyDocumentsManageList();
+  setCompanyDocumentsStatus("שומרת סדר כרטיסים...", "");
+
+  try {
+    await persistCompanyDocumentsOrder(normalizedRows);
+    setCompanyDocumentsStatus("", "");
+  } catch(error){
+    console.error(error);
+    companyDocumentRows = previousRows;
+    setCompanyDocumentsStatus(error?.message || "שגיאה בשמירת סדר הכרטיסים", "error");
+    renderCompanyDocuments();
+    renderCompanyDocumentsManageList();
+  } finally {
+    isCompanyDocumentsReorderSaving = false;
+  }
+}
+
+function updateCompanyDocumentsSearchEmptyState(){
+  const message = $("companyDocumentsSearchEmptyMessage");
+  if(!message) return;
+  message.classList.toggle("hidden", !String(companyDocumentsSearchTerm || "").trim());
+}
+
+function updateCompanyDocumentsRestoreDefaultsState(){
+  const button = $("companyDocumentsRestoreDefaultsButton");
+  const hint = $("companyDocumentsRestoreDefaultsHint");
+  const select = $("companyDocumentsRestoreDefaultSelect");
+  if(!button || !hint || !select) return;
+
+  const missingDefaults = getMissingDefaultCompanyDocumentDefinitions();
+  select.innerHTML = missingDefaults.map(definition => (
+    `<option value="${escapeHtml(definition.key)}">${escapeHtml(definition.label)}</option>`
+  )).join("");
+  select.disabled = !missingDefaults.length;
+  button.disabled = !missingDefaults.length;
+  hint.textContent = missingDefaults.length
+    ? "בחרי מסמך ברירת מחדל חסר לשחזור."
+    : "כל מסמכי ברירת המחדל קיימים.";
+}
+
+async function retryCompanyDocumentsStorageCleanupFromUI(){
+  const queuedPaths = getCompanyDocumentsStorageCleanupQueue();
+  if(!queuedPaths.length){
+    setCompanyDocumentsManageStatus("אין קבצים שממתינים לניקוי.", "");
+    updateCompanyDocumentsCleanupRetryState();
+    return;
   }
 
-  return {hasMarker:Boolean(data?.user_id), error:null};
+  setCompanyDocumentsManageStatus("מנסה לנקות קבצים מהאחסון...", "");
+  const cleanupError = await cleanupUploadedZReportFiles(queuedPaths);
+  if(cleanupError){
+    setCompanyDocumentsManageStatus(cleanupError.message || "שגיאה בניקוי הקבצים מהאחסון", "error");
+    setCompanyDocumentsStatus(cleanupError.message || "שגיאה בניקוי הקבצים מהאחסון", "error");
+    updateCompanyDocumentsCleanupRetryState();
+    return;
+  }
+
+  setCompanyDocumentsStorageCleanupQueue([]);
+  setCompanyDocumentsManageStatus("ניקוי הקבצים הושלם", "ok");
+  setCompanyDocumentsStatus("", "");
+  updateCompanyDocumentsCleanupRetryState();
 }
 
-async function upsertCompanyDocumentsInitializationMarker(){
-  const {error} = await sb.from(COMPANY_DOCUMENTS_INIT_MARKER_TABLE)
-    .upsert({user_id: userId}, {onConflict: "user_id"});
-  return error || null;
-}
+async function restoreMissingDefaultCompanyDocuments(){
+  const missingDefaults = getMissingDefaultCompanyDocumentDefinitions();
+  const selectedKey = String($("companyDocumentsRestoreDefaultSelect")?.value || "").trim();
+  if(!missingDefaults.length){
+    setCompanyDocumentsManageStatus("כל מסמכי ברירת המחדל קיימים.", "");
+    return;
+  }
 
-async function seedDefaultCompanyDocuments(definitions){
-  const safeDefinitions = Array.isArray(definitions) ? definitions : [];
-  if(!safeDefinitions.length) return true;
+  const definition = missingDefaults.find(item => item.key === selectedKey);
+  if(!definition){
+    setCompanyDocumentsManageStatus("יש לבחור מסמך ברירת מחדל חסר לשחזור.", "error");
+    return;
+  }
 
-  const payload = safeDefinitions.map(definition => ({
+  const nextSortOrder = getNextCompanyDocumentSortOrder();
+  const payload = {
     id: generateClientSideUuid(),
     user_id: userId,
     document_key: definition.key,
     display_name: definition.label,
     is_default: true,
+    sort_order: nextSortOrder,
     storage_path: null,
     original_filename: null,
     mime_type: null
-  }));
+  };
 
   const {error} = await sb.from("company_documents").insert(payload);
   if(error){
-    if(error.code === "23505"){
-      return true;
-    }
-
     console.error(error);
-    setCompanyDocumentsStatus(error.message || "שגיאה ביצירת מסמכי ברירת מחדל", "error");
-    return false;
+    setCompanyDocumentsManageStatus(error.message || "שגיאה בשחזור מסמכי ברירת המחדל", "error");
+    return;
   }
 
-  return true;
-}
-
-function buildCompanyDocumentsPresentationRows(){
-  const defaultOrder = new Map(DEFAULT_COMPANY_DOCUMENTS.map((definition, index) => [definition.key, index]));
-
-  return [...companyDocumentRows].sort((left, right) => {
-    const leftIsDefault = Boolean(left?.is_default);
-    const rightIsDefault = Boolean(right?.is_default);
-
-    if(leftIsDefault && rightIsDefault){
-      const leftOrder = defaultOrder.get(left?.document_key) ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder = defaultOrder.get(right?.document_key) ?? Number.MAX_SAFE_INTEGER;
-      if(leftOrder !== rightOrder) return leftOrder - rightOrder;
-    } else if(leftIsDefault !== rightIsDefault){
-      return leftIsDefault ? -1 : 1;
-    }
-
-    return String(left?.display_name || "").localeCompare(String(right?.display_name || ""), "he");
-  });
+  setCompanyDocumentsManageStatus("מסמכי ברירת המחדל שוחזרו", "ok");
+  await loadCompanyDocuments();
 }
 
 function getCompanyDocumentRowById(documentId){
@@ -1062,6 +1242,8 @@ function resetCompanyDocumentsManageForm(){
   if($("companyDocumentsFileInput")) $("companyDocumentsFileInput").value = "";
   updateCompanyDocumentsSelectedFileLabel();
   setCompanyDocumentsManageStatus("", "");
+  updateCompanyDocumentsRestoreDefaultsState();
+  updateCompanyDocumentsCleanupRetryState();
 }
 
 function updateCompanyDocumentEditorSelectedFileLabel(){
@@ -1089,10 +1271,12 @@ function renderCompanyDocumentsManageList(){
   const container = $("companyDocumentsCustomList");
   if(!container) return;
 
-  const rows = buildCompanyDocumentsPresentationRows();
+  const rows = buildCompanyDocumentsPresentationRows({applySearch: false});
 
   if(!rows.length){
     container.innerHTML = '<p class="company-documents-manage-empty">אין עדיין מסמכים.</p>';
+    updateCompanyDocumentsRestoreDefaultsState();
+    updateCompanyDocumentsCleanupRetryState();
     return;
   }
 
@@ -1111,23 +1295,47 @@ function renderCompanyDocumentsManageList(){
       void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
     });
   });
+
+  updateCompanyDocumentsRestoreDefaultsState();
+  updateCompanyDocumentsCleanupRetryState();
 }
 
 function renderCompanyDocuments(){
   const container = $("companyDocumentsList");
   if(!container) return;
 
-  const presentationRows = buildCompanyDocumentsPresentationRows();
+  const presentationRows = buildCompanyDocumentsPresentationRows({applySearch: true});
+  const reorderEnabled = canReorderCompanyDocuments();
+
+  if(!presentationRows.length){
+    container.innerHTML = '<p class="company-documents-manage-empty">לא נמצאו מסמכים.</p>';
+    updateCompanyDocumentsSearchEmptyState();
+    return;
+  }
+
   container.innerHTML = presentationRows.map(row => {
     const safeId = escapeHtml(row.id || "");
     const safeKey = escapeHtml(row.document_key || "");
     const safeName = escapeHtml(row.display_name || "מסמך חברה");
     const safeFilename = escapeHtml(row.original_filename || "");
     const hasFile = Boolean(row.storage_path);
-    const cardClasses = ["card", "company-document-card", hasFile ? "company-document-card-openable" : "company-document-card-empty"].join(" ");
+    const cardClasses = [
+      "card",
+      "company-document-card",
+      "company-document-card-openable",
+      hasFile ? "" : "company-document-card-empty"
+    ].join(" ").trim();
 
     return `
-      <article class="${cardClasses}" ${hasFile ? `data-company-document-open-id="${safeId}" role="button" tabindex="0" aria-label="פתיחת ${safeName}" title="פתיחת ${safeName}"` : ""}>
+      <article
+        data-company-document-id="${safeId}"
+        data-company-document-draggable="${reorderEnabled ? "1" : "0"}"
+        class="${cardClasses}"
+        data-company-document-open-id="${safeId}"
+        role="button"
+        tabindex="0"
+        aria-label="פתיחת ${safeName}"
+        title="פתיחת ${safeName}">
         <div class="company-document-card-head">
           <div>
             <h3 class="company-document-card-title">${safeName}</h3>
@@ -1177,6 +1385,48 @@ function renderCompanyDocuments(){
       void deleteCompanyDocument(button.dataset.companyDocumentDeleteId || "");
     });
   });
+
+  container.querySelectorAll("[data-company-document-id]").forEach(card => {
+    const isDraggable = card.dataset.companyDocumentDraggable === "1";
+    card.draggable = isDraggable;
+
+    if(!isDraggable) return;
+
+    card.addEventListener("dragstart", event => {
+      companyDocumentDraggedId = card.dataset.companyDocumentId || "";
+      card.classList.add("company-document-card-dragging");
+      event.dataTransfer?.setData("text/plain", companyDocumentDraggedId);
+      if(event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+
+    card.addEventListener("dragend", () => {
+      companyDocumentDraggedId = "";
+      card.classList.remove("company-document-card-dragging");
+      container.querySelectorAll(".company-document-card-drag-over").forEach(node => {
+        node.classList.remove("company-document-card-drag-over");
+      });
+    });
+
+    card.addEventListener("dragover", event => {
+      event.preventDefault();
+      card.classList.add("company-document-card-drag-over");
+      if(event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    });
+
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("company-document-card-drag-over");
+    });
+
+    card.addEventListener("drop", event => {
+      event.preventDefault();
+      card.classList.remove("company-document-card-drag-over");
+      const draggedDocumentId = companyDocumentDraggedId || event.dataTransfer?.getData("text/plain") || "";
+      const targetDocumentId = card.dataset.companyDocumentId || "";
+      void moveCompanyDocumentCard(draggedDocumentId, targetDocumentId);
+    });
+  });
+
+  updateCompanyDocumentsSearchEmptyState();
 }
 
 async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך", fullscreenTitle = "מסמך במסך מלא", emptyMessage = "אין מסמך להצגה.", statusElement = null} = {}){
@@ -1201,51 +1451,21 @@ async function loadCompanyDocuments(){
   renderCompanyDocumentsManageList();
 
   const fetchDocuments = async () => sb.from("company_documents")
-    .select("id,user_id,document_key,display_name,is_default,storage_path,original_filename,mime_type,created_at")
+    .select("id,user_id,document_key,display_name,is_default,sort_order,storage_path,original_filename,mime_type,created_at")
     .eq("user_id", userId)
+    .order("sort_order", {ascending: true})
     .order("created_at", {ascending: true});
 
-  const [documentsResult, markerResult] = await Promise.all([
-    fetchDocuments(),
-    getCompanyDocumentsInitializationMarker()
-  ]);
-
-  let {data, error} = documentsResult;
+  let {data, error} = await fetchDocuments();
   if(error){
     setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
     return;
   }
 
-  let nextRows = Array.isArray(data) ? data : [];
-
-  if(markerResult.error){
-    setCompanyDocumentsStatus(markerResult.error.message || "שגיאה בטעינת מסמכי ברירת מחדל", "error");
-    return;
-  }
-
-  if(shouldInitializeCompanyDocumentsDefaults({hasMarker: markerResult.hasMarker})){
-    const missingDefinitions = deriveMissingDefaultCompanyDocumentDefinitions(nextRows);
-    const seeded = await seedDefaultCompanyDocuments(missingDefinitions);
-    if(seeded){
-      const markerError = await upsertCompanyDocumentsInitializationMarker();
-      if(markerError){
-        setCompanyDocumentsStatus(markerError.message || "שגיאה בעדכון אתחול מסמכי ברירת מחדל", "error");
-        return;
-      }
-
-      const refetchResult = await fetchDocuments();
-      data = refetchResult.data;
-      error = refetchResult.error;
-      if(error){
-        setCompanyDocumentsStatus(error.message || "שגיאה בטעינת מסמכי החברה", "error");
-        return;
-      }
-
-      nextRows = Array.isArray(data) ? data : [];
-    }
-  }
+  const nextRows = Array.isArray(data) ? data : [];
 
   companyDocumentRows = nextRows;
+  await retryQueuedCompanyDocumentStorageCleanup();
   setCompanyDocumentsStatus("", "");
   renderCompanyDocuments();
   renderCompanyDocumentsManageList();
@@ -1262,9 +1482,10 @@ function getCompanyDocumentReplacementTarget({documentId = "", documentKey = ""}
     document_key: defaultDefinition.key,
     display_name: defaultDefinition.label,
     is_default: true,
-    storage_path: null,
-    original_filename: null,
-    mime_type: null
+    sort_order: getNextCompanyDocumentSortOrder(),
+    storage_path: "",
+    original_filename: "",
+    mime_type: ""
   };
 }
 
@@ -1352,6 +1573,7 @@ async function saveCompanyDocumentEditorChanges(event){
       document_key: target.document_key,
       display_name: plan.payload.display_name,
       is_default: Boolean(target.is_default),
+      sort_order: Number(target.sort_order || getNextCompanyDocumentSortOrder()),
       storage_path: plan.payload.storage_path,
       original_filename: plan.payload.original_filename,
       mime_type: plan.payload.mime_type
@@ -1378,7 +1600,7 @@ async function saveCompanyDocumentEditorChanges(event){
 async function openCompanyDocument(documentId){
   const row = getCompanyDocumentRowById(documentId);
   if(!row?.storage_path){
-    setCompanyDocumentsStatus("אין מסמך להצגה.", "error");
+    setCompanyDocumentsStatus("לא נמצא קובץ", "error");
     return;
   }
 
@@ -1386,7 +1608,7 @@ async function openCompanyDocument(documentId){
     documents: [row],
     dialogTitle: row.display_name || "מסמך חברה",
     fullscreenTitle: `${row.display_name || "מסמך חברה"} במסך מלא`,
-    emptyMessage: "אין מסמך להצגה.",
+    emptyMessage: "לא נמצא קובץ",
     statusElement: $("companyDocumentsStatus")
   });
 }
@@ -1436,6 +1658,7 @@ async function createCustomCompanyDocument(event){
     document_key: null,
     display_name: displayName,
     is_default: false,
+    sort_order: getNextCompanyDocumentSortOrder(),
     storage_path: storagePath,
     original_filename: file.name || "file",
     mime_type: mimeType
@@ -1464,15 +1687,7 @@ async function deleteCompanyDocument(documentId){
   setCompanyDocumentsManageStatus("מוחקת מסמך...", "");
   setCompanyDocumentsStatus("מוחקת מסמך...", "");
 
-  const cleanupError = row.storage_path
-    ? await cleanupUploadedZReportFiles([row.storage_path])
-    : null;
-
-  if(cleanupError){
-    setCompanyDocumentsManageStatus(cleanupError.message || "שגיאה במחיקת קובץ המסמך", "error");
-    setCompanyDocumentsStatus(cleanupError.message || "שגיאה במחיקת קובץ המסמך", "error");
-    return;
-  }
+  const rowStoragePath = String(row.storage_path || "").trim();
 
   const {error:deleteError} = await sb.from("company_documents")
     .delete()
@@ -1485,10 +1700,24 @@ async function deleteCompanyDocument(documentId){
     return;
   }
 
-  setCompanyDocumentsManageStatus("", "");
-  setCompanyDocumentsStatus("", "");
+  let cleanupMessage = "";
+  if(rowStoragePath){
+    const cleanupError = await cleanupUploadedZReportFiles([rowStoragePath]);
+    if(cleanupError){
+      enqueueCompanyDocumentStorageCleanupPath(rowStoragePath);
+      updateCompanyDocumentsCleanupRetryState();
+      cleanupMessage = " המסמך נמחק אך ניקוי הקובץ מהאחסון נכשל. ניתן לנסות ניקוי חוזר מחלון ניהול המסמכים.";
+      setCompanyDocumentsManageStatus(cleanupError.message || "שגיאה בניקוי קובץ המסמך מהאחסון", "error");
+      setCompanyDocumentsStatus(cleanupError.message || "שגיאה בניקוי קובץ המסמך מהאחסון", "error");
+    }
+  }
+
+  if(!cleanupMessage){
+    setCompanyDocumentsManageStatus("", "");
+    setCompanyDocumentsStatus("", "");
+  }
   await loadCompanyDocuments();
-  showToast("המסמך נמחק", "ok");
+  showToast(cleanupMessage ? `המסמך נמחק.${cleanupMessage}` : "המסמך נמחק", cleanupMessage ? "error" : "ok");
 }
 
 function clearSelectedZFileObjectUrls(){
@@ -5521,6 +5750,11 @@ $("companyDocumentsManageButton")?.addEventListener("click", () => {
   $("companyDocumentsManageDialog")?.showModal();
 });
 
+$("companyDocumentsSearchInput")?.addEventListener("input", event => {
+  companyDocumentsSearchTerm = String(event?.target?.value || "");
+  renderCompanyDocuments();
+});
+
 $("companyDocumentsManageDialog")?.addEventListener("close", () => {
   resetCompanyDocumentsManageForm();
 });
@@ -5553,6 +5787,14 @@ $("companyDocumentsFileInput")?.addEventListener("change", () => {
 
 $("companyDocumentEditorFileInput")?.addEventListener("change", () => {
   updateCompanyDocumentEditorSelectedFileLabel();
+});
+
+$("companyDocumentsRestoreDefaultsButton")?.addEventListener("click", () => {
+  void restoreMissingDefaultCompanyDocuments();
+});
+
+$("companyDocumentsRetryCleanupButton")?.addEventListener("click", () => {
+  void retryCompanyDocumentsStorageCleanupFromUI();
 });
 
 $("profileButton").onclick = () => $("businessDialog").showModal();

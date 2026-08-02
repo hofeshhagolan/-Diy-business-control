@@ -90,12 +90,17 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .finance-hub-card-future h3,.finance-hub-card-future .empty{color:#7a8796}
 .company-documents-head{margin-bottom:12px}
 .company-documents-head h2{margin:0}
+.company-documents-search{display:grid;gap:8px;margin:0 0 10px;font-weight:700;color:var(--brand)}
+.company-documents-search input{font-weight:400}
+.company-documents-search-note{margin:0 0 8px;color:var(--muted);font-size:.88rem}
 .company-documents-list{display:grid;grid-template-columns:1fr;gap:12px;padding-bottom:8px}
 .company-document-card{margin-bottom:0;display:grid;gap:12px}
 .company-document-card-openable{cursor:pointer;border-color:#bfd0e0;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)}
 .company-document-card-openable:hover{border-color:#9fb8d0;background:#f5faff}
 .company-document-card-openable:focus-visible{outline:3px solid #0b63ce;outline-offset:2px;box-shadow:0 0 0 2px #fff}
 .company-document-card-empty{background:#f7f9fc;box-shadow:none}
+.company-document-card-dragging{opacity:.55}
+.company-document-card-drag-over{border-color:#0b63ce;box-shadow:0 0 0 2px #d8e8fb}
 .company-document-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .company-document-card-title{margin:0;color:var(--brand);font-size:1.05rem}
 .company-document-card-meta{margin:6px 0 0;color:var(--muted);line-height:1.5;word-break:break-word}

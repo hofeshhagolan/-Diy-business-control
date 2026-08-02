@@ -122,17 +122,32 @@
 
     <section id="financeView" class="view">
       <h2>פיננסים</h2>
-      <div class="card" data-dashboard-view="incomeView" data-dashboard-label="הכנסות">
-        <h3>הכנסות</h3>
-        <div class="empty">מעבר למסך הכנסות ודו״חות Z.</div>
+      <div class="finance-hub-grid">
+        <div class="card finance-hub-card finance-hub-card-active" data-dashboard-view="incomeView" data-dashboard-label="הכנסות">
+          <h3>הכנסות</h3>
+          <div class="empty">מעבר למסך ההכנסות הקיים.</div>
+        </div>
+        <div class="card finance-hub-card finance-hub-card-active" data-dashboard-view="expensesView" data-dashboard-label="הוצאות">
+          <h3>הוצאות</h3>
+          <div class="empty">מעבר למסך ההוצאות הקיים.</div>
+        </div>
+        <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
+          <h3>בנקים</h3>
+          <div class="empty">זמין בהמשך</div>
+        </div>
+        <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
+          <h3>מע״מ</h3>
+          <div class="empty">זמין בהמשך</div>
+        </div>
+        <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
+          <h3>מסמכי חברה</h3>
+          <div class="empty">זמין בהמשך</div>
+        </div>
+        <div class="card finance-hub-card finance-hub-card-future" aria-disabled="true">
+          <h3>הלוואות בעלים</h3>
+          <div class="empty">זמין בהמשך</div>
+        </div>
       </div>
-      <div class="card" data-dashboard-view="expensesView" data-dashboard-label="הוצאות">
-        <h3>הוצאות</h3>
-        <div class="empty">מעבר למסך ניהול ההוצאות.</div>
-      </div>
-      <div class="card" data-dashboard-view="homeView" data-dashboard-label="דשבורד">
-        <h3>דשבורד</h3>
-        <div class="empty">חזרה לתמונת המצב הראשית של העסק.</div>
       </div>
     </section>
 

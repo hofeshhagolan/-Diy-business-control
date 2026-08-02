@@ -1320,6 +1320,34 @@ function updateCompanyDocumentEditorSelectedFileLabel(){
   label.classList.add("hidden");
 }
 
+function updateCompanyDocumentEditorFileActionState(){
+  const browseButton = $("companyDocumentEditorBrowseButton");
+  const currentFile = $("companyDocumentEditorCurrentFile");
+  const currentFileSection = currentFile?.closest(".company-document-editor-current-file") || null;
+  const selectedFile = $("companyDocumentEditorFileInput")?.files?.[0] || null;
+  const hasSelectedFile = selectedFile instanceof File;
+  const hasUploadedFile = Boolean(String(currentCompanyDocumentEditTarget?.storage_path || "").trim());
+
+  if(currentFile){
+    if(hasUploadedFile){
+      currentFile.textContent = currentCompanyDocumentEditTarget?.original_filename || "קובץ קיים";
+      currentFile.classList.remove("hidden");
+      currentFileSection?.classList.remove("hidden");
+    } else {
+      currentFile.textContent = "";
+      currentFile.classList.add("hidden");
+      currentFileSection?.classList.add("hidden");
+    }
+  }
+
+  if(browseButton){
+    const shouldShowReplace = hasUploadedFile || hasSelectedFile;
+    browseButton.textContent = shouldShowReplace ? "החליפי קובץ" : "בחרי קובץ";
+    browseButton.classList.toggle("primary", !shouldShowReplace);
+    browseButton.classList.toggle("secondary", shouldShowReplace);
+  }
+}
+
 function resetCompanyDocumentEditorForm(){
   $("companyDocumentEditorForm")?.reset();
   currentCompanyDocumentEditTarget = null;
@@ -1328,8 +1356,12 @@ function resetCompanyDocumentEditorForm(){
     $("companyDocumentEditorName").disabled = false;
     $("companyDocumentEditorName").removeAttribute("aria-disabled");
   }
-  if($("companyDocumentEditorCurrentFile")) $("companyDocumentEditorCurrentFile").textContent = "לא הועלה מסמך";
+  if($("companyDocumentEditorCurrentFile")){
+    $("companyDocumentEditorCurrentFile").textContent = "";
+    $("companyDocumentEditorCurrentFile").classList.add("hidden");
+  }
   updateCompanyDocumentEditorSelectedFileLabel();
+  updateCompanyDocumentEditorFileActionState();
   setCompanyDocumentEditorStatus("", "");
 }
 
@@ -1415,7 +1447,7 @@ function renderCompanyDocuments(){
         <div class="company-document-card-head">
           <div>
             <h3 class="company-document-card-title">${safeName}</h3>
-            <p class="company-document-card-meta">${hasFile ? (isPdf ? "PDF" : "תמונה") : "לא הועלה מסמך"}</p>
+            ${hasFile ? "" : '<p class="company-document-card-meta">לא הועלה מסמך</p>'}
           </div>
           <div class="company-document-card-actions">
             <button type="button" class="row-action edit-action" data-company-document-edit-id="${safeId}" data-company-document-edit-key="${safeKey}" aria-label="עריכת מסמך" title="עריכת מסמך">✏️</button>
@@ -1513,7 +1545,7 @@ async function hydrateCompanyDocumentCardPreviews(rows){
 
       if(isPdf){
         previewContainer.innerHTML = `
-          <object data="${escapeHtml(signedUrl)}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" aria-label="תצוגה מקדימה של PDF">
+          <object data="${escapeHtml(signedUrl)}#page=1&view=FitH&toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" aria-label="תצוגה מקדימה של PDF">
             <div class="company-document-card-preview-fallback" aria-label="PDF">
               <span aria-hidden="true">📄</span>
               <span>PDF</span>
@@ -1614,7 +1646,7 @@ function openCompanyDocumentEditor(target){
   nameField.value = currentCompanyDocumentEditTarget.display_name || "";
   nameField.disabled = false;
   nameField.setAttribute("aria-disabled", "false");
-  currentFile.textContent = currentCompanyDocumentEditTarget.original_filename || "לא הועלה מסמך";
+  currentFile.textContent = currentCompanyDocumentEditTarget.original_filename || "";
   if(title) title.textContent = "עריכת מסמך חברה";
   const deleteButton = $("companyDocumentEditorDeleteButton");
   if(deleteButton){
@@ -1623,6 +1655,7 @@ function openCompanyDocumentEditor(target){
   }
   if($("companyDocumentEditorFileInput")) $("companyDocumentEditorFileInput").value = "";
   updateCompanyDocumentEditorSelectedFileLabel();
+  updateCompanyDocumentEditorFileActionState();
   setCompanyDocumentEditorStatus("", "");
   dialog.showModal();
 }
@@ -1756,29 +1789,29 @@ async function createCustomCompanyDocument(event){
     return;
   }
 
-  if(!(file instanceof File)){
-    setCompanyDocumentsManageStatus("יש לבחור קובץ אחד למסמך המותאם אישית.", "error");
-    return;
-  }
-
-  if(!isSupportedCompanyDocumentFile(file)){
-    setCompanyDocumentsManageStatus("ניתן להעלות רק תמונות או PDF למסמכי חברה.", "error");
-    return;
-  }
-
   const documentId = generateClientSideUuid();
-  const storagePath = buildCompanyDocumentStoragePath(documentId, file.name || "file");
-  const mimeType = resolveCompanyDocumentMimeType(file);
+  let storagePath = null;
+  let mimeType = null;
 
-  setCompanyDocumentsManageStatus("מעלה מסמך מותאם אישית...", "");
+  if(file instanceof File){
+    if(!isSupportedCompanyDocumentFile(file)){
+      setCompanyDocumentsManageStatus("ניתן להעלות רק תמונות או PDF למסמכי חברה.", "error");
+      return;
+    }
 
-  const upload = await sb.storage
-    .from("invoice-documents")
-    .upload(storagePath, file, {contentType: mimeType, upsert: false});
+    storagePath = buildCompanyDocumentStoragePath(documentId, file.name || "file");
+    mimeType = resolveCompanyDocumentMimeType(file);
 
-  if(upload.error){
-    setCompanyDocumentsManageStatus(upload.error.message || "שגיאה בהעלאת המסמך", "error");
-    return;
+    setCompanyDocumentsManageStatus("מעלה מסמך מותאם אישית...", "");
+
+    const upload = await sb.storage
+      .from("invoice-documents")
+      .upload(storagePath, file, {contentType: mimeType, upsert: false});
+
+    if(upload.error){
+      setCompanyDocumentsManageStatus(upload.error.message || "שגיאה בהעלאת המסמך", "error");
+      return;
+    }
   }
 
   const {error:insertError} = await sb.from("company_documents").insert({
@@ -1789,19 +1822,21 @@ async function createCustomCompanyDocument(event){
     is_default: false,
     sort_order: getNextCompanyDocumentSortOrder(),
     storage_path: storagePath,
-    original_filename: file.name || "file",
+    original_filename: file instanceof File ? (file.name || "file") : null,
     mime_type: mimeType
   });
 
   if(insertError){
-    await cleanupUploadedZReportFiles([storagePath]);
+    if(storagePath){
+      await cleanupUploadedZReportFiles([storagePath]);
+    }
     setCompanyDocumentsManageStatus(insertError.message || "שגיאה בשמירת המסמך", "error");
     return;
   }
 
   resetCompanyDocumentsManageForm();
   await loadCompanyDocuments();
-  showToast("המסמך המותאם אישית נוסף", "ok");
+  showToast(file instanceof File ? "המסמך המותאם אישית נוסף" : "המסמך המותאם אישית נוסף ללא קובץ", "ok");
 }
 
 async function deleteCompanyDocument(documentId){
@@ -5305,9 +5340,13 @@ function renderZViewerFile({signedUrl, mimeType}){
   }
 
   const frame = document.createElement("iframe");
-  frame.src = signedUrl;
+  frame.src = `${signedUrl}#page=1&view=FitH`;
   frame.title = "מסמך הכנסה";
   frame.loading = "lazy";
+  frame.addEventListener("error", () => {
+    console.error("document_viewer_iframe_failed", {mimeType});
+    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
+  });
   panel.appendChild(frame);
 }
 
@@ -5337,9 +5376,16 @@ function renderZFullscreenContent(){
   }
 
   const frame = document.createElement("iframe");
-  frame.src = currentZViewerDocument.signedUrl;
+  frame.src = `${currentZViewerDocument.signedUrl}#page=1&view=FitH`;
   frame.title = "מסמך הכנסה במסך מלא";
   frame.loading = "lazy";
+  frame.addEventListener("error", () => {
+    console.error("document_fullscreen_iframe_failed", {
+      storagePath: currentZViewerDocument?.storage_path || "",
+      mimeType: currentZViewerDocument?.mime_type || ""
+    });
+    content.innerHTML = '<p class="review-document-state error">לא ניתן לפתוח את המסמך כרגע. נסי שוב בעוד רגע.</p>';
+  });
   content.appendChild(frame);
 }
 
@@ -5938,6 +5984,7 @@ $("companyDocumentsFileInput")?.addEventListener("change", () => {
 
 $("companyDocumentEditorFileInput")?.addEventListener("change", () => {
   updateCompanyDocumentEditorSelectedFileLabel();
+  updateCompanyDocumentEditorFileActionState();
 });
 
 $("companyDocumentEditorDeleteButton")?.addEventListener("click", () => {

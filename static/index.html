@@ -493,16 +493,16 @@
       <label>שם המסמך<input id="companyDocumentEditorName" maxlength="120" required></label>
       <div class="company-document-editor-current-file">
         <strong>קובץ נוכחי</strong>
-        <p id="companyDocumentEditorCurrentFile" class="company-document-editor-file-name">לא הועלה מסמך</p>
+        <p id="companyDocumentEditorCurrentFile" class="company-document-editor-file-name hidden"></p>
       </div>
       <div class="file-actions">
-        <button id="companyDocumentEditorBrowseButton" class="secondary" type="button">החליפי קובץ</button>
+        <button id="companyDocumentEditorBrowseButton" class="secondary" type="button">בחרי קובץ</button>
         <input id="companyDocumentEditorFileInput" type="file" accept="image/*,application/pdf">
       </div>
       <div id="companyDocumentEditorSelectedFile" class="file-preview-empty hidden"></div>
       <div class="row-actions company-document-editor-actions">
         <button class="primary" type="submit">שמרי שינויים</button>
-        <button id="companyDocumentEditorDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑</button>
+        <button id="companyDocumentEditorDeleteButton" class="secondary company-document-editor-delete-button" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑 Delete Document</button>
       </div>
       <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>

@@ -798,6 +798,182 @@ async function cleanupUploadedExpenseFiles(paths){
   return error || null;
 }
 
+function buildExpenseDocumentStoragePath(expenseId, saveAttemptId, index, originalFilename){
+  const safeExpenseId = sanitizeStoragePathSegment(expenseId);
+  const safeAttemptId = sanitizeStoragePathSegment(saveAttemptId);
+  const safeFilename = sanitizeStorageFilename(originalFilename || "file");
+  const orderPrefix = String(index).padStart(3, "0");
+  return `${userId}/${safeExpenseId}/${safeAttemptId}/${orderPrefix}-${safeFilename}`;
+}
+
+function buildExpenseRollbackPayload(expenseRecord){
+  if(!expenseRecord) return null;
+
+  return {
+    supplier_id: expenseRecord.supplier_id || null,
+    supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
+    supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
+    document_date: expenseRecord.document_date || null,
+    document_number: expenseRecord.document_number || "",
+    description: expenseRecord.description || "",
+    notes: expenseRecord.notes || "",
+    category_id: expenseRecord.category_id || null,
+    accounting_type_id: expenseRecord.accounting_type_id || null,
+    project_id: expenseRecord.project_id || null,
+    payment_source_id: expenseRecord.payment_source_id || null,
+    payment_method_id: expenseRecord.payment_method_id || null,
+    gross_ils: Number(expenseRecord.gross_ils || 0) || 0,
+    net_ils: Number(expenseRecord.net_ils || 0) || 0,
+    vat_ils: Number(expenseRecord.vat_ils || 0) || 0
+  };
+}
+
+async function rollbackExpenseDocumentSaveAttempt({expenseId, isEditingDetailsMode, originalExpenseSnapshot, uploadedStoragePaths}){
+  const cleanupPaths = new Set(
+    (Array.isArray(uploadedStoragePaths) ? uploadedStoragePaths : [])
+      .map(path => String(path || "").trim())
+      .filter(Boolean)
+  );
+
+  let rollbackError = null;
+
+  try {
+    if(isEditingDetailsMode){
+      const rollbackPayload = buildExpenseRollbackPayload(originalExpenseSnapshot);
+      if(!rollbackPayload){
+        throw new Error("לא ניתן לשחזר את ההוצאה לאחר כשל בשמירת המסמכים");
+      }
+
+      const {error:updateError} = await sb.from("expenses")
+        .update(rollbackPayload)
+        .eq("user_id", userId)
+        .eq("id", expenseId);
+
+      if(updateError){
+        throw updateError;
+      }
+    } else {
+      let deletedExpenseStoragePaths = [];
+
+      try {
+        const {data:rollbackResult, error:rollbackErrorResult} = await sb.rpc("delete_expense_atomic", {
+          p_expense_id: expenseId
+        });
+
+        if(rollbackErrorResult){
+          throw rollbackErrorResult;
+        }
+
+        const rollbackRow = Array.isArray(rollbackResult) ? rollbackResult[0] : rollbackResult;
+        deletedExpenseStoragePaths = (Array.isArray(rollbackRow?.storage_paths) ? rollbackRow.storage_paths : [])
+          .map(path => String(path || "").trim())
+          .filter(Boolean);
+      } catch(rpcError){
+        const {data:deletedDocs, error:deletedDocsError} = await sb.from("expense_documents")
+          .delete()
+          .eq("user_id", userId)
+          .eq("expense_id", expenseId)
+          .select("storage_path");
+
+        if(deletedDocsError){
+          throw rpcError || deletedDocsError;
+        }
+
+        const {error:deleteExpenseError} = await sb.from("expenses")
+          .delete()
+          .eq("user_id", userId)
+          .eq("id", expenseId);
+
+        if(deleteExpenseError){
+          throw deleteExpenseError;
+        }
+
+        deletedExpenseStoragePaths = (Array.isArray(deletedDocs) ? deletedDocs : [])
+          .map(row => String(row?.storage_path || "").trim())
+          .filter(Boolean);
+      }
+
+      deletedExpenseStoragePaths.forEach(path => cleanupPaths.add(path));
+    }
+  } catch(error){
+    rollbackError = error;
+  }
+
+  const cleanupPathList = Array.from(cleanupPaths);
+  if(cleanupPathList.length){
+    const cleanupError = await cleanupUploadedExpenseFiles(cleanupPathList);
+    if(cleanupError){
+      enqueuePendingExpenseStorageCleanup(cleanupPathList);
+      if(rollbackError){
+        return new Error(`${rollbackError.message || "שגיאה בביטול שמירת ההוצאה"}. ${cleanupError.message || "ניקוי קבצי המסמך נכשל"}`);
+      }
+
+      return new Error(cleanupError.message || "ניקוי קבצי המסמך נכשל");
+    }
+  }
+
+  return rollbackError ? (rollbackError instanceof Error ? rollbackError : new Error(rollbackError.message || "שגיאה בביטול שמירת ההוצאה")) : null;
+}
+
+async function saveExpenseDocumentsForExpense({expenseId, isEditingDetailsMode, originalExpenseSnapshot}){
+  const uploadedStoragePaths = [];
+  const documentRows = [];
+  const saveAttemptId = generateClientSideUuid();
+
+  try {
+    for(let i = 0; i < selectedFiles.length; i++){
+      const file = selectedFiles[i];
+      const storagePath = buildExpenseDocumentStoragePath(expenseId, saveAttemptId, i + 1, file.name);
+
+      const upload = await sb.storage
+        .from("invoice-documents")
+        .upload(storagePath, file, {contentType:file.type, upsert:false});
+
+      if(upload.error){
+        throw new Error(upload.error.message || "שגיאה בהעלאת קובץ המסמך");
+      }
+
+      uploadedStoragePaths.push(storagePath);
+      documentRows.push({
+        user_id: userId,
+        expense_id: expenseId,
+        storage_path: storagePath,
+        original_filename: file.name,
+        mime_type: file.type,
+        page_number: i + 1,
+        document_type: file.type === "application/pdf" ? "pdf" : "image",
+        generated_by_app: false
+      });
+    }
+
+    if(documentRows.length){
+      const {error:insertError} = await sb.from("expense_documents").insert(documentRows);
+      if(insertError){
+        throw new Error(insertError.message || "שגיאה בשמירת נתוני המסמך");
+      }
+    }
+  } catch(error){
+    const rollbackError = await rollbackExpenseDocumentSaveAttempt({
+      expenseId,
+      isEditingDetailsMode,
+      originalExpenseSnapshot,
+      uploadedStoragePaths
+    });
+
+    if(rollbackError){
+      const combinedError = new Error(
+        `שמירת המסמכים נכשלה, וביטול השמירה האוטומטי לא הושלם: ${rollbackError.message || "שגיאה בביטול השמירה"}`
+      );
+      combinedError.userFacingMessage = combinedError.message;
+      combinedError.originalError = error;
+      combinedError.rollbackError = rollbackError;
+      throw combinedError;
+    }
+
+    throw error;
+  }
+}
+
 async function flushPendingExpenseStorageCleanup(){
   if(!sb || !userId) return;
 
@@ -6859,8 +7035,11 @@ $("expenseForm").onsubmit = async event => {
         }
       : null;
 
+    const originalExpenseSnapshot = isEditingDetailsMode && currentExpenseDetailsRecord
+      ? buildExpenseRollbackPayload(currentExpenseDetailsRecord)
+      : null;
+
     let expenseId = null;
-    let reviewQueueSyncError = "";
 
     if(isEditingDetailsMode){
       const {data:updatedExpense,error:updateError} = await sb.from("expenses")
@@ -6919,21 +7098,6 @@ $("expenseForm").onsubmit = async event => {
       }
 
       expenseId = saveRow.expense_id;
-
-      try {
-        removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
-      } catch(uiError){
-        console.error(uiError);
-        setStatus($("expenseStatus"), uiError?.message || "שגיאה בעדכון רשימת החשבוניות", "error");
-        return;
-      }
-
-      try {
-        await reconcileExpenseReviewRowsAfterSave(reviewContextSnapshot.batchId);
-      } catch(syncError){
-        console.error(syncError);
-        reviewQueueSyncError = "החשבונית נשמרה, אך סנכרון רשימת החשבוניות נכשל.";
-      }
     } else {
       const {data:expense,error} = await sb.from("expenses")
         .insert(payload)
@@ -6948,29 +7112,26 @@ $("expenseForm").onsubmit = async event => {
       expenseId = expense.id;
     }
 
-    for(let i=0;i<selectedFiles.length;i++){
-      const file = selectedFiles[i];
-      const path = `${userId}/${expenseId}/${String(i+1).padStart(3,"0")}-${file.name}`;
-
-      const upload = await sb.storage
-        .from("invoice-documents")
-        .upload(path,file,{contentType:file.type,upsert:false});
-
-      if(!upload.error){
-        await sb.from("expense_documents").insert({
-          user_id:userId,
-          expense_id:expenseId,
-          storage_path:path,
-          original_filename:file.name,
-          mime_type:file.type,
-          page_number:i+1,
-          document_type:file.type === "application/pdf" ? "pdf" : "image",
-          generated_by_app:false
-        });
-      }
+    try {
+      await saveExpenseDocumentsForExpense({
+        expenseId,
+        isEditingDetailsMode,
+        originalExpenseSnapshot
+      });
+    } catch(documentError){
+      setStatus(
+        $("expenseStatus"),
+        documentError?.message || "שגיאה בשמירת המסמכים. ההוצאה לא נשמרה.",
+        "error"
+      );
+      return;
     }
 
-    await Promise.all([loadExpenses(),loadDashboard()]);
+    try {
+      await Promise.all([loadExpenses(),loadDashboard()]);
+    } catch(refreshError){
+      console.error(refreshError);
+    }
     void refreshPendingInvoiceCountIndicator();
 
     if(isEditingDetailsMode){
@@ -6986,13 +7147,27 @@ $("expenseForm").onsubmit = async event => {
       return;
     }
 
+    if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
+      try {
+        removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
+      } catch(uiError){
+        console.error(uiError);
+      }
+
+      try {
+        await reconcileExpenseReviewRowsAfterSave(reviewContextSnapshot.batchId);
+      } catch(syncError){
+        console.error(syncError);
+      }
+    }
+
     event.target.reset();
     selectedFiles = [];
     clearLocalFileObjectUrls();
     setStatus(
       $("expenseStatus"),
-      reviewQueueSyncError || "החשבונית נשמרה",
-      reviewQueueSyncError ? "error" : "ok"
+      "החשבונית נשמרה",
+      "ok"
     );
 
     setTimeout(() => {

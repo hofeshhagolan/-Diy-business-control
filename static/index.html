@@ -114,7 +114,18 @@
       <div class="card">
         <div class="card-head-inline">
           <h3>הכנסות</h3>
-          <button id="incomeNewButton" type="button" class="secondary">הכנסה חדשה</button>
+          <div class="income-head-actions">
+            <label class="income-sort-label" for="incomeSortSelect">
+              מיון
+              <select id="incomeSortSelect" aria-label="מיון רשימת הכנסות">
+                <option value="entry_desc" selected>תאריך הזנה – מהחדש לישן</option>
+                <option value="entry_asc">תאריך הזנה – מהישן לחדש</option>
+                <option value="document_desc">תאריך מסמך – מהחדש לישן</option>
+                <option value="document_asc">תאריך מסמך – מהישן לחדש</option>
+              </select>
+            </label>
+            <button id="incomeNewButton" type="button" class="secondary">הכנסה חדשה</button>
+          </div>
         </div>
         <div id="zTable" class="table-wrap">טוענת…</div>
       </div>

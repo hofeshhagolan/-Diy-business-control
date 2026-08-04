@@ -72,6 +72,9 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .card{padding:18px;margin-bottom:14px}
 .card-head-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .card-head-inline h3{margin:0}
+.income-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.income-sort-label{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--brand)}
+.income-sort-label select{min-width:170px;padding:8px 10px;border-radius:10px}
 .snapshot{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .metric{padding:14px;border-radius:14px;background:#f7f9fc}
 .metric span{display:block;color:var(--muted);font-size:.9rem}
@@ -304,6 +307,9 @@ dialog::backdrop{background:#07182a99}
   .topbar-title{max-width:calc(100% - 148px)}
   .topbar-back{padding:8px 10px;font-size:.95rem}
   .snapshot{grid-template-columns:1fr 1fr}
+  .income-head-actions{width:100%;justify-content:space-between}
+  .income-sort-label{font-size:.92rem}
+  .income-sort-label select{min-width:150px}
   .quick{grid-template-columns:1fr 1fr}
   .form-grid{grid-template-columns:1fr}
   .wide{grid-column:1}

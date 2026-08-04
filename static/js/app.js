@@ -50,6 +50,7 @@ const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const Z_INCOME_TYPE_DEFAULT = 'דו"ח Z';
 const NON_Z_INCOME_SOURCE = "non_z";
 const Z_REPORT_INCOME_SOURCE = "z_report";
+const DEFAULT_INCOME_SORT = "entry_desc";
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
@@ -216,6 +217,20 @@ function escapeHtml(value){
 function normalizeIncomeType(rawValue){
   const value = String(rawValue || "").trim();
   return value || Z_INCOME_TYPE_DEFAULT;
+}
+
+function getSelectedIncomeSort(){
+  const sortValue = String($("incomeSortSelect")?.value || DEFAULT_INCOME_SORT).trim();
+  if([
+    "entry_desc",
+    "entry_asc",
+    "document_desc",
+    "document_asc"
+  ].includes(sortValue)){
+    return sortValue;
+  }
+
+  return DEFAULT_INCOME_SORT;
 }
 
 function addIncomeTypeSuggestion(rawValue){
@@ -5894,12 +5909,37 @@ function startEditingZReport(button){
 }
 
 async function loadZReports(){
-  const {data,error} = await sb.from("daily_z_reports")
-    .select("id,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
-    .eq("user_id",userId)
-    .order("report_date",{ascending:false})
-    .order("report_time",{ascending:false, nullsFirst:false})
-    .limit(60);
+  const incomeSort = getSelectedIncomeSort();
+
+  let query = sb.from("daily_z_reports")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
+    .eq("user_id",userId);
+
+  if(incomeSort === "entry_asc"){
+    query = query
+      .order("created_at",{ascending:true, nullsFirst:true})
+      .order("report_date",{ascending:true})
+      .order("report_time",{ascending:true, nullsFirst:true})
+      .order("id",{ascending:true});
+  } else if(incomeSort === "document_desc"){
+    query = query
+      .order("report_date",{ascending:false})
+      .order("report_time",{ascending:false, nullsFirst:false})
+      .order("id",{ascending:false});
+  } else if(incomeSort === "document_asc"){
+    query = query
+      .order("report_date",{ascending:true})
+      .order("report_time",{ascending:true, nullsFirst:true})
+      .order("id",{ascending:true});
+  } else {
+    query = query
+      .order("created_at",{ascending:false, nullsFirst:false})
+      .order("report_date",{ascending:false})
+      .order("report_time",{ascending:false, nullsFirst:false})
+      .order("id",{ascending:false});
+  }
+
+  const {data,error} = await query.limit(60);
 
   if(error){
     $("zTable").textContent = error.message;
@@ -6278,6 +6318,10 @@ $("companyDocumentsRestoreDefaultsButton")?.addEventListener("click", () => {
 $("profileButton").onclick = () => $("businessDialog").showModal();
 $("incomeNewButton")?.addEventListener("click", () => {
   openNewIncomeDialog({source: NON_Z_INCOME_SOURCE});
+});
+
+$("incomeSortSelect")?.addEventListener("change", () => {
+  void loadZReports();
 });
 
 function renderSelectedFiles(){

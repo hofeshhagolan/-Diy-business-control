@@ -320,6 +320,12 @@
     <form id="expenseForm" class="form-grid" style="margin-top:14px">
       <label>תאריך<input id="expenseDate" type="date"></label>
       <label>סכום כולל בש״ח<input id="expenseGross" type="number" min="0" step=".01"></label>
+      <label>חיוב / זיכוי
+        <select id="expenseDebitCredit" required>
+          <option value="חיוב" selected>חיוב</option>
+          <option value="זיכוי">זיכוי</option>
+        </select>
+      </label>
       <label>ספק<input id="expenseSupplier"></label>
       <label>ח.פ./ע.מ.<input id="expenseSupplierReg"></label>
       <label>מספר חשבונית<input id="expenseDocumentNumber"></label>
@@ -502,7 +508,7 @@
       <div id="companyDocumentEditorSelectedFile" class="file-preview-empty hidden"></div>
       <div class="row-actions company-document-editor-actions">
         <button class="primary" type="submit">שמרי שינויים</button>
-        <button id="companyDocumentEditorDeleteButton" class="secondary company-document-editor-delete-button" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑 Delete Document</button>
+        <button id="companyDocumentEditorDeleteButton" class="secondary company-document-editor-delete-button" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑 מחק מסמך</button>
       </div>
       <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>

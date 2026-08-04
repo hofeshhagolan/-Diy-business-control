@@ -8,6 +8,7 @@
   --line:#dbe3ec;
   --good:#13795b;
   --bad:#b42318;
+  --warn:#9a6700;
   --radius:18px;
   --shadow:0 10px 30px rgba(16,44,78,.08);
 }
@@ -52,10 +53,11 @@ textarea{min-height:92px}
 .primary{border:0;background:var(--brand);color:#fff}
 .secondary{border:1px solid var(--brand);background:#fff;color:var(--brand)}
 .text-button{border:0;background:transparent;color:var(--brand2);font-weight:700}
-.status{margin-top:8px;white-space:pre-wrap}.status.ok{color:var(--good)}.status.error{color:var(--bad)}
+.status{margin-top:8px;white-space:pre-wrap}.status.ok{color:var(--good)}.status.error{color:var(--bad)}.status.warning{color:var(--warn)}
 .app-toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:60;max-width:min(92vw,520px);padding:12px 16px;border-radius:12px;color:#fff;font-weight:700;box-shadow:0 12px 28px rgba(16,44,78,.24);text-align:center}
 .app-toast.ok{background:#146c4a}
 .app-toast.error{background:#9f2f2f}
+.app-toast.warning{background:#8a5a00}
 .app{min-height:100vh;padding-bottom:88px}
 .topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:var(--brand);color:#fff}
 .topbar-primary{display:flex;align-items:center;gap:12px;min-width:0}
@@ -107,7 +109,7 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .company-document-card-meta{margin:6px 0 0;color:var(--muted);line-height:1.5;word-break:break-word}
 .company-document-card-actions{display:flex;align-items:center;gap:8px}
 .company-document-card-actions .row-action{min-width:32px;min-height:32px;font-size:.82rem}
-.company-documents-manage-form{margin-bottom:18px}
+.company-documents-manage-form{margin-bottom:12px}
 .company-documents-manage-form h3{margin:0;color:var(--brand)}
 .company-document-editor-form{gap:14px}
 .company-document-editor-actions{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:10px}
@@ -117,12 +119,13 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .company-document-editor-current-file{display:grid;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .company-document-editor-current-file strong{color:var(--brand)}
 .company-document-editor-file-name{margin:0;color:var(--muted);word-break:break-word}
-.company-documents-manage-section h3{margin:0 0 10px;color:var(--brand)}
-.company-documents-manage-list{display:grid;gap:10px}
-.company-documents-manage-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.company-documents-manage-section h3{margin:0 0 6px;color:var(--brand)}
+.company-documents-manage-list{display:grid;gap:6px}
+.company-documents-manage-item{display:grid;grid-template-columns:minmax(0,1fr) 32px;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .company-documents-manage-item>div{min-width:0}
-.company-documents-manage-item h4{margin:0 0 4px;color:var(--brand);font-size:1rem}
-.company-documents-manage-item p{margin:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.company-documents-manage-item h4{margin:0;color:var(--brand);font-size:.96rem;line-height:1.25}
+.company-documents-manage-item p{margin:2px 0 0;color:var(--muted);font-size:.86rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.company-documents-manage-item .row-action{width:32px;min-width:32px;max-width:32px;min-height:32px;padding:0;justify-self:end;line-height:1;font-size:.82rem;flex:0 0 32px}
 .company-documents-manage-empty{margin:0;color:var(--muted);padding:12px;border:1px dashed var(--line);border-radius:12px;background:#fff}
 .table-wrap{overflow:auto}
 table{width:100%;border-collapse:collapse;min-width:720px}
@@ -319,7 +322,8 @@ dialog::backdrop{background:#07182a99}
   .review-fullscreen-content iframe{width:100%;height:100%}
   .review-list{padding:10px}
   .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
-  .company-documents-manage-item{padding:8px;gap:6px}
+  .company-documents-manage-item{padding:7px 8px;gap:5px;grid-template-columns:minmax(0,1fr) 30px}
+  .company-documents-manage-item .row-action{width:30px;min-width:30px;max-width:30px;min-height:30px;font-size:.78rem}
   .expense-details-grid{grid-template-columns:1fr}
   .expense-details-head{padding:10px}
   .expense-details-item{padding:9px}

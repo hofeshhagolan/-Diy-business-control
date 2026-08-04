@@ -344,7 +344,13 @@ const AUDITED_VALIDATION_FORM_IDS = ["loginForm","signupForm","expenseForm","zFo
 function setStatus(el,msg,type=""){
   if(!el) return;
 
-  const statusType = type === "error" ? "error" : type === "ok" ? "ok" : "";
+  const statusType = type === "error"
+    ? "error"
+    : type === "ok"
+      ? "ok"
+      : type === "warning"
+        ? "warning"
+        : "";
   el.className = `status ${statusType}`.trim();
 
   if(statusType === "error"){
@@ -363,7 +369,8 @@ function showToast(message, type = "ok", durationMs = 2600){
   const toast = $("appToast");
   if(!toast || !message) return;
 
-  toast.className = `app-toast ${type === "error" ? "error" : "ok"}`;
+  const toastType = type === "error" ? "error" : type === "warning" ? "warning" : "ok";
+  toast.className = `app-toast ${toastType}`;
   toast.textContent = message;
 
   if(toastHideTimer){
@@ -813,6 +820,7 @@ function buildExpenseRollbackPayload(expenseRecord){
     supplier_id: expenseRecord.supplier_id || null,
     supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
     supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
+    debit_credit: expenseRecord.debit_credit || expenseRecord.debit_or_credit || null,
     document_date: expenseRecord.document_date || null,
     document_number: expenseRecord.document_number || "",
     description: expenseRecord.description || "",
@@ -3491,6 +3499,7 @@ function clearExpenseInvoiceDerivedFields(){
   $("expenseDate").value = "";
   $("expenseDescription").value = "";
   $("expenseGross").value = "";
+  if($("expenseDebitCredit")) $("expenseDebitCredit").value = "חיוב";
 }
 
 function fillExpenseFormFromInvoice(invoice){
@@ -5240,6 +5249,7 @@ function populateExpenseFormFromExistingExpense(expenseRecord){
   $("expenseSupplier").value = expenseRecord.supplier_name_snapshot || "";
   $("expenseSupplierReg").value = expenseRecord.supplier_registration_snapshot || "";
   $("expenseDocumentNumber").value = expenseRecord.document_number || "";
+  $("expenseDebitCredit").value = expenseRecord.debit_credit || expenseRecord.debit_or_credit || "חיוב";
   $("expenseAccountingType").value = expenseRecord.accounting_type_id || "";
   $("expenseCategory").value = expenseRecord.category_id || "";
   $("expenseProject").value = expenseRecord.project_id || "";
@@ -5499,7 +5509,7 @@ async function openExpenseDocument(expenseId){
     .order("page_number");
 
   if(error || !(data || []).length){
-    alert("לא נמצא צילום לחשבונית");
+    showToast("לא נמצא צילום לחשבונית", "error");
     return;
   }
 
@@ -5510,7 +5520,7 @@ async function openExpenseDocument(expenseId){
     .createSignedUrl(chosen.storage_path,60);
 
   if(signError){
-    alert(signError.message);
+    showToast(signError.message || "שגיאה בפתיחת מסמך החשבונית", "error");
     return;
   }
 
@@ -6425,9 +6435,52 @@ function resetExpenseDialogState(){
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
   clearExpenseInvoiceDerivedFields();
+  if($("expenseDebitCredit")) $("expenseDebitCredit").value = "חיוב";
   renderSelectedFiles();
   setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
   setExpenseDialogMode(EXPENSE_DIALOG_MODES.NEW);
+}
+
+async function checkExpenseDuplicateWarning({supplierName = "", gross = 0, documentDate = "", currentExpenseId = ""}){
+  const normalizedSupplier = String(supplierName || "").trim();
+  const normalizedDate = String(documentDate || "").trim();
+  const normalizedGross = Number(gross || 0);
+  if(!normalizedSupplier || !normalizedDate || !Number.isFinite(normalizedGross) || normalizedGross <= 0){
+    return null;
+  }
+
+  let query = sb.from("expenses")
+    .select("id,supplier_name_snapshot,gross_ils,document_date")
+    .eq("user_id", userId)
+    .limit(200);
+
+  if(currentExpenseId){
+    query = query.neq("id", currentExpenseId);
+  }
+
+  const {data, error} = await query;
+  if(error){
+    console.error(error);
+    return null;
+  }
+
+  const supplierValue = normalizedSupplier.toLowerCase();
+  const targetAmount = Math.round(normalizedGross * 100);
+  const targetDate = normalizedDate;
+
+  const duplicates = (Array.isArray(data) ? data : []).filter(row => {
+    const supplierMatch = String(row?.supplier_name_snapshot || "").trim().toLowerCase() === supplierValue;
+    const amountMatch = Math.round(Number(row?.gross_ils || 0) * 100) === targetAmount;
+    const dateMatch = String(row?.document_date || "").trim() === targetDate;
+    const matches = [supplierMatch, amountMatch, dateMatch].filter(Boolean).length;
+    return matches >= 2;
+  });
+
+  if(!duplicates.length) return null;
+
+  return {
+    count: duplicates.length
+  };
 }
 
 async function runAnalyzeFlow({
@@ -7014,6 +7067,7 @@ $("expenseForm").onsubmit = async event => {
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
+      debit_credit: $("expenseDebitCredit")?.value || "חיוב",
       document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
@@ -7027,6 +7081,25 @@ $("expenseForm").onsubmit = async event => {
       net_ils:net,
       vat_ils:vat
     };
+
+    if(payload.debit_credit !== "חיוב" && payload.debit_credit !== "זיכוי"){
+      payload.debit_credit = "חיוב";
+    }
+
+    const duplicateWarning = await checkExpenseDuplicateWarning({
+      supplierName,
+      gross,
+      documentDate: validated.documentDate,
+      currentExpenseId: isEditingDetailsMode ? String(currentExpenseEditId || "") : ""
+    });
+
+    if(duplicateWarning){
+      const duplicateMessage = duplicateWarning.count === 1
+        ? "אזהרה: נמצאה הוצאה דומה (לפחות 2 מתוך ספק/סכום/תאריך תואמים)."
+        : `אזהרה: נמצאו ${duplicateWarning.count} הוצאות דומות (לפחות 2 מתוך ספק/סכום/תאריך תואמים).`;
+      showToast(duplicateMessage, "warning", 4200);
+      setStatus($("expenseStatus"), duplicateMessage, "warning");
+    }
 
     const reviewContextSnapshot = activeExpenseReviewContext?.enteredFromReviewList
       ? {
@@ -7110,6 +7183,26 @@ $("expenseForm").onsubmit = async event => {
       }
 
       expenseId = expense.id;
+    }
+
+    const {error:debitCreditPersistError} = await sb.from("expenses")
+      .update({debit_credit: payload.debit_credit})
+      .eq("user_id", userId)
+      .eq("id", expenseId);
+
+    if(debitCreditPersistError){
+      const rollbackError = await rollbackExpenseDocumentSaveAttempt({
+        expenseId,
+        isEditingDetailsMode,
+        originalExpenseSnapshot,
+        uploadedStoragePaths: []
+      });
+
+      const message = rollbackError
+        ? `שמירת חיוב/זיכוי נכשלה, וביטול השמירה לא הושלם: ${rollbackError.message || "שגיאה בביטול השמירה"}`
+        : (debitCreditPersistError.message || "שגיאה בשמירת חיוב/זיכוי");
+      setStatus($("expenseStatus"), message, "error");
+      return;
     }
 
     try {

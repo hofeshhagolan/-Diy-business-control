@@ -175,6 +175,9 @@ th{background:#eef3f8;color:var(--brand)}
 .expense-row{cursor:pointer}
 .expense-row:hover{background:#f8fbff}
 .expense-row:focus-visible{outline:3px solid #0b63ce;outline-offset:-3px}
+.income-row{cursor:pointer}
+.income-row:hover{background:#f8fbff}
+.income-row:focus-visible{outline:3px solid #0b63ce;outline-offset:-3px}
 .eye{border:1px solid #bfd0e0;background:#fff;color:var(--brand);border-radius:9px;padding:5px 8px}
 .eye:disabled{border-color:#d7e1eb;background:#f7f9fc;color:#9aa9b8;cursor:not-allowed}
 .doc-indicator{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border-radius:999px;border:1px solid #cdd9e5;background:#f7f9fc;color:var(--brand);font-size:.82rem;font-weight:700;white-space:nowrap}
@@ -189,8 +192,8 @@ th{background:#eef3f8;color:var(--brand)}
 .action-menu{position:absolute;z-index:45;min-width:150px;padding:6px;border:1px solid var(--line);border-radius:10px;background:#fff;box-shadow:0 12px 24px rgba(7,24,42,.16);display:grid;gap:4px}
 .action-menu button{border:0;background:transparent;padding:8px 10px;border-radius:8px;text-align:right;color:var(--brand);font-weight:700;cursor:pointer}
 .action-menu button:hover,.action-menu button:focus-visible{background:#eef4fb;outline:none}
-.modal-head{position:relative}
-.modal-head-actions{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;position:relative}
+.modal-head{position:relative;z-index:2;overflow:visible}
+.modal-head-actions{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;position:relative;z-index:3;overflow:visible}
 .viewer-overflow-button{min-width:36px;min-height:36px;border:0;border-radius:999px;background:transparent;color:#fff;font-size:1.35rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .viewer-overflow-button:hover,.viewer-overflow-button:focus-visible{background:rgba(255,255,255,.14);outline:none}
 
@@ -261,6 +264,8 @@ dialog::backdrop{background:#07182a99}
 .asset-followup-actions{margin-top:12px;display:grid;gap:8px;justify-items:start}
 #expenseDialogHeaderActions{position:relative;margin-inline-start:auto;margin-inline-end:8px}
 #expenseDialogHeaderActions .row-action{min-width:30px;min-height:30px}
+#incomeDialogHeaderActions{position:relative;margin-inline-start:auto;margin-inline-end:8px}
+#incomeDialogHeaderActions .row-action{min-width:30px;min-height:30px}
 .expense-pending-choice{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
 .expense-pending-choice-summary{margin:0;color:var(--text);font-weight:700}
 .expense-pending-choice-actions{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -341,7 +346,6 @@ dialog::backdrop{background:#07182a99}
 .review-item-nav-back:disabled{opacity:.5;cursor:not-allowed}
 .review-item-nav-danger{color:#b42318}
 .review-item-nav-position{margin:0;color:var(--muted);font-weight:700;text-align:center}
-#zDocumentsShareMenu{position:relative;justify-self:center;grid-column:1/-1}
 .file-preview{margin-top:14px;display:grid;gap:10px}
 .file-preview-empty{color:var(--muted);padding:12px 10px;border:1px dashed var(--line);border-radius:14px;background:#fff}
 .file-preview-item{position:relative;display:grid;gap:8px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
@@ -401,6 +405,8 @@ dialog::backdrop{background:#07182a99}
   .expense-amounts-grid{grid-template-columns:1fr}
   #expenseDialogHeaderActions{margin-inline-end:4px}
   #expenseDialogHeaderActions .row-action{min-width:28px;min-height:28px;font-size:.78rem}
+  #incomeDialogHeaderActions{margin-inline-end:4px}
+  #incomeDialogHeaderActions .row-action{min-width:28px;min-height:28px;font-size:.78rem}
   #zTable .income-table th,#zTable .income-table td{padding:7px 4px;font-size:.92rem}
   #zTable .income-table th:nth-child(1),
   #zTable .income-table td:nth-child(1){width:92px}

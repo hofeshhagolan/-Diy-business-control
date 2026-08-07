@@ -63,12 +63,27 @@ const DEFAULT_INCOME_FILTER_STATE = Object.freeze({
   documentDateFrom:"",
   documentDateTo:""
 });
+const DEFAULT_EXPENSE_SORT_STATE = Object.freeze({field:"document_date", direction:"desc"});
+const DEFAULT_EXPENSE_FILTER_STATE = Object.freeze({
+  supplier:"",
+  accountingTypeId:"",
+  paymentSourceId:"",
+  documentDateFrom:"",
+  documentDateTo:""
+});
 const INCOME_SORT_FIELD_DEFINITIONS = Object.freeze([
   {key:"entry_date", label:"תאריך הזנה", hint:"תאריך יצירת הרשומה"},
   {key:"document_date", label:"תאריך מסמך", hint:"תאריך החשבונית"},
   {key:"amount", label:"סכום", hint:"מיון מספרי"},
   {key:"income_type", label:"סוג הכנסה", hint:"מיון אלפביתי"},
   {key:"project", label:"פרויקט", hint:"מיון אלפביתי"}
+]);
+const EXPENSE_SORT_FIELD_DEFINITIONS = Object.freeze([
+  {key:"document_date", label:"תאריך מסמך", hint:"תאריך החשבונית"},
+  {key:"amount", label:"סכום", hint:"מיון מספרי"},
+  {key:"supplier", label:"ספק", hint:"מיון אלפביתי"},
+  {key:"accounting_type", label:"סוג חשבונאי", hint:"מיון אלפביתי"},
+  {key:"payment_source", label:"מקור תשלום", hint:"מיון אלפביתי"}
 ]);
 const INCOME_FILTER_SOURCE_OPTIONS = Object.freeze([
   {value:"", label:"הכל"},
@@ -77,6 +92,11 @@ const INCOME_FILTER_SOURCE_OPTIONS = Object.freeze([
 ]);
 const INCOME_VIEW_LIMIT = 100;
 const EXPENSES_VIEW_LIMIT = 100;
+const INCOME_DIALOG_MODES = Object.freeze({
+  NEW: "new",
+  DETAILS_READONLY: "detailsReadonly",
+  DETAILS_EDIT: "detailsEdit"
+});
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
@@ -119,8 +139,22 @@ let currentExpensePackagePdfCache = {
   signature: "",
   blob: null
 };
+let currentIncomeDialogMode = INCOME_DIALOG_MODES.NEW;
+let currentIncomeDetailsRecord = null;
+let currentIncomeDetailsDocuments = [];
+let currentIncomeDetailsOpener = null;
+let currentIncomePermissions = {canEdit:true, canDelete:true};
+let currentIncomePackagePdfCache = {
+  incomeId: "",
+  signature: "",
+  blob: null
+};
 let expenseRows = [];
 let incomeRows = [];
+let expenseSortState = {...DEFAULT_EXPENSE_SORT_STATE};
+let expenseSortDraft = {...DEFAULT_EXPENSE_SORT_STATE};
+let expenseFilterState = {...DEFAULT_EXPENSE_FILTER_STATE};
+let expenseFilterDraft = {...DEFAULT_EXPENSE_FILTER_STATE};
 let incomeSortState = {...DEFAULT_INCOME_SORT_STATE};
 let incomeSortDraft = {...DEFAULT_INCOME_SORT_STATE};
 let incomeFilterState = {...DEFAULT_INCOME_FILTER_STATE};
@@ -336,16 +370,60 @@ function getIncomeReportRowsFromSource(sourceRows){
     .sort(compareIncomeRows);
 }
 
+function applyIncomeFiltersToQuery(query, filters = incomeFilterState){
+  let nextQuery = query;
+  if(filters.source === NON_Z_INCOME_SOURCE){
+    nextQuery = nextQuery.eq("is_from_z_report", false);
+  } else if(filters.source === Z_REPORT_INCOME_SOURCE){
+    nextQuery = nextQuery.eq("is_from_z_report", true);
+  }
+  if(filters.projectId) nextQuery = nextQuery.eq("project_id", filters.projectId);
+  if(String(filters.incomeType || "").trim()) nextQuery = nextQuery.ilike("income_type", `%${String(filters.incomeType || "").trim()}%`);
+  if(filters.entryDateFrom) nextQuery = nextQuery.gte("created_at", `${filters.entryDateFrom}T00:00:00`);
+  if(filters.entryDateTo) nextQuery = nextQuery.lte("created_at", `${filters.entryDateTo}T23:59:59.999`);
+  if(filters.documentDateFrom) nextQuery = nextQuery.gte("report_date", filters.documentDateFrom);
+  if(filters.documentDateTo) nextQuery = nextQuery.lte("report_date", filters.documentDateTo);
+  return nextQuery;
+}
+
+function applyIncomeSortToQuery(query, sortState = incomeSortState){
+  const ascending = sortState.direction === "asc";
+  switch(sortState.field){
+    case "document_date":
+      return query
+        .order("report_date", {ascending, nullsFirst:false})
+        .order("report_time", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "amount":
+      return query
+        .order("total_income_ils", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "income_type":
+      return query
+        .order("income_type", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "project":
+      return query
+        .order("name", {foreignTable:"projects", ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "entry_date":
+    default:
+      return query
+        .order("created_at", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+  }
+}
+
 function getCurrentIncomeReportRows(){
   return getIncomeReportRowsFromSource(incomeRows);
 }
 
 async function fetchAllIncomeReportRows(){
-  let query = sb.from("daily_z_reports")
+  let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
     .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
-    .eq("user_id",userId);
+    .eq("user_id",userId));
 
-  const {data, error} = await query.order("created_at", {ascending:false, nullsFirst:false});
+  const {data, error} = await applyIncomeSortToQuery(query);
   if(error) throw error;
 
   return getIncomeReportRowsFromSource(data);
@@ -359,40 +437,130 @@ function normalizeExpenseReportRow(row){
     documentDateTime: safeDate ? `${safeDate}T00:00:00` : "",
     grossValue: Number(row?.gross_ils || 0),
     supplierName: String(row?.supplier_name_snapshot || "").trim(),
+    accountingTypeIdValue: String(row?.accounting_type_id || "").trim(),
     accountingTypeName: String(row?.accounting_types?.name || "").trim(),
+    paymentSourceIdValue: String(row?.payment_source_id || "").trim(),
     paymentSourceName: String(row?.payment_sources?.name || "").trim(),
     documentsCount: Array.isArray(row?.expense_documents) ? row.expense_documents.length : 0,
     raw: row
   };
 }
 
-function compareExpenseReportRows(left, right){
-  const leftDate = Date.parse(left.documentDateTime || "") || 0;
-  const rightDate = Date.parse(right.documentDateTime || "") || 0;
-  if(leftDate !== rightDate) return rightDate - leftDate;
-  return left.id.localeCompare(right.id, "he", {numeric:true, sensitivity:"base"});
+function getExpenseSortDefinition(fieldKey){
+  return EXPENSE_SORT_FIELD_DEFINITIONS.find(field => field.key === fieldKey) || EXPENSE_SORT_FIELD_DEFINITIONS[0];
+}
+
+function getExpenseSortValue(row, fieldKey){
+  switch(fieldKey){
+    case "document_date":
+      return Date.parse(row.documentDateTime || row.documentDate || "") || 0;
+    case "amount":
+      return Number(row.grossValue || 0);
+    case "supplier":
+      return row.supplierName || "";
+    case "accounting_type":
+      return row.accountingTypeName || "";
+    case "payment_source":
+      return row.paymentSourceName || "";
+    default:
+      return row.documentDateTime || row.grossValue || row.supplierName || row.accountingTypeName || row.paymentSourceName || "";
+  }
+}
+
+function compareExpenseRows(left, right){
+  const sortField = getExpenseSortDefinition(expenseSortState.field);
+  const directionMultiplier = expenseSortState.direction === "asc" ? 1 : -1;
+  const leftValue = getExpenseSortValue(left, sortField.key);
+  const rightValue = getExpenseSortValue(right, sortField.key);
+
+  let comparison = 0;
+  if(typeof leftValue === "number" || typeof rightValue === "number"){
+    comparison = Number(leftValue || 0) - Number(rightValue || 0);
+  } else {
+    comparison = String(leftValue || "").localeCompare(String(rightValue || ""), "he", {numeric:true, sensitivity:"base"});
+  }
+
+  if(comparison !== 0) return comparison * directionMultiplier;
+  return left.id.localeCompare(right.id, "he", {numeric:true, sensitivity:"base"}) * directionMultiplier;
+}
+
+function matchesExpenseFilters(row){
+  const filters = expenseFilterState;
+  const supplierQuery = String(filters.supplier || "").trim().toLowerCase();
+  if(supplierQuery && !String(row.supplierName || "").toLowerCase().includes(supplierQuery)) return false;
+  if(filters.accountingTypeId && row.accountingTypeIdValue !== filters.accountingTypeId) return false;
+  if(filters.paymentSourceId && row.paymentSourceIdValue !== filters.paymentSourceId) return false;
+  if(filters.documentDateFrom && row.documentDate && row.documentDate < filters.documentDateFrom) return false;
+  if(filters.documentDateTo && row.documentDate && row.documentDate > filters.documentDateTo) return false;
+  return true;
+}
+
+function getExpenseReportRowsFromSource(sourceRows){
+  return (Array.isArray(sourceRows) ? sourceRows : [])
+    .map(normalizeExpenseReportRow)
+    .filter(matchesExpenseFilters)
+    .sort(compareExpenseRows);
 }
 
 function getCurrentExpensesViewRows(){
-  return expenseRows.map(normalizeExpenseReportRow).sort(compareExpenseReportRows);
+  return getExpenseReportRowsFromSource(expenseRows);
+}
+
+function applyExpenseFiltersToQuery(query, filters = expenseFilterState){
+  let nextQuery = query;
+  const supplierQuery = String(filters.supplier || "").trim();
+  if(supplierQuery) nextQuery = nextQuery.ilike("supplier_name_snapshot", `%${supplierQuery}%`);
+  if(filters.accountingTypeId) nextQuery = nextQuery.eq("accounting_type_id", filters.accountingTypeId);
+  if(filters.paymentSourceId) nextQuery = nextQuery.eq("payment_source_id", filters.paymentSourceId);
+  if(filters.documentDateFrom) nextQuery = nextQuery.gte("document_date", filters.documentDateFrom);
+  if(filters.documentDateTo) nextQuery = nextQuery.lte("document_date", filters.documentDateTo);
+  return nextQuery;
+}
+
+function applyExpenseSortToQuery(query, sortState = expenseSortState){
+  const ascending = sortState.direction === "asc";
+  switch(sortState.field){
+    case "amount":
+      return query
+        .order("gross_ils", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "supplier":
+      return query
+        .order("supplier_name_snapshot", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "accounting_type":
+      return query
+        .order("name", {foreignTable:"accounting_types", ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "payment_source":
+      return query
+        .order("name", {foreignTable:"payment_sources", ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "document_date":
+    default:
+      return query
+        .order("document_date", {ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+  }
 }
 
 async function fetchAllExpensesReportRows(){
-  const {data, error} = await sb.from("expenses")
+  const {data, error} = await applyExpenseSortToQuery(applyExpenseFiltersToQuery(sb.from("expenses")
     .select(`
       id,
       document_date,
       gross_ils,
       supplier_name_snapshot,
+      accounting_type_id,
       accounting_types(name),
+      payment_source_id,
       payment_sources(name),
       expense_documents(id,storage_path,document_type,page_number)
     `)
-    .eq("user_id",userId)
-    .order("document_date", {ascending:false});
+    .eq("user_id",userId)));
 
   if(error) throw error;
-  return (Array.isArray(data) ? data : []).map(normalizeExpenseReportRow).sort(compareExpenseReportRows);
+  return getExpenseReportRowsFromSource(data);
 }
 
 function collectHomeOverviewInfoReport(){
@@ -496,12 +664,32 @@ function getIncomeProjectLabel(projectId){
   return option?.textContent?.trim() || "פרויקט";
 }
 
+function getSelectOptionLabel(selectId, value, fallback = "הכל"){
+  const safeValue = String(value || "").trim();
+  if(!safeValue) return fallback;
+
+  const select = $(selectId);
+  const option = Array.from(select?.options || []).find(item => item.value === safeValue);
+  return option?.textContent?.trim() || fallback;
+}
+
 function getIncomeFilterSummaryText(key, value){
   switch(key){
     case "source":
       return INCOME_FILTER_SOURCE_OPTIONS.find(option => option.value === value)?.label || "הכל";
     case "projectId":
       return getIncomeProjectLabel(value);
+    default:
+      return value;
+  }
+}
+
+function getExpenseFilterSummaryText(key, value){
+  switch(key){
+    case "accountingTypeId":
+      return getSelectOptionLabel("expenseAccountingType", value, "הכל");
+    case "paymentSourceId":
+      return getSelectOptionLabel("expensePaymentSource", value, "הכל");
     default:
       return value;
   }
@@ -514,12 +702,27 @@ function syncIncomeHeaderActions(){
   }
 }
 
+function syncExpenseHeaderActions(){
+  const filterButton = $("expenseFilterButton");
+  if(filterButton){
+    filterButton.classList.toggle("is-active", hasActiveExpenseFilters());
+  }
+}
+
 function clearIncomeFilters(){
   incomeFilterState = {...DEFAULT_INCOME_FILTER_STATE};
   incomeFilterDraft = {...DEFAULT_INCOME_FILTER_STATE};
   syncIncomeFilterDialogFromState();
   renderIncomeFilterChips();
   renderIncomeList();
+}
+
+async function clearExpenseFilters(){
+  expenseFilterState = {...DEFAULT_EXPENSE_FILTER_STATE};
+  expenseFilterDraft = {...DEFAULT_EXPENSE_FILTER_STATE};
+  syncExpenseFilterDialogFromState();
+  renderExpenseFilterChips();
+  await loadExpenses();
 }
 
 function renderIncomeFilterChips(){
@@ -591,6 +794,73 @@ function renderIncomeFilterChips(){
   syncIncomeHeaderActions();
 }
 
+function renderExpenseFilterChips(){
+  const chipHost = $("expenseFilterChips");
+  if(!chipHost) return;
+
+  const entries = [
+    ["supplier", String(expenseFilterState.supplier || "").trim()],
+    ["accountingTypeId", expenseFilterState.accountingTypeId],
+    ["paymentSourceId", expenseFilterState.paymentSourceId],
+    ["documentDateFrom", expenseFilterState.documentDateFrom],
+    ["documentDateTo", expenseFilterState.documentDateTo]
+  ];
+
+  const chips = entries
+    .filter(([,value]) => Boolean(value))
+    .map(([key, value]) => {
+      const labels = {
+        supplier: "ספק",
+        accountingTypeId: "סוג חשבונאי",
+        paymentSourceId: "מקור תשלום",
+        documentDateFrom: "תאריך מסמך מ",
+        documentDateTo: "תאריך מסמך עד"
+      };
+
+      const label = labels[key] || key;
+      const summary = String(getExpenseFilterSummaryText(key, value) || "").replace(/"/g, "&quot;");
+      return `
+        <button type="button" class="income-filter-chip" data-expense-filter-remove="${key}" aria-label="הסרת סינון ${label} ${summary}">
+          <span class="income-filter-chip-label">${label}</span>
+          <span class="income-filter-chip-value">${summary}</span>
+          <span class="income-filter-chip-remove" aria-hidden="true">✕</span>
+        </button>
+      `;
+    });
+
+  if(!chips.length){
+    chipHost.innerHTML = "";
+    chipHost.classList.add("hidden");
+    syncExpenseHeaderActions();
+    return;
+  }
+
+  chipHost.innerHTML = `
+    <div class="income-filter-chip-list">${chips.join("")}</div>
+    <button type="button" id="expenseFilterClearAll" class="secondary income-filter-clear-all">נקה הכל</button>
+  `;
+  chipHost.classList.remove("hidden");
+
+  chipHost.querySelectorAll("[data-expense-filter-remove]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const filterKey = button.dataset.expenseFilterRemove;
+      if(!filterKey) return;
+      expenseFilterState = {
+        ...expenseFilterState,
+        [filterKey]: ""
+      };
+      syncExpenseFilterDialogFromState();
+      renderExpenseFilterChips();
+      await loadExpenses();
+    });
+  });
+
+  $("expenseFilterClearAll")?.addEventListener("click", () => {
+    void clearExpenseFilters();
+  });
+  syncExpenseHeaderActions();
+}
+
 function syncIncomeSortDialogFromState(nextDraft = null){
   incomeSortDraft = nextDraft ? {...nextDraft} : {...incomeSortState};
   const sortFieldList = $("incomeSortFieldList");
@@ -604,6 +874,24 @@ function syncIncomeSortDialogFromState(nextDraft = null){
 
   document.querySelectorAll("[data-income-sort-direction]").forEach(button => {
     const isActive = button.dataset.incomeSortDirection === incomeSortDraft.direction;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function syncExpenseSortDialogFromState(nextDraft = null){
+  expenseSortDraft = nextDraft ? {...nextDraft} : {...expenseSortState};
+  const sortFieldList = $("expenseSortFieldList");
+  if(sortFieldList){
+    sortFieldList.querySelectorAll("[data-expense-sort-field]").forEach(button => {
+      const isActive = button.dataset.expenseSortField === expenseSortDraft.field;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  document.querySelectorAll("[data-expense-sort-direction]").forEach(button => {
+    const isActive = button.dataset.expenseSortDirection === expenseSortDraft.direction;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
   });
@@ -637,6 +925,32 @@ function syncIncomeFilterDialogFromState(nextDraft = null){
   if($("incomeFilterDocumentDateTo")) $("incomeFilterDocumentDateTo").value = incomeFilterDraft.documentDateTo || "";
 }
 
+function syncExpenseFilterDialogFromState(nextDraft = null){
+  expenseFilterDraft = nextDraft ? {...nextDraft} : {...expenseFilterState};
+
+  const accountingTypeSelect = $("expenseFilterAccountingType");
+  if(accountingTypeSelect){
+    const sourceSelect = $("expenseAccountingType");
+    accountingTypeSelect.innerHTML = Array.from(sourceSelect?.options || [])
+      .map(option => `<option value="${String(option.value || "").replace(/"/g, "&quot;")}">${String(option.textContent || "").replace(/"/g, "&quot;")}</option>`)
+      .join("") || '<option value="">הכל</option>';
+    accountingTypeSelect.value = expenseFilterDraft.accountingTypeId || "";
+  }
+
+  const paymentSourceSelect = $("expenseFilterPaymentSource");
+  if(paymentSourceSelect){
+    const sourceSelect = $("expensePaymentSource");
+    paymentSourceSelect.innerHTML = Array.from(sourceSelect?.options || [])
+      .map(option => `<option value="${String(option.value || "").replace(/"/g, "&quot;")}">${String(option.textContent || "").replace(/"/g, "&quot;")}</option>`)
+      .join("") || '<option value="">הכל</option>';
+    paymentSourceSelect.value = expenseFilterDraft.paymentSourceId || "";
+  }
+
+  if($("expenseFilterSupplier")) $("expenseFilterSupplier").value = expenseFilterDraft.supplier || "";
+  if($("expenseFilterDateFrom")) $("expenseFilterDateFrom").value = expenseFilterDraft.documentDateFrom || "";
+  if($("expenseFilterDateTo")) $("expenseFilterDateTo").value = expenseFilterDraft.documentDateTo || "";
+}
+
 function renderIncomeSortDialog(){
   const fieldList = $("incomeSortFieldList");
   if(!fieldList) return;
@@ -666,14 +980,54 @@ function renderIncomeSortDialog(){
   });
 }
 
+function renderExpenseSortDialog(){
+  const fieldList = $("expenseSortFieldList");
+  if(!fieldList) return;
+
+  fieldList.innerHTML = EXPENSE_SORT_FIELD_DEFINITIONS.map(field => `
+    <label class="income-sort-field-option">
+      <input type="radio" name="expenseSortField" value="${field.key}" data-expense-sort-field="${field.key}" ${expenseSortDraft.field === field.key ? "checked" : ""}>
+      <span>
+        <strong>${field.label}</strong>
+        <small>${field.hint}</small>
+      </span>
+    </label>
+  `).join("");
+
+  fieldList.querySelectorAll('input[name="expenseSortField"]').forEach(input => {
+    input.addEventListener("change", () => {
+      expenseSortDraft.field = input.value;
+      syncExpenseSortDialogFromState(expenseSortDraft);
+    });
+  });
+
+  document.querySelectorAll("[data-expense-sort-direction]").forEach(button => {
+    button.addEventListener("click", () => {
+      expenseSortDraft.direction = button.dataset.expenseSortDirection === "asc" ? "asc" : "desc";
+      syncExpenseSortDialogFromState(expenseSortDraft);
+    });
+  });
+}
+
 function openIncomeSortDialog(){
   syncIncomeSortDialogFromState();
   $("incomeSortDialog")?.showModal();
 }
 
+function openExpenseSortDialog(){
+  syncExpenseSortDialogFromState();
+  renderExpenseSortDialog();
+  $("expenseSortDialog")?.showModal();
+}
+
 function openIncomeFilterDialog(){
   syncIncomeFilterDialogFromState();
   $("incomeFilterDialog")?.showModal();
+}
+
+function openExpenseFilterDialog(){
+  syncExpenseFilterDialogFromState();
+  $("expenseFilterDialog")?.showModal();
 }
 
 function renderIncomeList(){
@@ -711,7 +1065,7 @@ function renderIncomeList(){
             : "אין מסמכים מצורפים להכנסה";
 
           return `
-          <tr>
+          <tr class="income-row" data-z-report-row-id="${row.id}" tabindex="0" role="button" aria-label="פתיחת פרטי הכנסה">
             <td>${row.reportDate || ""}</td>
             <td>${row.reportTime || ""}</td>
             <td>${money(row.amountValue)}</td>
@@ -765,6 +1119,17 @@ function renderIncomeList(){
   renderIncomeFilterChips();
   syncIncomeHeaderActions();
 
+  tableHost.querySelectorAll(".income-row[data-z-report-row-id]").forEach(row => {
+    row.onclick = () => {
+      void openIncomeDetailsDialog(row.dataset.zReportRowId || "", row);
+    };
+    row.onkeydown = event => {
+      if(event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      void openIncomeDetailsDialog(row.dataset.zReportRowId || "", row);
+    };
+  });
+
   tableHost.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
     button.onclick = () => {
       void openZReportDocuments(button.dataset.zReportId || "", button.dataset.zReportIncomeType || "");
@@ -772,11 +1137,23 @@ function renderIncomeList(){
   });
 
   tableHost.querySelectorAll(".edit-action[data-z-report-id]").forEach(button => {
-    button.onclick = () => startEditingZReport(button);
+    button.onclick = event => {
+      event.stopPropagation();
+      startEditingZReport(button);
+    };
   });
 
   tableHost.querySelectorAll(".delete-action[data-z-report-id]").forEach(button => {
-    button.onclick = () => void deleteZReport(button.dataset.zReportId || "");
+    button.onclick = event => {
+      event.stopPropagation();
+      void deleteZReport(button.dataset.zReportId || "");
+    };
+  });
+
+  tableHost.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+    });
   });
 }
 
@@ -1382,7 +1759,7 @@ function buildExpenseRollbackPayload(expenseRecord){
     supplier_id: expenseRecord.supplier_id || null,
     supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
     supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
-    debit_credit: expenseRecord.debit_credit || expenseRecord.debit_or_credit || null,
+    debit_or_credit: expenseRecord.debit_or_credit || expenseRecord.debit_credit || null,
     document_date: expenseRecord.document_date || null,
     document_number: expenseRecord.document_number || "",
     description: expenseRecord.description || "",
@@ -2797,21 +3174,32 @@ function resetZFileSelection(){
 }
 
 function resetZDialogMode(){
+  currentIncomeDialogMode = INCOME_DIALOG_MODES.NEW;
   currentZReportEditId = "";
   currentZIncomeSource = Z_REPORT_INCOME_SOURCE;
+  currentIncomeDetailsRecord = null;
+  currentIncomeDetailsDocuments = [];
+  currentIncomePermissions = {canEdit:true, canDelete:true};
   const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
   if(submitButton) submitButton.textContent = "שמרי הכנסה";
   const title = $("zDialogTitle");
   if(title) title.textContent = "הכנסה חדשה";
+  $("incomeDetailsView")?.classList.add("hidden");
+  $("incomeDialogHeaderActions")?.classList.add("hidden");
+  $("zForm")?.classList.remove("hidden");
 }
 
 function setZDialogEditMode(report){
+  currentIncomeDialogMode = INCOME_DIALOG_MODES.DETAILS_EDIT;
   currentZReportEditId = String(report?.id || "");
   currentZIncomeSource = normalizeIncomeSource(report?.income_source);
   const title = $("zDialogTitle");
   if(title) title.textContent = "עדכון הכנסה";
   const submitButton = $("zForm")?.querySelector('button[type="submit"], button:not([type])');
   if(submitButton) submitButton.textContent = "עדכני הכנסה";
+  $("incomeDetailsView")?.classList.add("hidden");
+  $("incomeDialogHeaderActions")?.classList.remove("hidden");
+  $("zForm")?.classList.remove("hidden");
 }
 
 function populateZDialogFromReport(report){
@@ -2822,6 +3210,48 @@ function populateZDialogFromReport(report){
   $("zIncomeType").value = normalizeIncomeType(safeReport.income_type);
   $("zProject").value = safeReport.project_id || "";
   $("zNotes").value = safeReport.notes || "";
+}
+
+function setIncomeDialogMode(mode){
+  currentIncomeDialogMode = mode;
+
+  const title = $("zDialogTitle");
+  const detailsView = $("incomeDetailsView");
+  const form = $("zForm");
+  const headerActions = $("incomeDialogHeaderActions");
+  const closeButton = $("incomeDialogCloseButton");
+  const submitButton = form?.querySelector('button[type="submit"], button:not([type])');
+
+  if(mode === INCOME_DIALOG_MODES.NEW){
+    detailsView?.classList.add("hidden");
+    form?.classList.remove("hidden");
+    headerActions?.classList.add("hidden");
+    if(title) title.textContent = currentZIncomeSource === NON_Z_INCOME_SOURCE ? "הכנסה חדשה" : "הכנסה חדשה";
+    if(closeButton) closeButton.setAttribute("aria-label", "סגירת חלון הכנסה");
+    if(submitButton) submitButton.textContent = "שמרי הכנסה";
+    return;
+  }
+
+  headerActions?.classList.remove("hidden");
+  if(closeButton) closeButton.setAttribute("aria-label", "סגירת חלון פרטי הכנסה");
+
+  if(mode === INCOME_DIALOG_MODES.DETAILS_READONLY){
+    if(title) title.textContent = "פרטי הכנסה";
+    detailsView?.classList.remove("hidden");
+    form?.classList.add("hidden");
+  } else {
+    if(title) title.textContent = "עדכון הכנסה";
+    detailsView?.classList.add("hidden");
+    form?.classList.remove("hidden");
+    if(submitButton) submitButton.textContent = "עדכני הכנסה";
+  }
+
+  const editButton = $("incomeDetailsEditButton");
+  const deleteButton = $("incomeDetailsDeleteButton");
+  const shareMenuButton = $("incomeDetailsShareMenuButton");
+  if(editButton) editButton.disabled = !currentIncomePermissions.canEdit || mode === INCOME_DIALOG_MODES.DETAILS_EDIT;
+  if(deleteButton) deleteButton.disabled = !currentIncomePermissions.canDelete;
+  if(shareMenuButton) shareMenuButton.disabled = mode === INCOME_DIALOG_MODES.DETAILS_EDIT;
 }
 
 function applyZDialogResetAndToast(successMessage = "הכנסה חדשה נשמרה"){
@@ -6264,67 +6694,107 @@ async function blobToPngBytes(blob){
   return new Uint8Array(await pngBlob.arrayBuffer());
 }
 
-async function buildExpenseSummaryPngBytes(expenseRecord, documents){
-  const canvas = document.createElement("canvas");
-  canvas.width = 1240;
-  canvas.height = 1754;
-  const ctx = canvas.getContext("2d");
-  if(!ctx) throw new Error("שגיאה ביצירת תקציר הוצאה");
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#0f2742";
-  ctx.font = "700 46px 'Arial'";
-  ctx.fillText("Expense Summary", 72, 96);
-
-  const lines = [
-    `Supplier: ${expenseDisplayValue(expenseRecord?.supplier_name_snapshot, "Not set")}`,
-    `Supplier registration: ${expenseDisplayValue(expenseRecord?.supplier_registration_snapshot, "Not set")}`,
-    `Invoice number: ${expenseDisplayValue(expenseRecord?.document_number, "Not set")}`,
-    `Document date: ${expenseDisplayValue(expenseRecord?.document_date, "Not set")}`,
-    `Gross: ${money(expenseRecord?.gross_ils || 0)}`,
-    `Net: ${money(expenseRecord?.net_ils || 0)}`,
-    `VAT: ${money(expenseRecord?.vat_ils || 0)}`,
-    `Accounting type: ${expenseDisplayValue(expenseRecord?.accounting_types?.name, "Not set")}`,
-    `Category: ${expenseDisplayValue(expenseRecord?.categories?.name, "Not set")}`,
-    `Charge/Credit: ${expenseDisplayValue(expenseRecord?.debit_credit || expenseRecord?.debit_or_credit, "Not set")}`,
-    `Funding source: ${expenseDisplayValue(expenseRecord?.payment_sources?.name, "Not set")}`,
-    `Payment method: ${expenseDisplayValue(expenseRecord?.payment_methods?.name, "Not set")}`,
-    `Project: ${expenseDisplayValue(expenseRecord?.projects?.name, "Not set")}`,
-    `Notes: ${expenseDisplayValue(expenseRecord?.notes, "No notes")}`,
-    "Reporting status:",
-    `Linked documents: ${Array.isArray(documents) ? documents.length : 0}`
-  ];
-
-  ctx.font = "400 30px 'Arial'";
-  ctx.fillStyle = "#1f2f43";
-  let y = 170;
-  lines.forEach(line => {
-    ctx.fillText(line, 72, y);
-    y += 72;
-  });
-
-  const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/png", 1));
-  if(!pngBlob) throw new Error("שגיאה ביצירת תקציר הוצאה");
-  return new Uint8Array(await pngBlob.arrayBuffer());
+function createEntitySummaryMarkup({title, sections}){
+  const safeSections = Array.isArray(sections) ? sections : [];
+  return `
+    <div dir="rtl" lang="he" style="width:1040px;background:#fff;color:#172033;font-family:Arial,'Noto Sans Hebrew','Rubik',sans-serif;padding:28px;">
+      <header style="margin-bottom:16px;">
+        <h1 style="margin:0;color:#102c4e;font-size:30px;line-height:1.2;">${escapeHtml(title || "סיכום")}</h1>
+        <p style="margin:8px 0 0;color:#667085;font-size:14px;">עודכן בתאריך ${escapeHtml(today())}</p>
+      </header>
+      <div style="display:grid;gap:14px;">
+        ${safeSections.map(section => `
+          <section style="border:1px solid #dbe3ec;border-radius:14px;padding:14px 16px;background:#fff;">
+            <h2 style="margin:0 0 10px;color:#102c4e;font-size:18px;line-height:1.3;">${escapeHtml(section?.title || "")}</h2>
+            <div style="display:grid;gap:8px;">
+              ${(Array.isArray(section?.rows) ? section.rows : []).map(row => `
+                <div style="display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:12px;align-items:start;">
+                  <strong style="color:#667085;font-size:14px;line-height:1.4;">${escapeHtml(row?.label || "")}</strong>
+                  <span style="color:#172033;font-size:15px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${escapeHtml(row?.value || "-")}</span>
+                </div>
+              `).join("")}
+            </div>
+          </section>
+        `).join("")}
+      </div>
+    </div>
+  `;
 }
 
-async function buildExpensePackagePdfBlob(expenseRecord, documents){
-  const {PDFDocument} = await ensurePdfLib();
-  const pdfDoc = await PDFDocument.create();
+async function renderMarkupToPngBytes(markup, errorMessage){
+  const html2canvas = await ensureHtml2CanvasLib();
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-99999px";
+  host.style.top = "0";
+  host.style.pointerEvents = "none";
+  host.style.opacity = "0";
+  host.innerHTML = markup;
+  document.body.appendChild(host);
 
-  const summaryPngBytes = await buildExpenseSummaryPngBytes(expenseRecord, documents);
-  const summaryImage = await pdfDoc.embedPng(summaryPngBytes);
-  const summaryPage = pdfDoc.addPage([595.28, 841.89]);
-  const summaryScale = Math.min(595.28 / summaryImage.width, 841.89 / summaryImage.height);
-  const summaryWidth = summaryImage.width * summaryScale;
-  const summaryHeight = summaryImage.height * summaryScale;
-  summaryPage.drawImage(summaryImage, {
-    x: (595.28 - summaryWidth) / 2,
-    y: (841.89 - summaryHeight) / 2,
-    width: summaryWidth,
-    height: summaryHeight
+  try {
+    const element = host.firstElementChild;
+    if(!element) throw new Error(errorMessage);
+    const canvas = await html2canvas(element, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if(blob) resolve(blob);
+        else reject(new Error(errorMessage));
+      }, "image/png", 1);
+    });
+    return new Uint8Array(await pngBlob.arrayBuffer());
+  } finally {
+    host.remove();
+  }
+}
+
+async function buildExpenseSummaryPngBytes(expenseRecord, documents){
+  const markup = createEntitySummaryMarkup({
+    title: "פרטי הוצאה",
+    sections: [
+      {
+        title: "פרטי ספק ומסמך",
+        rows: [
+          {label:"ספק", value: expenseDisplayValue(expenseRecord?.supplier_name_snapshot)},
+          {label:"ח.פ./ע.מ.", value: expenseDisplayValue(expenseRecord?.supplier_registration_snapshot)},
+          {label:"מספר חשבונית", value: expenseDisplayValue(expenseRecord?.document_number)},
+          {label:"תאריך מסמך", value: expenseDisplayValue(expenseRecord?.document_date)}
+        ]
+      },
+      {
+        title: "סכומים",
+        rows: [
+          {label:"ברוטו", value: money(expenseRecord?.gross_ils || 0)},
+          {label:"נטו", value: money(expenseRecord?.net_ils || 0)},
+          {label:"מע״מ", value: money(expenseRecord?.vat_ils || 0)}
+        ]
+      },
+      {
+        title: "פרטים נוספים",
+        rows: [
+          {label:"סוג חשבונאי", value: expenseDisplayValue(expenseRecord?.accounting_types?.name)},
+          {label:"קטגוריה", value: expenseDisplayValue(expenseRecord?.categories?.name)},
+          {label:"חיוב / זיכוי", value: expenseDisplayValue(expenseRecord?.debit_credit || expenseRecord?.debit_or_credit, "לא צוין")},
+          {label:"מקור תשלום", value: expenseDisplayValue(expenseRecord?.payment_sources?.name)},
+          {label:"אמצעי תשלום", value: expenseDisplayValue(expenseRecord?.payment_methods?.name)},
+          {label:"פרויקט", value: expenseDisplayValue(expenseRecord?.projects?.name)},
+          {label:"הערות", value: expenseDisplayValue(expenseRecord?.notes, "ללא הערות")},
+          {label:"דיווח לרו״ח", value: ""},
+          {label:"מסמכים מצורפים", value: String(Array.isArray(documents) ? documents.length : 0)}
+        ]
+      }
+    ]
   });
+  return renderMarkupToPngBytes(markup, "שגיאה ביצירת תקציר הוצאה");
+}
+
+async function appendDocumentsToPdf(pdfDoc, documents){
+  const {PDFDocument} = await ensurePdfLib();
 
   for(const documentMeta of (Array.isArray(documents) ? documents : [])){
     const storagePath = String(documentMeta?.storage_path || "").trim();
@@ -6364,6 +6834,26 @@ async function buildExpensePackagePdfBlob(expenseRecord, documents){
       height
     });
   }
+}
+
+async function buildExpensePackagePdfBlob(expenseRecord, documents){
+  const {PDFDocument} = await ensurePdfLib();
+  const pdfDoc = await PDFDocument.create();
+
+  const summaryPngBytes = await buildExpenseSummaryPngBytes(expenseRecord, documents);
+  const summaryImage = await pdfDoc.embedPng(summaryPngBytes);
+  const summaryPage = pdfDoc.addPage([595.28, 841.89]);
+  const summaryScale = Math.min(595.28 / summaryImage.width, 841.89 / summaryImage.height);
+  const summaryWidth = summaryImage.width * summaryScale;
+  const summaryHeight = summaryImage.height * summaryScale;
+  summaryPage.drawImage(summaryImage, {
+    x: (595.28 - summaryWidth) / 2,
+    y: (841.89 - summaryHeight) / 2,
+    width: summaryWidth,
+    height: summaryHeight
+  });
+
+  await appendDocumentsToPdf(pdfDoc, documents);
 
   const bytes = await pdfDoc.save();
   return new Blob([bytes], {type: "application/pdf"});
@@ -6384,6 +6874,87 @@ async function getExpensePackagePdfBlob(expenseRecord, documents){
 
   const blob = await buildExpensePackagePdfBlob(expenseRecord, documents);
   currentExpensePackagePdfCache = {expenseId, signature, blob};
+  return blob;
+}
+
+function getIncomePackageSignature(incomeRecord, documents){
+  const recordId = String(incomeRecord?.id || "").trim();
+  const docSignature = (Array.isArray(documents) ? documents : [])
+    .map(doc => `${String(doc?.id || "")}:${String(doc?.storage_path || "")}:${String(doc?.document_order || doc?.page_number || "")}`)
+    .join("|");
+  return `${recordId}::${docSignature}`;
+}
+
+async function buildIncomeSummaryPngBytes(incomeRecord, documents){
+  const createdAtValue = String(incomeRecord?.created_at || "").trim();
+  const createdAtDisplay = createdAtValue ? createdAtValue.slice(0, 16).replace("T", " ") : "-";
+  const sourceLabel = incomeRecord?.is_from_z_report === false ? "הכנסה אחרת" : 'דו"ח Z';
+  const markup = createEntitySummaryMarkup({
+    title: "פרטי הכנסה",
+    sections: [
+      {
+        title: "פרטי הכנסה",
+        rows: [
+          {label:"סוג הכנסה", value: expenseDisplayValue(normalizeIncomeType(incomeRecord?.income_type))},
+          {label:"מקור", value: sourceLabel},
+          {label:"תאריך מסמך", value: expenseDisplayValue(incomeRecord?.report_date)},
+          {label:"שעה", value: expenseDisplayValue(String(incomeRecord?.report_time || "").trim().slice(0, 5))},
+          {label:"תאריך הזנה", value: expenseDisplayValue(createdAtDisplay)}
+        ]
+      },
+      {
+        title: "סכומים וקישור",
+        rows: [
+          {label:"סכום", value: money(incomeRecord?.total_income_ils || 0)},
+          {label:"פרויקט", value: expenseDisplayValue(incomeRecord?.projects?.name)},
+          {label:"הערות", value: expenseDisplayValue(incomeRecord?.notes, "ללא הערות")},
+          {label:"דיווח לרו״ח", value: ""},
+          {label:"מסמכים מצורפים", value: String(Array.isArray(documents) ? documents.length : 0)}
+        ]
+      }
+    ]
+  });
+  return renderMarkupToPngBytes(markup, "שגיאה ביצירת תקציר הכנסה");
+}
+
+async function buildIncomePackagePdfBlob(incomeRecord, documents){
+  const {PDFDocument} = await ensurePdfLib();
+  const pdfDoc = await PDFDocument.create();
+
+  const summaryPngBytes = await buildIncomeSummaryPngBytes(incomeRecord, documents);
+  const summaryImage = await pdfDoc.embedPng(summaryPngBytes);
+  const summaryPage = pdfDoc.addPage([595.28, 841.89]);
+  const summaryScale = Math.min(595.28 / summaryImage.width, 841.89 / summaryImage.height);
+  const summaryWidth = summaryImage.width * summaryScale;
+  const summaryHeight = summaryImage.height * summaryScale;
+  summaryPage.drawImage(summaryImage, {
+    x: (595.28 - summaryWidth) / 2,
+    y: (841.89 - summaryHeight) / 2,
+    width: summaryWidth,
+    height: summaryHeight
+  });
+
+  await appendDocumentsToPdf(pdfDoc, documents);
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], {type: "application/pdf"});
+}
+
+async function getIncomePackagePdfBlob(incomeRecord, documents){
+  const incomeId = String(incomeRecord?.id || "").trim();
+  if(!incomeId) throw new Error("לא נמצאה הכנסה");
+
+  const signature = getIncomePackageSignature(incomeRecord, documents);
+  if(
+    currentIncomePackagePdfCache.blob
+    && currentIncomePackagePdfCache.incomeId === incomeId
+    && currentIncomePackagePdfCache.signature === signature
+  ){
+    return currentIncomePackagePdfCache.blob;
+  }
+
+  const blob = await buildIncomePackagePdfBlob(incomeRecord, documents);
+  currentIncomePackagePdfCache = {incomeId, signature, blob};
   return blob;
 }
 
@@ -6663,18 +7234,19 @@ async function confirmAndDeleteCurrentExpense(){
 }
 
 async function loadExpenses(){
-  const {data,error} = await sb.from("expenses")
+  const {data,error} = await applyExpenseSortToQuery(applyExpenseFiltersToQuery(sb.from("expenses")
     .select(`
       id,
       document_date,
       gross_ils,
       supplier_name_snapshot,
+      accounting_type_id,
       accounting_types(name),
+      payment_source_id,
       payment_sources(name),
       expense_documents(id,storage_path,document_type,page_number)
     `)
-    .eq("user_id",userId)
-    .order("document_date",{ascending:false})
+    .eq("user_id",userId)))
     .limit(EXPENSES_VIEW_LIMIT);
 
   if(error){
@@ -6692,7 +7264,11 @@ function renderExpensesList(){
 
   const rows = getCurrentExpensesViewRows();
   if(!rows.length){
-    tableHost.textContent = "אין עדיין הוצאות";
+    tableHost.textContent = expenseRows.length || hasActiveExpenseFilters()
+      ? "לא נמצאו הוצאות התואמות לסינון."
+      : "אין עדיין הוצאות";
+    renderExpenseFilterChips();
+    syncExpenseHeaderActions();
     return;
   }
 
@@ -6740,6 +7316,9 @@ function renderExpensesList(){
       void openExpenseDetailsDialog(row.dataset.expense, row);
     };
   });
+
+  renderExpenseFilterChips();
+  syncExpenseHeaderActions();
 }
 
 async function openExpenseDocument(expenseId){
@@ -6808,6 +7387,46 @@ async function runExpenseEntityAction(actionType){
   } catch(error){
     console.error(error);
     setStatus($("expenseStatus"), error?.message || "שגיאה בפעולת הוצאה", "error");
+  }
+}
+
+async function runIncomeEntityAction(actionType){
+  if(!currentIncomeDetailsRecord) return;
+
+  try {
+    setStatus($("zStatus"), "מכינה קובץ PDF של ההכנסה...", "");
+    const documents = Array.isArray(currentIncomeDetailsDocuments) ? currentIncomeDetailsDocuments : [];
+    const pdfBlob = await getIncomePackagePdfBlob(currentIncomeDetailsRecord, documents);
+    const incomeType = normalizeIncomeType(currentIncomeDetailsRecord.income_type).replace(/\s+/g, "-");
+    const reportDate = String(currentIncomeDetailsRecord.report_date || "date").trim();
+    const incomeId = String(currentIncomeDetailsRecord.id || "income").trim();
+    const filename = `income-${incomeType}-${reportDate}-${incomeId}.pdf`;
+
+    if(actionType === "share"){
+      await shareBlobFile({
+        blob: pdfBlob,
+        filename,
+        title: "פרטי הכנסה",
+        text: "שיתוף קובץ הכנסה"
+      });
+      setStatus($("zStatus"), "השיתוף הושלם", "ok");
+      return;
+    }
+
+    if(actionType === "export"){
+      downloadBlob(pdfBlob, filename);
+      setStatus($("zStatus"), "קובץ ההכנסה הורד", "ok");
+      return;
+    }
+
+    if(actionType === "print"){
+      openPrintWindowWithBlob(pdfBlob, "הדפסת הכנסה");
+      setStatus($("zStatus"), "נפתח חלון הדפסה", "ok");
+      return;
+    }
+  } catch(error){
+    console.error(error);
+    setStatus($("zStatus"), error?.message || "שגיאה בפעולת הכנסה", "error");
   }
 }
 
@@ -7131,6 +7750,160 @@ async function openZReportDocuments(zReportId, incomeType = ""){
   });
 }
 
+function readIncomePermissions(incomeRecord){
+  const hasIncome = Boolean(String(incomeRecord?.id || "").trim());
+  return {
+    canEdit: hasIncome,
+    canDelete: hasIncome
+  };
+}
+
+async function fetchIncomeDocuments(zReportId){
+  const safeReportId = String(zReportId || "").trim();
+  if(!safeReportId) return [];
+
+  const {data, error} = await sb.from("z_report_documents")
+    .select("id,storage_path,original_filename,mime_type,document_order")
+    .eq("user_id", userId)
+    .eq("z_report_id", safeReportId)
+    .order("document_order", {ascending: true});
+
+  if(error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+async function getIncomeRecordForDetails(zReportId){
+  const safeReportId = String(zReportId || "").trim();
+  if(!safeReportId) return null;
+
+  const {data, error} = await sb.from("daily_z_reports")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,project_id,projects(id,name)")
+    .eq("user_id", userId)
+    .eq("id", safeReportId)
+    .maybeSingle();
+
+  if(error) throw error;
+  return data || null;
+}
+
+function renderIncomeDetailsReadOnly(incomeRecord){
+  if(!incomeRecord) return;
+
+  const createdAtValue = String(incomeRecord.created_at || "").trim();
+  const createdAtDisplay = createdAtValue ? createdAtValue.slice(0, 16).replace("T", " ") : "-";
+  const sourceLabel = incomeRecord.is_from_z_report === false ? "הכנסה אחרת" : 'דו"ח Z';
+
+  setExpenseDetailsValue("incomeDetailsType", normalizeIncomeType(incomeRecord.income_type));
+  setExpenseDetailsValue("incomeDetailsSource", sourceLabel, "-");
+  setExpenseDetailsValue("incomeDetailsDate", incomeRecord.report_date);
+  setExpenseDetailsValue("incomeDetailsTime", String(incomeRecord.report_time || "").trim().slice(0, 5), "-");
+  setExpenseDetailsValue("incomeDetailsCreatedAt", createdAtDisplay, "-");
+  setExpenseDetailsValue("incomeDetailsAmount", money(incomeRecord.total_income_ils || 0));
+  setExpenseDetailsValue("incomeDetailsProject", incomeRecord.projects?.name);
+  setExpenseDetailsValue("incomeDetailsNotes", incomeRecord.notes, "ללא הערות");
+
+  const reportingStatusElement = $("incomeDetailsReportingStatus");
+  if(reportingStatusElement) reportingStatusElement.textContent = "";
+}
+
+function renderIncomeDetailsDocuments(documents){
+  const list = $("incomeDetailsDocumentsList");
+  const empty = $("incomeDetailsDocumentsEmpty");
+  if(!list || !empty) return;
+
+  const rows = Array.isArray(documents) ? documents : [];
+  if(!rows.length){
+    list.innerHTML = "";
+    list.classList.add("hidden");
+    empty.classList.remove("hidden");
+    empty.textContent = "אין מסמכים מצורפים";
+    return;
+  }
+
+  list.classList.remove("hidden");
+  empty.classList.add("hidden");
+
+  list.innerHTML = rows.map((row, index) => {
+    const safeName = escapeHtml(String(row?.original_filename || `מסמך ${index + 1}`).trim() || `מסמך ${index + 1}`);
+    return `
+      <button
+        type="button"
+        class="expense-linked-document-button"
+        data-income-document-index="${index}"
+        role="listitem"
+        aria-label="פתיחת ${safeName}"
+        title="פתיחת ${safeName}">
+        <span>${safeName}</span>
+        <b aria-hidden="true">›</b>
+      </button>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".expense-linked-document-button").forEach(button => {
+    button.addEventListener("click", () => {
+      const requestedIndex = Number(button.dataset.incomeDocumentIndex || 0);
+      void openExistingDocumentsViewer({
+        documents: currentIncomeDetailsDocuments,
+        dialogTitle: "מסמכי הכנסה",
+        fullscreenTitle: "מסמך הכנסה במסך מלא",
+        emptyMessage: "אין מסמכים מצורפים להכנסה זו.",
+        statusElement: $("zStatus"),
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
+        opener: button,
+        viewerContext: "income"
+      });
+    });
+  });
+}
+
+async function openIncomeDetailsDialog(zReportId, opener = null){
+  try {
+    const [incomeRecord, documents] = await Promise.all([
+      getIncomeRecordForDetails(zReportId),
+      fetchIncomeDocuments(zReportId)
+    ]);
+
+    if(!incomeRecord){
+      showToast("ההכנסה לא נמצאה", "error");
+      return;
+    }
+
+    resetZFileSelection();
+    closeIncomeTypeSuggestions();
+    currentIncomeDetailsOpener = opener;
+    currentIncomeDetailsRecord = incomeRecord;
+    currentIncomeDetailsDocuments = documents;
+    currentIncomePermissions = readIncomePermissions(incomeRecord);
+    currentZReportEditId = String(incomeRecord.id || "").trim();
+    currentZIncomeSource = normalizeIncomeSource(incomeRecord.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE);
+    renderIncomeDetailsReadOnly(incomeRecord);
+    renderIncomeDetailsDocuments(documents);
+    setStatus($("zStatus"), "", "");
+    setIncomeDialogMode(INCOME_DIALOG_MODES.DETAILS_READONLY);
+    $("zDialog")?.showModal();
+    $("incomeDialogCloseButton")?.focus();
+  } catch(error){
+    console.error(error);
+    showToast(error?.message || "שגיאה בטעינת פרטי הכנסה", "error");
+  }
+}
+
+function startEditingCurrentIncome(){
+  if(!currentIncomeDetailsRecord || !currentIncomePermissions.canEdit) return;
+  resetZFileSelection();
+  setZDialogEditMode({
+    id: currentIncomeDetailsRecord.id,
+    income_source: currentIncomeDetailsRecord.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE
+  });
+  populateZDialogFromReport(currentIncomeDetailsRecord);
+}
+
+async function confirmAndDeleteCurrentIncome(){
+  if(!currentIncomeDetailsRecord || !currentIncomePermissions.canDelete) return;
+  await deleteZReport(currentIncomeDetailsRecord.id);
+  $("zDialog")?.close();
+}
+
 function navigateZDocumentsByOffset(offset){
   if(!Number.isInteger(offset) || !offset || !currentZDocuments.length) return;
 
@@ -7222,12 +7995,11 @@ function startEditingZReport(button){
 }
 
 async function loadZReports(){
-  let query = sb.from("daily_z_reports")
+  let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
     .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
-    .eq("user_id",userId);
+    .eq("user_id",userId));
 
-  const {data,error} = await query
-    .order("created_at",{ascending:false, nullsFirst:false})
+  const {data,error} = await applyIncomeSortToQuery(query)
     .limit(INCOME_VIEW_LIMIT);
 
   if(error){
@@ -7373,6 +8145,7 @@ async function openAction(action){
 function openNewIncomeDialog({source = Z_REPORT_INCOME_SOURCE} = {}){
   resetZDialogMode();
   resetZFileSelection();
+  currentIncomeDetailsOpener = null;
   currentZIncomeSource = normalizeIncomeSource(source);
   $("zForm")?.reset();
   $("zDate").value = today();
@@ -7417,8 +8190,19 @@ $("zDialog")?.addEventListener("close", () => {
   pendingZReportId = "";
   setStatus($("zStatus"), "", "");
 
+  if(
+    currentIncomeDetailsOpener
+    && typeof currentIncomeDetailsOpener.focus === "function"
+    && !currentIncomeDetailsOpener.disabled
+    && !currentIncomeDetailsOpener.classList.contains("hidden")
+  ){
+    currentIncomeDetailsOpener.focus();
+  }
+  currentIncomeDetailsOpener = null;
+
   if(!shouldResetZFormAfterClose){
     pendingZSuccessToastMessage = "";
+    resetZDialogMode();
     return;
   }
 
@@ -7434,6 +8218,7 @@ $("zForm")?.addEventListener("reset", () => {
   pendingZReportId = "";
   currentZReportEditId = "";
   currentZIncomeSource = Z_REPORT_INCOME_SOURCE;
+  currentIncomeDialogMode = INCOME_DIALOG_MODES.NEW;
   $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
   $("zTime").value = currentTime();
   $("zNotes").value = "";
@@ -7539,6 +8324,18 @@ $("companyDocumentsRestoreDefaultsButton")?.addEventListener("click", () => {
 });
 
 $("profileButton").onclick = () => $("businessDialog").showModal();
+$("expenseNewButton")?.addEventListener("click", () => {
+  void openAction("expense");
+});
+
+$("expenseSortButton")?.addEventListener("click", () => {
+  openExpenseSortDialog();
+});
+
+$("expenseFilterButton")?.addEventListener("click", () => {
+  openExpenseFilterDialog();
+});
+
 $("incomeNewButton")?.addEventListener("click", () => {
   openNewIncomeDialog({source: NON_Z_INCOME_SOURCE});
 });
@@ -7558,6 +8355,13 @@ $("incomeSortForm")?.addEventListener("submit", event => {
   renderIncomeList();
 });
 
+$("expenseSortForm")?.addEventListener("submit", event => {
+  event.preventDefault();
+  expenseSortState = {...expenseSortDraft};
+  $("expenseSortDialog")?.close();
+  renderExpensesList();
+});
+
 $("incomeFilterForm")?.addEventListener("submit", event => {
   event.preventDefault();
   incomeFilterState = {...incomeFilterDraft};
@@ -7566,9 +8370,22 @@ $("incomeFilterForm")?.addEventListener("submit", event => {
   renderIncomeList();
 });
 
+$("expenseFilterForm")?.addEventListener("submit", async event => {
+  event.preventDefault();
+  expenseFilterState = {...expenseFilterDraft};
+  $("expenseFilterDialog")?.close();
+  renderExpenseFilterChips();
+  await loadExpenses();
+});
+
 $("incomeFilterClearButton")?.addEventListener("click", () => {
   clearIncomeFilters();
   $("incomeFilterDialog")?.close();
+});
+
+$("expenseFilterClearButton")?.addEventListener("click", () => {
+  void clearExpenseFilters();
+  $("expenseFilterDialog")?.close();
 });
 
 $("incomeFilterProject")?.addEventListener("change", event => {
@@ -7593,6 +8410,26 @@ $("incomeFilterDocumentDateFrom")?.addEventListener("change", event => {
 
 $("incomeFilterDocumentDateTo")?.addEventListener("change", event => {
   incomeFilterDraft.documentDateTo = event.target.value || "";
+});
+
+$("expenseFilterSupplier")?.addEventListener("input", event => {
+  expenseFilterDraft.supplier = event.target.value || "";
+});
+
+$("expenseFilterAccountingType")?.addEventListener("change", event => {
+  expenseFilterDraft.accountingTypeId = event.target.value || "";
+});
+
+$("expenseFilterPaymentSource")?.addEventListener("change", event => {
+  expenseFilterDraft.paymentSourceId = event.target.value || "";
+});
+
+$("expenseFilterDateFrom")?.addEventListener("change", event => {
+  expenseFilterDraft.documentDateFrom = event.target.value || "";
+});
+
+$("expenseFilterDateTo")?.addEventListener("change", event => {
+  expenseFilterDraft.documentDateTo = event.target.value || "";
 });
 
 document.querySelectorAll("[data-income-filter-source]").forEach(button => {
@@ -8245,6 +9082,18 @@ $("expenseDetailsCloseButton")?.addEventListener("click", () => {
   $("expenseDialog")?.close();
 });
 
+$("incomeDetailsEditButton")?.addEventListener("click", () => {
+  startEditingCurrentIncome();
+});
+
+$("incomeDetailsDeleteButton")?.addEventListener("click", () => {
+  void confirmAndDeleteCurrentIncome();
+});
+
+$("incomeDetailsCloseButton")?.addEventListener("click", () => {
+  $("zDialog")?.close();
+});
+
 document.querySelectorAll("[data-action-menu-button]").forEach(button => {
   button.addEventListener("click", event => {
     event.stopPropagation();
@@ -8268,6 +9117,21 @@ $("expenseDetailsExportPdfAction")?.addEventListener("click", () => {
 $("expenseDetailsPrintAction")?.addEventListener("click", () => {
   hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
   void runExpenseEntityAction("print");
+});
+
+$("incomeDetailsShareAction")?.addEventListener("click", () => {
+  hideActionMenu("incomeDetailsShareMenu", "incomeDetailsShareMenuButton");
+  void runIncomeEntityAction("share");
+});
+
+$("incomeDetailsExportPdfAction")?.addEventListener("click", () => {
+  hideActionMenu("incomeDetailsShareMenu", "incomeDetailsShareMenuButton");
+  void runIncomeEntityAction("export");
+});
+
+$("incomeDetailsPrintAction")?.addEventListener("click", () => {
+  hideActionMenu("incomeDetailsShareMenu", "incomeDetailsShareMenuButton");
+  void runIncomeEntityAction("print");
 });
 
 $("zDocumentsShareAction")?.addEventListener("click", () => {
@@ -8460,7 +9324,7 @@ $("expenseForm").onsubmit = async event => {
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-      debit_credit: $("expenseDebitCredit")?.value || "חיוב",
+      debit_or_credit: $("expenseDebitCredit")?.value || "חיוב",
       document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
@@ -8475,8 +9339,8 @@ $("expenseForm").onsubmit = async event => {
       vat_ils:vat
     };
 
-    if(payload.debit_credit !== "חיוב" && payload.debit_credit !== "זיכוי"){
-      payload.debit_credit = "חיוב";
+    if(payload.debit_or_credit !== "חיוב" && payload.debit_or_credit !== "זיכוי"){
+      payload.debit_or_credit = "חיוב";
     }
 
     const duplicateWarning = await checkExpenseDuplicateWarning({
@@ -8579,7 +9443,7 @@ $("expenseForm").onsubmit = async event => {
     }
 
     const {error:debitCreditPersistError} = await sb.from("expenses")
-      .update({debit_credit: payload.debit_credit})
+      .update({debit_or_credit: payload.debit_or_credit})
       .eq("user_id", userId)
       .eq("id", expenseId);
 

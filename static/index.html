@@ -133,37 +133,46 @@
     </section>
 
     <section id="expensesView" class="view">
-      <div class="view-head">
+      <div class="income-page-header">
         <h2>הוצאות</h2>
-        <div class="action-menu-anchor">
-          <button
-            id="expensesInfoMenuButton"
-            type="button"
-            class="row-action info-overflow-button"
-            data-action-menu-button="expensesInfoMenu"
-            aria-haspopup="menu"
-            aria-expanded="false"
-            aria-controls="expensesInfoMenu"
-            aria-label="פעולות מידע">
-            ⋮
-          </button>
-          <div
-            id="expensesInfoMenu"
-            class="action-menu hidden"
-            role="menu"
-            aria-label="פעולות מסך הוצאות"
-            data-info-actions-menu
-            data-info-actions-scope="expenses-report"
-            data-info-actions-purpose="report"
-            data-info-actions-collector="collectExpensesInfoReport">
-            <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-            <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
-            <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
-            <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
+        <div class="income-page-actions">
+          <button id="expenseNewButton" type="button" class="secondary income-new-button">הוצאה חדשה</button>
+          <button id="expenseSortButton" type="button" class="secondary income-icon-button" aria-label="מיון הוצאות" title="מיון הוצאות"><span aria-hidden="true">↕</span></button>
+          <button id="expenseFilterButton" type="button" class="secondary income-icon-button" aria-label="סינון הוצאות" title="סינון הוצאות"><span aria-hidden="true">⛃</span></button>
+          <div class="action-menu-anchor">
+            <button
+              id="expensesInfoMenuButton"
+              type="button"
+              class="secondary income-icon-button"
+              data-action-menu-button="expensesInfoMenu"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="expensesInfoMenu"
+              aria-label="פעולות מידע"
+              title="פעולות מידע">
+              <span aria-hidden="true">⋮</span>
+            </button>
+            <div
+              id="expensesInfoMenu"
+              class="action-menu hidden"
+              role="menu"
+              aria-label="פעולות מסך הוצאות"
+              data-info-actions-menu
+              data-info-actions-scope="expenses-report"
+              data-info-actions-purpose="report"
+              data-info-actions-collector="collectExpensesInfoReport">
+              <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
+              <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+              <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
+              <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
+            </div>
           </div>
         </div>
       </div>
-      <div class="card"><div id="expensesTable" class="table-wrap">טוענת…</div></div>
+      <div id="expenseFilterChips" class="income-filter-chips hidden" aria-label="מסננים פעילים"></div>
+      <div class="income-list-shell">
+        <div id="expensesTable" class="table-wrap">טוענת…</div>
+      </div>
     </section>
 
     <section id="incomeView" class="view">
@@ -298,12 +307,7 @@
       <button id="expenseDetailsDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת הוצאה" title="מחיקת הוצאה">❌</button>
       <button id="expenseDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הוצאה" title="עריכת הוצאה">✏️</button>
       <button id="expenseDetailsShareMenuButton" class="row-action" type="button" data-action-menu-button="expenseDetailsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="expenseDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">
-        <svg class="share-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
-          <circle cx="6" cy="12" r="2.4"></circle>
-          <circle cx="18" cy="6" r="2.4"></circle>
-          <circle cx="18" cy="18" r="2.4"></circle>
-          <path d="M8 11l7-4M8 13l7 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-        </svg>
+        ⋮
       </button>
       <div id="expenseDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הוצאה">
         <button id="expenseDetailsShareAction" type="button" role="menuitem">שיתוף</button>
@@ -500,8 +504,58 @@
 </dialog>
 
 <dialog id="zDialog">
-  <div class="modal-head"><strong id="zDialogTitle">הכנסה חדשה</strong><button data-close aria-label="סגירת חלון הכנסה">✕</button></div>
+  <div class="modal-head">
+    <strong id="zDialogTitle">הכנסה חדשה</strong>
+    <div id="incomeDialogHeaderActions" class="row-actions hidden" aria-label="פעולות הכנסה">
+      <button id="incomeDetailsDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת הכנסה" title="מחיקת הכנסה">❌</button>
+      <button id="incomeDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הכנסה" title="עריכת הכנסה">✏️</button>
+      <button id="incomeDetailsShareMenuButton" class="row-action" type="button" data-action-menu-button="incomeDetailsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="incomeDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">⋮</button>
+      <div id="incomeDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הכנסה">
+        <button id="incomeDetailsShareAction" type="button" role="menuitem">שיתוף</button>
+        <button id="incomeDetailsExportPdfAction" type="button" role="menuitem">ייצוא PDF</button>
+        <button id="incomeDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
+      </div>
+    </div>
+    <button id="incomeDialogCloseButton" data-close aria-label="סגירת חלון הכנסה">✕</button>
+  </div>
   <div class="modal-body">
+    <section id="incomeDetailsView" class="expense-details hidden" aria-label="פרטי הכנסה">
+      <section class="expense-details-section expense-details-section-primary" aria-label="סוג הכנסה וסכום">
+        <p class="expense-details-label">סוג הכנסה</p>
+        <p id="incomeDetailsType" class="expense-details-supplier">-</p>
+        <p id="incomeDetailsSource" class="expense-details-sub">-</p>
+      </section>
+
+      <section class="expense-details-section expense-details-section-compact" aria-label="פרטי הכנסה">
+        <div class="expense-details-kv"><span>תאריך מסמך</span><strong id="incomeDetailsDate">-</strong></div>
+        <div class="expense-details-kv"><span>שעת דיווח</span><strong id="incomeDetailsTime">-</strong></div>
+        <div class="expense-details-kv"><span>תאריך הזנה</span><strong id="incomeDetailsCreatedAt">-</strong></div>
+      </section>
+
+      <section class="expense-details-section" aria-label="סכומים">
+        <p class="expense-details-label">סכומים</p>
+        <div class="expense-amounts-grid">
+          <div class="expense-amount-item"><span>סכום</span><strong id="incomeDetailsAmount">-</strong></div>
+        </div>
+      </section>
+
+      <section class="expense-details-section" aria-label="מסמכים מקושרים">
+        <p class="expense-details-label">מסמכים מקושרים</p>
+        <p id="incomeDetailsDocumentsEmpty" class="expense-details-sub">אין מסמכים מצורפים</p>
+        <div id="incomeDetailsDocumentsList" class="expense-linked-documents hidden" role="list" aria-label="רשימת מסמכים מקושרים"></div>
+      </section>
+
+      <section class="expense-details-section expense-details-section-compact" aria-label="פרטים נוספים">
+        <div class="expense-details-kv"><span>פרויקט</span><strong id="incomeDetailsProject">-</strong></div>
+        <div class="expense-details-kv"><span>הערות</span><strong id="incomeDetailsNotes">-</strong></div>
+        <div class="expense-details-kv"><span>דיווח לרו״ח</span><strong id="incomeDetailsReportingStatus">-</strong></div>
+      </section>
+
+      <div class="expense-details-footer-actions">
+        <button id="incomeDetailsCloseButton" type="button" class="secondary">סגירה</button>
+      </div>
+    </section>
+
     <form id="zForm" class="form-grid">
       <label>תאריך<input id="zDate" type="date" required></label>
       <label>שעה<input id="zTime" type="time" required></label>
@@ -524,6 +578,67 @@
       <div id="zStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>
+</dialog>
+
+<dialog id="expenseSortDialog" aria-labelledby="expenseSortDialogTitle">
+  <div class="modal-head">
+    <strong id="expenseSortDialogTitle">מיון הוצאות</strong>
+    <button data-close type="button" aria-label="סגירת חלון מיון">✕</button>
+  </div>
+  <form id="expenseSortForm" class="modal-body income-dialog-body">
+    <section class="income-dialog-section">
+      <h3>שדה מיון</h3>
+      <div id="expenseSortFieldList" class="income-sort-field-list" role="radiogroup" aria-label="שדות מיון"></div>
+    </section>
+    <section class="income-dialog-section">
+      <h3>סדר</h3>
+      <div class="income-sort-direction-list" role="radiogroup" aria-label="כיוון מיון">
+        <button id="expenseSortDirectionDesc" type="button" class="secondary income-direction-button" data-expense-sort-direction="desc">יורד</button>
+        <button id="expenseSortDirectionAsc" type="button" class="secondary income-direction-button" data-expense-sort-direction="asc">עולה</button>
+      </div>
+    </section>
+    <div class="dialog-actions income-dialog-actions">
+      <button type="submit" class="primary">החל מיון</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="expenseFilterDialog" aria-labelledby="expenseFilterDialogTitle">
+  <div class="modal-head">
+    <strong id="expenseFilterDialogTitle">סינון הוצאות</strong>
+    <button data-close type="button" aria-label="סגירת חלון סינון">✕</button>
+  </div>
+  <form id="expenseFilterForm" class="modal-body income-dialog-body">
+    <section class="income-dialog-section">
+      <label for="expenseFilterSupplier">ספק</label>
+      <input id="expenseFilterSupplier" type="search" placeholder="חיפוש לפי ספק" autocomplete="off">
+    </section>
+    <section class="income-dialog-section">
+      <label for="expenseFilterAccountingType">סוג חשבונאי</label>
+      <select id="expenseFilterAccountingType" aria-label="סינון לפי סוג חשבונאי"></select>
+    </section>
+    <section class="income-dialog-section">
+      <label for="expenseFilterPaymentSource">מקור תשלום</label>
+      <select id="expenseFilterPaymentSource" aria-label="סינון לפי מקור תשלום"></select>
+    </section>
+    <section class="income-dialog-section">
+      <h3>תאריך מסמך</h3>
+      <div class="income-filter-range">
+        <label>
+          מ-
+          <input id="expenseFilterDateFrom" type="date" aria-label="תאריך מסמך מהתחלה">
+        </label>
+        <label>
+          עד
+          <input id="expenseFilterDateTo" type="date" aria-label="תאריך מסמך עד">
+        </label>
+      </div>
+    </section>
+    <div class="dialog-actions income-dialog-actions">
+      <button id="expenseFilterClearButton" type="button" class="secondary">נקה הכל</button>
+      <button type="submit" class="primary">החל סינון</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="incomeSortDialog" aria-labelledby="incomeSortDialogTitle">

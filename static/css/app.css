@@ -72,6 +72,40 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .card{padding:18px;margin-bottom:14px}
 .card-head-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .card-head-inline h3{margin:0}
+.income-page-header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;direction:ltr}
+.income-page-header h2{margin:0;direction:rtl}
+.income-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;direction:ltr}
+.income-new-button{white-space:nowrap}
+.income-icon-button{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;line-height:1}
+.income-icon-button.is-active{background:#eef5fb;border-color:#b7cae1;color:var(--brand2)}
+.income-filter-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.income-filter-chip-list{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.income-filter-chip{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:8px 12px;border:1px solid #cfe0ef;background:#fff;border-radius:999px;color:var(--brand);font-weight:700;cursor:pointer}
+.income-filter-chip:hover{border-color:#b5c7da;background:#f8fbff}
+.income-filter-chip-label{font-size:.84rem;color:var(--muted)}
+.income-filter-chip-value{font-size:.88rem}
+.income-filter-chip-remove{font-size:.78rem;line-height:1}
+.income-filter-clear-all{min-height:36px;padding:8px 12px}
+.income-list-shell{background:var(--card);border:1px solid rgba(16,44,78,.08);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.income-list-shell .table-wrap{overflow:auto}
+.income-dialog-body{display:grid;gap:16px}
+.income-dialog-section{display:grid;gap:10px}
+.income-dialog-section h3{margin:0;color:var(--brand);font-size:1rem}
+.income-sort-field-list{display:grid;gap:8px}
+.income-sort-field-option{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer}
+.income-sort-field-option:hover,.income-sort-field-option:focus-within{border-color:#b7cae1;background:#f8fbff}
+.income-sort-field-option.is-active{border-color:#b7cae1;background:#eef5fb}
+.income-sort-field-option input{margin:0}
+.income-sort-field-option strong{display:block;color:var(--brand);font-size:.96rem}
+.income-sort-field-option small{display:block;color:var(--muted);font-size:.85rem;line-height:1.4}
+.income-sort-direction-list,.income-filter-source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.income-filter-source-list{grid-template-columns:repeat(3,minmax(0,1fr))}
+.income-direction-button,.income-filter-source-button{min-height:44px;padding:10px 12px}
+.income-direction-button.is-active,.income-filter-source-button.is-active{background:#eef5fb;border-color:#b7cae1;color:var(--brand2)}
+.income-filter-range{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.income-filter-range label{font-weight:700}
+.income-filter-range input,.income-dialog-section select,.income-dialog-section input{margin-top:6px}
+.income-dialog-actions{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .income-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .income-sort-label{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--brand)}
 .income-sort-label select{min-width:170px;padding:8px 10px;border-radius:10px}
@@ -166,7 +200,7 @@ th{background:#eef3f8;color:var(--brand)}
 #zTable .income-table td:nth-child(7){width:78px;text-align:center}
 #zTable .income-table .doc-indicator{padding:4px 6px;gap:4px;font-size:.74rem}
 #zTable .income-table .doc-indicator-icon{font-size:.82rem}
-.bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
+.bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
 .bottom-nav button{border:0;background:transparent;color:var(--muted);padding:7px 2px;font-size:.78rem}
 .bottom-nav button.active{color:var(--brand);font-weight:800}
 .bottom-nav .icon{display:block;font-size:1.25rem}
@@ -240,14 +274,15 @@ dialog::backdrop{background:#07182a99}
 .grouping-manual-group-line{margin:0;color:var(--text)}
 .grouping-manual-footer{display:flex;justify-content:flex-end}
 .grouping-manual-footer button{min-width:240px}
-.review-list{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
-.review-list .table-wrap{overflow-x:auto;overflow-y:hidden}
+.review-list{margin-top:14px;padding:10px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.review-list-title{margin:0 0 8px;color:var(--brand);font-size:1rem}
+.review-list .table-wrap{overflow-x:hidden;overflow-y:hidden}
 .review-list table{width:100%;min-width:0;table-layout:fixed}
-.review-list th,.review-list td{padding:8px 6px;white-space:normal;vertical-align:middle}
-.review-list th:nth-child(1),.review-list td:nth-child(1){width:50%}
-.review-list th:nth-child(2),.review-list td:nth-child(2){width:30%}
-.review-list th:nth-child(3),.review-list td:nth-child(3){width:20%}
-.review-row-open{display:block;width:100%;border:0;background:transparent;color:var(--brand2);font-weight:800;padding:0;cursor:pointer;text-align:inherit}
+.review-list th,.review-list td{padding:7px 4px;white-space:normal;vertical-align:middle}
+.review-list th:nth-child(1),.review-list td:nth-child(1){width:42%}
+.review-list th:nth-child(2),.review-list td:nth-child(2){width:29%}
+.review-list th:nth-child(3),.review-list td:nth-child(3){width:29%}
+.review-row-open{display:block;width:100%;border:0;background:transparent;color:var(--brand2);font-weight:800;padding:0;cursor:pointer;text-align:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .review-context{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}
 .review-document-wrap{margin-top:10px;display:grid;gap:8px}
 .review-document-panel{position:relative;border:1px solid var(--line);border-radius:14px;background:#f8fbff;min-height:360px;display:flex;align-items:center;justify-content:center;overflow:hidden}
@@ -306,6 +341,12 @@ dialog::backdrop{background:#07182a99}
   .topbar-primary{gap:8px}
   .topbar-title{max-width:calc(100% - 148px)}
   .topbar-back{padding:8px 10px;font-size:.95rem}
+  .income-page-header{align-items:flex-start;gap:10px}
+  .income-page-actions{justify-content:flex-start}
+  .income-filter-source-list{grid-template-columns:1fr}
+  .income-sort-direction-list,.income-filter-range{grid-template-columns:1fr}
+  .income-dialog-actions{align-items:stretch}
+  .income-dialog-actions .primary,.income-dialog-actions .secondary{width:100%}
   .snapshot{grid-template-columns:1fr 1fr}
   .income-head-actions{width:100%;justify-content:space-between}
   .income-sort-label{font-size:.92rem}
@@ -326,8 +367,9 @@ dialog::backdrop{background:#07182a99}
   .review-fullscreen-page-arrow-prev{left:2px}
   .review-fullscreen-page-arrow-next{right:2px}
   .review-fullscreen-content iframe{width:100%;height:100%}
-  .review-list{padding:10px}
-  .review-list th,.review-list td{padding:7px 4px;font-size:.92rem}
+  .review-list{padding:9px}
+  .review-list-title{margin-bottom:6px;font-size:.96rem}
+  .review-list th,.review-list td{padding:6px 3px;font-size:.9rem}
   .company-documents-manage-item{padding:7px 8px;gap:5px;grid-template-columns:minmax(0,1fr) 30px}
   .company-documents-manage-item .row-action{width:30px;min-width:30px;max-width:30px;min-height:30px;font-size:.78rem}
   .expense-details-grid{grid-template-columns:1fr}

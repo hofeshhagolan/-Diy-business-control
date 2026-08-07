@@ -51,6 +51,28 @@ const Z_INCOME_TYPE_DEFAULT = 'דו"ח Z';
 const NON_Z_INCOME_SOURCE = "non_z";
 const Z_REPORT_INCOME_SOURCE = "z_report";
 const DEFAULT_INCOME_SORT = "entry_desc";
+const DEFAULT_INCOME_SORT_STATE = Object.freeze({field:"entry_date", direction:"desc"});
+const DEFAULT_INCOME_FILTER_STATE = Object.freeze({
+  source:"",
+  projectId:"",
+  incomeType:"",
+  entryDateFrom:"",
+  entryDateTo:"",
+  documentDateFrom:"",
+  documentDateTo:""
+});
+const INCOME_SORT_FIELD_DEFINITIONS = Object.freeze([
+  {key:"entry_date", label:"תאריך הזנה", hint:"תאריך יצירת הרשומה"},
+  {key:"document_date", label:"תאריך מסמך", hint:"תאריך החשבונית"},
+  {key:"amount", label:"סכום", hint:"מיון מספרי"},
+  {key:"income_type", label:"סוג הכנסה", hint:"מיון אלפביתי"},
+  {key:"project", label:"פרויקט", hint:"מיון אלפביתי"}
+]);
+const INCOME_FILTER_SOURCE_OPTIONS = Object.freeze([
+  {value:"", label:"הכל"},
+  {value:Z_REPORT_INCOME_SOURCE, label:'דו"ח Z'},
+  {value:NON_Z_INCOME_SOURCE, label:"הכנסה אחרת"}
+]);
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
@@ -84,6 +106,11 @@ let currentExpenseDialogMode = EXPENSE_DIALOG_MODES.NEW;
 let currentExpenseDetailsRecord = null;
 let currentExpenseEditId = "";
 let currentExpensePermissions = {canEdit:true, canDelete:true};
+let incomeRows = [];
+let incomeSortState = {...DEFAULT_INCOME_SORT_STATE};
+let incomeSortDraft = {...DEFAULT_INCOME_SORT_STATE};
+let incomeFilterState = {...DEFAULT_INCOME_FILTER_STATE};
+let incomeFilterDraft = {...DEFAULT_INCOME_FILTER_STATE};
 
 const showLoading = () => {
   $("loadingScreen")?.classList.remove("hidden");
@@ -219,18 +246,405 @@ function normalizeIncomeType(rawValue){
   return value || Z_INCOME_TYPE_DEFAULT;
 }
 
-function getSelectedIncomeSort(){
-  const sortValue = String($("incomeSortSelect")?.value || DEFAULT_INCOME_SORT).trim();
-  if([
-    "entry_desc",
-    "entry_asc",
-    "document_desc",
-    "document_asc"
-  ].includes(sortValue)){
-    return sortValue;
+function getIncomeSortDefinition(fieldKey){
+  return INCOME_SORT_FIELD_DEFINITIONS.find(field => field.key === fieldKey) || INCOME_SORT_FIELD_DEFINITIONS[0];
+}
+
+function getIncomeSortLabel(state = incomeSortState){
+  const field = getIncomeSortDefinition(state.field);
+  const directionLabel = state.direction === "asc" ? "עולה" : "יורד";
+  return `${field?.label || "מיון"} · ${directionLabel}`;
+}
+
+function normalizeIncomeListRow(row){
+  const reportDate = String(row?.report_date || "").trim();
+  const reportTime = String(row?.report_time || "").trim().slice(0,5);
+  const createdAt = String(row?.created_at || "").trim();
+  const documentDateTime = `${reportDate}${reportTime ? `T${reportTime}` : ""}`;
+  const entryDateTime = createdAt || documentDateTime;
+  const incomeType = normalizeIncomeType(row?.income_type);
+  const projectId = String(row?.projects?.id || "").trim();
+  const projectName = String(row?.projects?.name || "").trim();
+
+  return {
+    ...row,
+    reportDate,
+    reportTime,
+    entryDateTime,
+    documentDateTime,
+    amountValue: Number(row?.total_income_ils || 0),
+    incomeTypeValue: incomeType,
+    projectIdValue: projectId,
+    projectNameValue: projectName,
+    sourceValue: row?.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE
+  };
+}
+
+function getIncomeSortValue(row, fieldKey){
+  switch(fieldKey){
+    case "entry_date":
+      return Date.parse(row.entryDateTime || "") || 0;
+    case "document_date":
+      return Date.parse(row.documentDateTime || row.reportDate || "") || 0;
+    case "amount":
+      return Number(row.amountValue || 0);
+    case "income_type":
+      return row.incomeTypeValue || "";
+    case "project":
+      return row.projectNameValue || "";
+    default:
+      return row.entryDateTime || row.documentDateTime || row.amountValue || row.incomeTypeValue || row.projectNameValue || "";
+  }
+}
+
+function compareIncomeRows(left, right){
+  const sortField = getIncomeSortDefinition(incomeSortState.field);
+  const directionMultiplier = incomeSortState.direction === "asc" ? 1 : -1;
+  const leftValue = getIncomeSortValue(left, sortField.key);
+  const rightValue = getIncomeSortValue(right, sortField.key);
+
+  let comparison = 0;
+  if(typeof leftValue === "number" || typeof rightValue === "number"){
+    comparison = Number(leftValue || 0) - Number(rightValue || 0);
+  } else {
+    comparison = String(leftValue || "").localeCompare(String(rightValue || ""), "he", {numeric:true, sensitivity:"base"});
   }
 
-  return DEFAULT_INCOME_SORT;
+  if(comparison !== 0) return comparison * directionMultiplier;
+
+  return String(left?.id || "").localeCompare(String(right?.id || ""), "he", {numeric:true, sensitivity:"base"}) * directionMultiplier;
+}
+
+function matchesIncomeFilters(row){
+  const filters = incomeFilterState;
+
+  if(filters.source && row.sourceValue !== filters.source){
+    return false;
+  }
+
+  if(filters.projectId && row.projectIdValue !== filters.projectId){
+    return false;
+  }
+
+  const incomeTypeQuery = String(filters.incomeType || "").trim().toLowerCase();
+  if(incomeTypeQuery && !String(row.incomeTypeValue || "").toLowerCase().includes(incomeTypeQuery)){
+    return false;
+  }
+
+  const entryDate = String(row.entryDateTime || "").slice(0,10);
+  const documentDate = String(row.reportDate || "").slice(0,10);
+
+  if(filters.entryDateFrom && entryDate && entryDate < filters.entryDateFrom) return false;
+  if(filters.entryDateTo && entryDate && entryDate > filters.entryDateTo) return false;
+  if(filters.documentDateFrom && documentDate && documentDate < filters.documentDateFrom) return false;
+  if(filters.documentDateTo && documentDate && documentDate > filters.documentDateTo) return false;
+
+  return true;
+}
+
+function hasActiveIncomeFilters(){
+  return Boolean(
+    incomeFilterState.source
+    || incomeFilterState.projectId
+    || String(incomeFilterState.incomeType || "").trim()
+    || incomeFilterState.entryDateFrom
+    || incomeFilterState.entryDateTo
+    || incomeFilterState.documentDateFrom
+    || incomeFilterState.documentDateTo
+  );
+}
+
+function getIncomeProjectLabel(projectId){
+  const safeProjectId = String(projectId || "").trim();
+  if(!safeProjectId) return "הכל";
+
+  const projectSelect = $("zProject");
+  const option = Array.from(projectSelect?.options || []).find(item => item.value === safeProjectId);
+  return option?.textContent?.trim() || "פרויקט";
+}
+
+function getIncomeFilterSummaryText(key, value){
+  switch(key){
+    case "source":
+      return INCOME_FILTER_SOURCE_OPTIONS.find(option => option.value === value)?.label || "הכל";
+    case "projectId":
+      return getIncomeProjectLabel(value);
+    default:
+      return value;
+  }
+}
+
+function syncIncomeHeaderActions(){
+  const filterButton = $("incomeFilterButton");
+  if(filterButton){
+    filterButton.classList.toggle("is-active", hasActiveIncomeFilters());
+  }
+}
+
+function clearIncomeFilters(){
+  incomeFilterState = {...DEFAULT_INCOME_FILTER_STATE};
+  incomeFilterDraft = {...DEFAULT_INCOME_FILTER_STATE};
+  syncIncomeFilterDialogFromState();
+  renderIncomeFilterChips();
+  renderIncomeList();
+}
+
+function renderIncomeFilterChips(){
+  const chipHost = $("incomeFilterChips");
+  if(!chipHost) return;
+
+  const entries = [
+    ["source", incomeFilterState.source],
+    ["projectId", incomeFilterState.projectId],
+    ["incomeType", String(incomeFilterState.incomeType || "").trim()],
+    ["entryDateFrom", incomeFilterState.entryDateFrom],
+    ["entryDateTo", incomeFilterState.entryDateTo],
+    ["documentDateFrom", incomeFilterState.documentDateFrom],
+    ["documentDateTo", incomeFilterState.documentDateTo]
+  ];
+
+  const chips = entries
+    .filter(([,value]) => Boolean(value))
+    .map(([key, value]) => {
+      const labels = {
+        source: "מקור",
+        projectId: "פרויקט",
+        incomeType: "סוג הכנסה",
+        entryDateFrom: "תאריך הזנה מ",
+        entryDateTo: "תאריך הזנה עד",
+        documentDateFrom: "תאריך מסמך מ",
+        documentDateTo: "תאריך מסמך עד"
+      };
+
+      const label = labels[key] || key;
+      const summary = String(getIncomeFilterSummaryText(key, value) || "").replace(/"/g, "&quot;");
+      return `
+        <button type="button" class="income-filter-chip" data-income-filter-remove="${key}" aria-label="הסרת סינון ${label} ${summary}">
+          <span class="income-filter-chip-label">${label}</span>
+          <span class="income-filter-chip-value">${summary}</span>
+          <span class="income-filter-chip-remove" aria-hidden="true">✕</span>
+        </button>
+      `;
+    });
+
+  if(!chips.length){
+    chipHost.innerHTML = "";
+    chipHost.classList.add("hidden");
+    syncIncomeHeaderActions();
+    return;
+  }
+
+  chipHost.innerHTML = `
+    <div class="income-filter-chip-list">${chips.join("")}</div>
+    <button type="button" id="incomeFilterClearAll" class="secondary income-filter-clear-all">נקה הכל</button>
+  `;
+  chipHost.classList.remove("hidden");
+
+  chipHost.querySelectorAll("[data-income-filter-remove]").forEach(button => {
+    button.addEventListener("click", () => {
+      const filterKey = button.dataset.incomeFilterRemove;
+      if(!filterKey) return;
+      incomeFilterState = {
+        ...incomeFilterState,
+        [filterKey]: ""
+      };
+      syncIncomeFilterDialogFromState();
+      renderIncomeFilterChips();
+      renderIncomeList();
+    });
+  });
+
+  $("incomeFilterClearAll")?.addEventListener("click", clearIncomeFilters);
+  syncIncomeHeaderActions();
+}
+
+function syncIncomeSortDialogFromState(nextDraft = null){
+  incomeSortDraft = nextDraft ? {...nextDraft} : {...incomeSortState};
+  const sortFieldList = $("incomeSortFieldList");
+  if(sortFieldList){
+    sortFieldList.querySelectorAll("[data-income-sort-field]").forEach(button => {
+      const isActive = button.dataset.incomeSortField === incomeSortDraft.field;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  document.querySelectorAll("[data-income-sort-direction]").forEach(button => {
+    const isActive = button.dataset.incomeSortDirection === incomeSortDraft.direction;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+function syncIncomeFilterDialogFromState(nextDraft = null){
+  incomeFilterDraft = nextDraft ? {...nextDraft} : {...incomeFilterState};
+  const sourceButtons = document.querySelectorAll("[data-income-filter-source]");
+  sourceButtons.forEach(button => {
+    const isActive = button.dataset.incomeFilterSource === incomeFilterDraft.source;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+
+  const projectSelect = $("incomeFilterProject");
+  if(projectSelect){
+    const sourceSelect = $("zProject");
+    const projectOptions = Array.from(sourceSelect?.options || []);
+    projectSelect.innerHTML = projectOptions.length
+      ? projectOptions.map(option => `
+        <option value="${String(option.value || "").replace(/"/g, "&quot;")}">${String(option.textContent || "").replace(/"/g, "&quot;")}</option>
+      `).join("")
+      : '<option value="">כל הפרויקטים</option>';
+    projectSelect.value = incomeFilterDraft.projectId || "";
+  }
+
+  if($("incomeFilterIncomeType")) $("incomeFilterIncomeType").value = incomeFilterDraft.incomeType || "";
+  if($("incomeFilterEntryDateFrom")) $("incomeFilterEntryDateFrom").value = incomeFilterDraft.entryDateFrom || "";
+  if($("incomeFilterEntryDateTo")) $("incomeFilterEntryDateTo").value = incomeFilterDraft.entryDateTo || "";
+  if($("incomeFilterDocumentDateFrom")) $("incomeFilterDocumentDateFrom").value = incomeFilterDraft.documentDateFrom || "";
+  if($("incomeFilterDocumentDateTo")) $("incomeFilterDocumentDateTo").value = incomeFilterDraft.documentDateTo || "";
+}
+
+function renderIncomeSortDialog(){
+  const fieldList = $("incomeSortFieldList");
+  if(!fieldList) return;
+
+  fieldList.innerHTML = INCOME_SORT_FIELD_DEFINITIONS.map(field => `
+    <label class="income-sort-field-option">
+      <input type="radio" name="incomeSortField" value="${field.key}" data-income-sort-field="${field.key}" ${incomeSortDraft.field === field.key ? "checked" : ""}>
+      <span>
+        <strong>${field.label}</strong>
+        <small>${field.hint}</small>
+      </span>
+    </label>
+  `).join("");
+
+  fieldList.querySelectorAll('input[name="incomeSortField"]').forEach(input => {
+    input.addEventListener("change", () => {
+      incomeSortDraft.field = input.value;
+      syncIncomeSortDialogFromState(incomeSortDraft);
+    });
+  });
+
+  document.querySelectorAll("[data-income-sort-direction]").forEach(button => {
+    button.addEventListener("click", () => {
+      incomeSortDraft.direction = button.dataset.incomeSortDirection === "asc" ? "asc" : "desc";
+      syncIncomeSortDialogFromState(incomeSortDraft);
+    });
+  });
+}
+
+function openIncomeSortDialog(){
+  syncIncomeSortDialogFromState();
+  $("incomeSortDialog")?.showModal();
+}
+
+function openIncomeFilterDialog(){
+  syncIncomeFilterDialogFromState();
+  $("incomeFilterDialog")?.showModal();
+}
+
+function renderIncomeList(){
+  const tableHost = $("zTable");
+  if(!tableHost) return;
+
+  const rows = incomeRows.map(normalizeIncomeListRow).filter(matchesIncomeFilters).sort(compareIncomeRows);
+
+  if(!rows.length){
+    tableHost.textContent = incomeRows.length ? "לא נמצאו הכנסות התואמות לסינון." : "אין עדיין הכנסות";
+    renderIncomeFilterChips();
+    syncIncomeHeaderActions();
+    return;
+  }
+
+  tableHost.innerHTML = `
+    <table class="income-table" aria-label="טבלת הכנסות">
+      <thead>
+        <tr>
+          <th scope="col">תאריך</th>
+          <th scope="col">שעה</th>
+          <th scope="col">הכנסות</th>
+          <th scope="col">סוג הכנסה</th>
+          <th scope="col">פרויקט</th>
+          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
+          <th scope="col" aria-label="פעולות">פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => {
+          const documentCount = Array.isArray(row.z_report_documents) ? row.z_report_documents.length : 0;
+          const hasDocuments = documentCount > 0;
+          const documentLabel = hasDocuments
+            ? `פתיחת מסמכי הכנסה (${documentCount})`
+            : "אין מסמכים מצורפים להכנסה";
+
+          return `
+          <tr>
+            <td>${row.reportDate || ""}</td>
+            <td>${row.reportTime || ""}</td>
+            <td>${money(row.amountValue)}</td>
+            <td>${row.incomeTypeValue || ""}</td>
+            <td>${row.projectNameValue || ""}</td>
+            <td>
+              <button
+                class="doc-indicator ${hasDocuments ? "active" : "inactive"}"
+                type="button"
+                ${hasDocuments ? `data-z-report-id="${row.id}" data-z-report-income-type="${String(row.incomeTypeValue || "").replace(/"/g, "&quot;")}"` : "disabled aria-disabled=\"true\""}
+                aria-label="${documentLabel}"
+                title="${documentLabel}">
+                <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
+                <span class="doc-indicator-text">${hasDocuments ? `(${documentCount})` : "(0)"}</span>
+              </button>
+            </td>
+            <td>
+              <div class="row-actions">
+                <button
+                  class="row-action edit-action"
+                  type="button"
+                  data-z-report-id="${row.id}"
+                  data-z-report-date="${row.reportDate || ""}"
+                  data-z-report-time="${row.reportTime || ""}"
+                  data-z-report-total="${Number(row.amountValue || 0)}"
+                  data-z-report-income-type="${String(row.incomeTypeValue || "").replace(/"/g, "&quot;")}"
+                  data-z-report-project-id="${String(row.projectIdValue || "").replace(/"/g, "&quot;")}"
+                  data-z-report-notes="${String(row.notes || "").replace(/"/g, "&quot;")}"
+                  data-z-report-income-source="${row.sourceValue}"
+                  aria-label="עריכת הכנסה"
+                  title="עריכת הכנסה">
+                  ✏️
+                </button>
+                <button
+                  class="row-action delete-action"
+                  type="button"
+                  data-z-report-id="${row.id}"
+                  aria-label="מחיקת הכנסה"
+                  title="מחיקת הכנסה">
+                  ❌
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+
+  renderIncomeFilterChips();
+  syncIncomeHeaderActions();
+
+  tableHost.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
+    button.onclick = () => {
+      void openZReportDocuments(button.dataset.zReportId || "", button.dataset.zReportIncomeType || "");
+    };
+  });
+
+  tableHost.querySelectorAll(".edit-action[data-z-report-id]").forEach(button => {
+    button.onclick = () => startEditingZReport(button);
+  });
+
+  tableHost.querySelectorAll(".delete-action[data-z-report-id]").forEach(button => {
+    button.onclick = () => void deleteZReport(button.dataset.zReportId || "");
+  });
 }
 
 function addIncomeTypeSuggestion(rawValue){
@@ -3722,8 +4136,10 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
 
   setCurrentExpenseReviewDocument({signedUrl, mimeType});
   panel.innerHTML = "";
+  panel.classList.remove("preview-openable", "preview-overlay-openable");
 
   if(String(mimeType || "").toLowerCase().startsWith("image/")){
+    panel.classList.add("preview-openable");
     const image = document.createElement("img");
     image.src = signedUrl;
     image.alt = "מסמך חשבונית נבחר";
@@ -3749,6 +4165,24 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
   frame.title = "מסמך חשבונית נבחר";
   frame.loading = "lazy";
   panel.appendChild(frame);
+
+  panel.classList.add("preview-overlay-openable");
+  const openOverlay = document.createElement("button");
+  openOverlay.type = "button";
+  openOverlay.className = "review-document-overlay-trigger";
+  openOverlay.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
+  openOverlay.setAttribute("title", "פתחי במסך מלא");
+  openOverlay.addEventListener("click", () => {
+    expenseReviewFullscreenOpener = openOverlay;
+    openExpenseReviewFullscreen();
+  });
+  openOverlay.addEventListener("keydown", event => {
+    if(event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    expenseReviewFullscreenOpener = openOverlay;
+    openExpenseReviewFullscreen();
+  });
+  panel.appendChild(openOverlay);
 }
 
 function clearExpenseReviewPageSelection(){
@@ -5007,6 +5441,10 @@ setupManualTablist(["loginTab","signupTab"], setAuthTab);
 setupManualTablist(["insightsTab","chatTab"], setAlTab);
 setupDashboardCardNavigation();
 setupDisabledFinanceHubFeedback();
+renderIncomeSortDialog();
+syncIncomeFilterDialogFromState();
+renderIncomeFilterChips();
+syncIncomeHeaderActions();
 setAuthTab($("signupTab").classList.contains("active") ? "signupTab" : "loginTab");
 setAlTab($("chatTab").classList.contains("active") ? "chatTab" : "insightsTab");
 renderCompanyDocuments();
@@ -5922,131 +6360,19 @@ function startEditingZReport(button){
 }
 
 async function loadZReports(){
-  const incomeSort = getSelectedIncomeSort();
-
   let query = sb.from("daily_z_reports")
     .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
     .eq("user_id",userId);
 
-  if(incomeSort === "entry_asc"){
-    query = query
-      .order("created_at",{ascending:true, nullsFirst:true})
-      .order("report_date",{ascending:true})
-      .order("report_time",{ascending:true, nullsFirst:true})
-      .order("id",{ascending:true});
-  } else if(incomeSort === "document_desc"){
-    query = query
-      .order("report_date",{ascending:false})
-      .order("report_time",{ascending:false, nullsFirst:false})
-      .order("id",{ascending:false});
-  } else if(incomeSort === "document_asc"){
-    query = query
-      .order("report_date",{ascending:true})
-      .order("report_time",{ascending:true, nullsFirst:true})
-      .order("id",{ascending:true});
-  } else {
-    query = query
-      .order("created_at",{ascending:false, nullsFirst:false})
-      .order("report_date",{ascending:false})
-      .order("report_time",{ascending:false, nullsFirst:false})
-      .order("id",{ascending:false});
-  }
-
-  const {data,error} = await query.limit(60);
+  const {data,error} = await query.order("created_at",{ascending:false, nullsFirst:false});
 
   if(error){
     $("zTable").textContent = error.message;
     return;
   }
 
-  $("zTable").innerHTML = (data || []).length ? `
-    <table class="income-table" aria-label="טבלת הכנסות">
-      <thead>
-        <tr>
-          <th scope="col">תאריך</th>
-          <th scope="col">שעה</th>
-          <th scope="col">הכנסות</th>
-          <th scope="col">סוג הכנסה</th>
-          <th scope="col">פרויקט</th>
-          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
-          <th scope="col" aria-label="פעולות">פעולות</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(data || []).map(row => {
-          const documentCount = Array.isArray(row.z_report_documents) ? row.z_report_documents.length : 0;
-          const hasDocuments = documentCount > 0;
-          const incomeType = normalizeIncomeType(row.income_type);
-          const documentLabel = hasDocuments
-            ? `פתיחת מסמכי הכנסה (${documentCount})`
-            : "אין מסמכים מצורפים להכנסה";
-          const reportTime = row.report_time ? String(row.report_time).slice(0,5) : "";
-
-          return `
-          <tr>
-            <td>${row.report_date}</td>
-            <td>${reportTime}</td>
-            <td>${money(row.total_income_ils)}</td>
-            <td>${incomeType}</td>
-            <td>${row.projects?.name || ""}</td>
-            <td>
-              <button
-                class="doc-indicator ${hasDocuments ? "active" : "inactive"}"
-                type="button"
-                ${hasDocuments ? `data-z-report-id="${row.id}" data-z-report-income-type="${incomeType.replace(/"/g, "&quot;")}"` : "disabled aria-disabled=\"true\""}
-                aria-label="${documentLabel}"
-                title="${documentLabel}">
-                <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
-                <span class="doc-indicator-text">${hasDocuments ? `(${documentCount})` : "(0)"}</span>
-              </button>
-            </td>
-            <td>
-              <div class="row-actions">
-                <button
-                  class="row-action edit-action"
-                  type="button"
-                  data-z-report-id="${row.id}"
-                  data-z-report-date="${row.report_date}"
-                  data-z-report-time="${reportTime}"
-                  data-z-report-total="${Number(row.total_income_ils || 0)}"
-                  data-z-report-income-type="${incomeType.replace(/"/g, "&quot;")}"
-                  data-z-report-project-id="${row.projects?.id || ""}"
-                  data-z-report-notes="${String(row.notes || "").replace(/"/g, "&quot;")}"
-                  data-z-report-income-source="${row.is_from_z_report === false ? NON_Z_INCOME_SOURCE : Z_REPORT_INCOME_SOURCE}"
-                  aria-label="עריכת הכנסה"
-                  title="עריכת הכנסה">
-                  ✏️
-                </button>
-                <button
-                  class="row-action delete-action"
-                  type="button"
-                  data-z-report-id="${row.id}"
-                  aria-label="מחיקת הכנסה"
-                  title="מחיקת הכנסה">
-                  ❌
-                </button>
-              </div>
-            </td>
-          </tr>
-        `;
-        }).join("")} 
-      </tbody>
-    </table>
-  ` : "אין עדיין דו״חות Z";
-
-  document.querySelectorAll(".doc-indicator[data-z-report-id]").forEach(button => {
-    button.onclick = () => {
-      void openZReportDocuments(button.dataset.zReportId || "", button.dataset.zReportIncomeType || "");
-    };
-  });
-
-  document.querySelectorAll(".edit-action[data-z-report-id]").forEach(button => {
-    button.onclick = () => startEditingZReport(button);
-  });
-
-  document.querySelectorAll(".delete-action[data-z-report-id]").forEach(button => {
-    button.onclick = () => void deleteZReport(button.dataset.zReportId || "");
-  });
+  incomeRows = Array.isArray(data) ? data : [];
+  renderIncomeList();
 }
 
 async function loadIncomeTypeSuggestions(){
@@ -6333,8 +6659,63 @@ $("incomeNewButton")?.addEventListener("click", () => {
   openNewIncomeDialog({source: NON_Z_INCOME_SOURCE});
 });
 
-$("incomeSortSelect")?.addEventListener("change", () => {
-  void loadZReports();
+$("incomeSortButton")?.addEventListener("click", () => {
+  openIncomeSortDialog();
+});
+
+$("incomeFilterButton")?.addEventListener("click", () => {
+  openIncomeFilterDialog();
+});
+
+$("incomeSortForm")?.addEventListener("submit", event => {
+  event.preventDefault();
+  incomeSortState = {...incomeSortDraft};
+  $("incomeSortDialog")?.close();
+  renderIncomeList();
+});
+
+$("incomeFilterForm")?.addEventListener("submit", event => {
+  event.preventDefault();
+  incomeFilterState = {...incomeFilterDraft};
+  $("incomeFilterDialog")?.close();
+  renderIncomeFilterChips();
+  renderIncomeList();
+});
+
+$("incomeFilterClearButton")?.addEventListener("click", () => {
+  clearIncomeFilters();
+  $("incomeFilterDialog")?.close();
+});
+
+$("incomeFilterProject")?.addEventListener("change", event => {
+  incomeFilterDraft.projectId = event.target.value || "";
+});
+
+$("incomeFilterIncomeType")?.addEventListener("input", event => {
+  incomeFilterDraft.incomeType = event.target.value || "";
+});
+
+$("incomeFilterEntryDateFrom")?.addEventListener("change", event => {
+  incomeFilterDraft.entryDateFrom = event.target.value || "";
+});
+
+$("incomeFilterEntryDateTo")?.addEventListener("change", event => {
+  incomeFilterDraft.entryDateTo = event.target.value || "";
+});
+
+$("incomeFilterDocumentDateFrom")?.addEventListener("change", event => {
+  incomeFilterDraft.documentDateFrom = event.target.value || "";
+});
+
+$("incomeFilterDocumentDateTo")?.addEventListener("change", event => {
+  incomeFilterDraft.documentDateTo = event.target.value || "";
+});
+
+document.querySelectorAll("[data-income-filter-source]").forEach(button => {
+  button.addEventListener("click", () => {
+    incomeFilterDraft.source = button.dataset.incomeFilterSource || "";
+    syncIncomeFilterDialogFromState(incomeFilterDraft);
+  });
 });
 
 function renderSelectedFiles(){

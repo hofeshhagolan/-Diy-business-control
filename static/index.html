@@ -110,23 +110,16 @@
     </section>
 
     <section id="incomeView" class="view">
-      <h2>הכנסות</h2>
-      <div class="card">
-        <div class="card-head-inline">
-          <h3>הכנסות</h3>
-          <div class="income-head-actions">
-            <label class="income-sort-label" for="incomeSortSelect">
-              מיון
-              <select id="incomeSortSelect" aria-label="מיון רשימת הכנסות">
-                <option value="entry_desc" selected>תאריך הזנה – מהחדש לישן</option>
-                <option value="entry_asc">תאריך הזנה – מהישן לחדש</option>
-                <option value="document_desc">תאריך מסמך – מהחדש לישן</option>
-                <option value="document_asc">תאריך מסמך – מהישן לחדש</option>
-              </select>
-            </label>
-            <button id="incomeNewButton" type="button" class="secondary">הכנסה חדשה</button>
-          </div>
+      <div class="income-page-header">
+        <h2>הכנסות</h2>
+        <div class="income-page-actions">
+          <button id="incomeNewButton" type="button" class="secondary income-new-button">הכנסה חדשה</button>
+          <button id="incomeSortButton" type="button" class="secondary income-icon-button" aria-label="מיון הכנסות" title="מיון הכנסות"><span aria-hidden="true">↕</span></button>
+          <button id="incomeFilterButton" type="button" class="secondary income-icon-button" aria-label="סינון הכנסות" title="סינון הכנסות"><span aria-hidden="true">⛃</span></button>
         </div>
+      </div>
+      <div id="incomeFilterChips" class="income-filter-chips hidden" aria-label="מסננים פעילים"></div>
+      <div class="income-list-shell">
         <div id="zTable" class="table-wrap">טוענת…</div>
       </div>
     </section>
@@ -196,6 +189,7 @@
   <nav class="bottom-nav">
     <button class="active" data-view="homeView"><span class="icon">🏠</span>בית</button>
     <button data-view="expensesView"><span class="icon">📄</span>הוצאות</button>
+    <button data-view="incomeView"><span class="icon">💰</span>הכנסות</button>
     <button data-view="financeView"><span class="icon">💼</span>פיננסים</button>
     <button data-view="teamView"><span class="icon">👥</span>צוות</button>
     <button data-view="alView"><span class="icon">🤖</span>AL</button>
@@ -286,6 +280,7 @@
     </section>
 
     <section id="expenseReviewList" class="review-list hidden" aria-label="רשימת חשבוניות לבדיקה">
+      <h3 class="review-list-title">חשבוניות בבדיקה</h3>
       <div id="expenseReviewListTable" class="table-wrap">אין חשבוניות להצגה.</div>
     </section>
 
@@ -419,6 +414,84 @@
       <div id="zStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
   </div>
+</dialog>
+
+<dialog id="incomeSortDialog" aria-labelledby="incomeSortDialogTitle">
+  <div class="modal-head">
+    <strong id="incomeSortDialogTitle">מיון הכנסות</strong>
+    <button data-close type="button" aria-label="סגירת חלון מיון">✕</button>
+  </div>
+  <form id="incomeSortForm" class="modal-body income-dialog-body">
+    <section class="income-dialog-section">
+      <h3>שדה מיון</h3>
+      <div id="incomeSortFieldList" class="income-sort-field-list" role="radiogroup" aria-label="שדות מיון"></div>
+    </section>
+    <section class="income-dialog-section">
+      <h3>סדר</h3>
+      <div class="income-sort-direction-list" role="radiogroup" aria-label="כיוון מיון">
+        <button id="incomeSortDirectionDesc" type="button" class="secondary income-direction-button" data-income-sort-direction="desc">יורד</button>
+        <button id="incomeSortDirectionAsc" type="button" class="secondary income-direction-button" data-income-sort-direction="asc">עולה</button>
+      </div>
+    </section>
+    <div class="dialog-actions income-dialog-actions">
+      <button type="submit" class="primary">החל מיון</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="incomeFilterDialog" aria-labelledby="incomeFilterDialogTitle">
+  <div class="modal-head">
+    <strong id="incomeFilterDialogTitle">סינון הכנסות</strong>
+    <button data-close type="button" aria-label="סגירת חלון סינון">✕</button>
+  </div>
+  <form id="incomeFilterForm" class="modal-body income-dialog-body">
+    <section class="income-dialog-section">
+      <h3>מקור הכנסה</h3>
+      <div class="income-filter-source-list" role="radiogroup" aria-label="סינון לפי מקור">
+        <button type="button" class="secondary income-filter-source-button" data-income-filter-source="">הכל</button>
+        <button type="button" class="secondary income-filter-source-button" data-income-filter-source="z_report">דו״ח Z</button>
+        <button type="button" class="secondary income-filter-source-button" data-income-filter-source="non_z">הכנסה אחרת</button>
+      </div>
+    </section>
+    <section class="income-dialog-section">
+      <label for="incomeFilterProject">פרויקט</label>
+      <select id="incomeFilterProject" aria-label="סינון לפי פרויקט"></select>
+    </section>
+    <section class="income-dialog-section">
+      <label for="incomeFilterIncomeType">סוג הכנסה</label>
+      <input id="incomeFilterIncomeType" type="search" placeholder="חיפוש לפי סוג הכנסה" autocomplete="off">
+    </section>
+    <section class="income-dialog-section">
+      <h3>תאריך הזנה</h3>
+      <div class="income-filter-range">
+        <label>
+          מ-
+          <input id="incomeFilterEntryDateFrom" type="date" aria-label="תאריך הזנה מהתחלה">
+        </label>
+        <label>
+          עד
+          <input id="incomeFilterEntryDateTo" type="date" aria-label="תאריך הזנה עד">
+        </label>
+      </div>
+    </section>
+    <section class="income-dialog-section">
+      <h3>תאריך מסמך</h3>
+      <div class="income-filter-range">
+        <label>
+          מ-
+          <input id="incomeFilterDocumentDateFrom" type="date" aria-label="תאריך מסמך מהתחלה">
+        </label>
+        <label>
+          עד
+          <input id="incomeFilterDocumentDateTo" type="date" aria-label="תאריך מסמך עד">
+        </label>
+      </div>
+    </section>
+    <div class="dialog-actions income-dialog-actions">
+      <button id="incomeFilterClearButton" type="button" class="secondary">נקה הכל</button>
+      <button type="submit" class="primary">החל סינון</button>
+    </div>
+  </form>
 </dialog>
 
 <datalist id="incomeTypeSuggestionsList"></datalist>

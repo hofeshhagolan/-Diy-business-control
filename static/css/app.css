@@ -72,9 +72,9 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .card{padding:18px;margin-bottom:14px}
 .card-head-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .card-head-inline h3{margin:0}
-.income-page-header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;direction:ltr}
+.income-page-header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;direction:rtl}
 .income-page-header h2{margin:0;direction:rtl}
-.income-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;direction:ltr}
+.income-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex-direction:row-reverse}
 .income-new-button{white-space:nowrap}
 .income-icon-button{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;line-height:1}
 .income-icon-button.is-active{background:#eef5fb;border-color:#b7cae1;color:var(--brand2)}

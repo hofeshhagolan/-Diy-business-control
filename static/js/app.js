@@ -172,7 +172,7 @@ const syncQuickAddButtonVisibility = viewId => {
   const quickAddButton = $("quickAddButton");
   if(!quickAddButton) return;
 
-  const hideQuickAdd = viewId === "companyDocumentsView";
+  const hideQuickAdd = viewId === "companyDocumentsView" || viewId === "incomeView";
   quickAddButton.classList.toggle("hidden", hideQuickAdd);
   quickAddButton.disabled = hideQuickAdd;
 };

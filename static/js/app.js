@@ -4991,9 +4991,22 @@ function setupDashboardCardNavigation(){
   });
 }
 
+function setupDisabledFinanceHubFeedback(){
+  document.querySelectorAll("#financeView .finance-hub-card-future").forEach(card => {
+    if(card.dataset.disabledFeedbackBound === "true") return;
+    card.dataset.disabledFeedbackBound = "true";
+
+    card.addEventListener("click", event => {
+      event.preventDefault();
+      showToast("השירות אינו זמין עדיין", "warning");
+    });
+  });
+}
+
 setupManualTablist(["loginTab","signupTab"], setAuthTab);
 setupManualTablist(["insightsTab","chatTab"], setAlTab);
 setupDashboardCardNavigation();
+setupDisabledFinanceHubFeedback();
 setAuthTab($("signupTab").classList.contains("active") ? "signupTab" : "loginTab");
 setAlTab($("chatTab").classList.contains("active") ? "chatTab" : "insightsTab");
 renderCompanyDocuments();

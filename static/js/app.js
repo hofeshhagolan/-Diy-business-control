@@ -75,6 +75,8 @@ const INCOME_FILTER_SOURCE_OPTIONS = Object.freeze([
   {value:Z_REPORT_INCOME_SOURCE, label:'דו"ח Z'},
   {value:NON_Z_INCOME_SOURCE, label:"הכנסה אחרת"}
 ]);
+const INCOME_VIEW_LIMIT = 100;
+const EXPENSES_VIEW_LIMIT = 100;
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
@@ -111,11 +113,13 @@ let currentExpensePermissions = {canEdit:true, canDelete:true};
 let currentExpenseDetailsDocuments = [];
 let currentExpenseDetailsOpener = null;
 let pdfLibLoadPromise = null;
+let html2CanvasLoadPromise = null;
 let currentExpensePackagePdfCache = {
   expenseId: "",
   signature: "",
   blob: null
 };
+let expenseRows = [];
 let incomeRows = [];
 let incomeSortState = {...DEFAULT_INCOME_SORT_STATE};
 let incomeSortDraft = {...DEFAULT_INCOME_SORT_STATE};
@@ -323,6 +327,125 @@ function compareIncomeRows(left, right){
   if(comparison !== 0) return comparison * directionMultiplier;
 
   return String(left?.id || "").localeCompare(String(right?.id || ""), "he", {numeric:true, sensitivity:"base"}) * directionMultiplier;
+}
+
+function getIncomeReportRowsFromSource(sourceRows){
+  return (Array.isArray(sourceRows) ? sourceRows : [])
+    .map(normalizeIncomeListRow)
+    .filter(matchesIncomeFilters)
+    .sort(compareIncomeRows);
+}
+
+function getCurrentIncomeReportRows(){
+  return getIncomeReportRowsFromSource(incomeRows);
+}
+
+async function fetchAllIncomeReportRows(){
+  let query = sb.from("daily_z_reports")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
+    .eq("user_id",userId);
+
+  const {data, error} = await query.order("created_at", {ascending:false, nullsFirst:false});
+  if(error) throw error;
+
+  return getIncomeReportRowsFromSource(data);
+}
+
+function normalizeExpenseReportRow(row){
+  const safeDate = String(row?.document_date || "").trim();
+  return {
+    id: String(row?.id || "").trim(),
+    documentDate: safeDate,
+    documentDateTime: safeDate ? `${safeDate}T00:00:00` : "",
+    grossValue: Number(row?.gross_ils || 0),
+    supplierName: String(row?.supplier_name_snapshot || "").trim(),
+    accountingTypeName: String(row?.accounting_types?.name || "").trim(),
+    paymentSourceName: String(row?.payment_sources?.name || "").trim(),
+    documentsCount: Array.isArray(row?.expense_documents) ? row.expense_documents.length : 0,
+    raw: row
+  };
+}
+
+function compareExpenseReportRows(left, right){
+  const leftDate = Date.parse(left.documentDateTime || "") || 0;
+  const rightDate = Date.parse(right.documentDateTime || "") || 0;
+  if(leftDate !== rightDate) return rightDate - leftDate;
+  return left.id.localeCompare(right.id, "he", {numeric:true, sensitivity:"base"});
+}
+
+function getCurrentExpensesViewRows(){
+  return expenseRows.map(normalizeExpenseReportRow).sort(compareExpenseReportRows);
+}
+
+async function fetchAllExpensesReportRows(){
+  const {data, error} = await sb.from("expenses")
+    .select(`
+      id,
+      document_date,
+      gross_ils,
+      supplier_name_snapshot,
+      accounting_types(name),
+      payment_sources(name),
+      expense_documents(id,storage_path,document_type,page_number)
+    `)
+    .eq("user_id",userId)
+    .order("document_date", {ascending:false});
+
+  if(error) throw error;
+  return (Array.isArray(data) ? data : []).map(normalizeExpenseReportRow).sort(compareExpenseReportRows);
+}
+
+function collectHomeOverviewInfoReport(){
+  const rows = [
+    ["הכנסות החודש", String($("incomeMonthMetric")?.textContent || "")],
+    ["הוצאות החודש", String($("expenseMonthMetric")?.textContent || "")],
+    ["הכנסות השנה", String($("incomeYearMetric")?.textContent || "")],
+    ["הוצאות השנה", String($("expenseYearMetric")?.textContent || "")],
+    ["רווח / הפסד שנתי", String($("profitYearMetric")?.textContent || "")],
+    ["תובנת AL", String($("homeInsight")?.textContent || "")]
+  ];
+
+  return {
+    title: "תמונת מצב",
+    filenameBase: `home-overview-${today()}`,
+    headers: ["מדד", "ערך"],
+    rows
+  };
+}
+
+async function collectIncomeInfoReport(){
+  const rows = await fetchAllIncomeReportRows();
+  return {
+    title: "דוח הכנסות",
+    filenameBase: `income-report-${today()}`,
+    headers: ["תאריך", "שעה", "סכום", "סוג הכנסה", "פרויקט", "מקור", "מסמכים"],
+    rows: rows.map(row => [
+      row.reportDate || "",
+      row.reportTime || "",
+      money(row.amountValue),
+      row.incomeTypeValue || "",
+      row.projectNameValue || "",
+      row.sourceValue === NON_Z_INCOME_SOURCE ? "הכנסה אחרת" : 'דו"ח Z',
+      String(Array.isArray(row.z_report_documents) ? row.z_report_documents.length : 0)
+    ])
+  };
+}
+
+async function collectExpensesInfoReport(){
+  const rows = await fetchAllExpensesReportRows();
+  return {
+    title: "דוח הוצאות",
+    filenameBase: `expenses-report-${today()}`,
+    headers: ["תאריך", "סכום", "ספק", "סוג חשבונאי", "מקור תשלום", "מסמכים"],
+    rows: rows.map(row => [
+      row.documentDate || "",
+      money(row.grossValue),
+      row.supplierName || "",
+      row.accountingTypeName || "",
+      row.paymentSourceName || "",
+      String(row.documentsCount || 0)
+    ])
+  };
 }
 
 function matchesIncomeFilters(row){
@@ -557,7 +680,7 @@ function renderIncomeList(){
   const tableHost = $("zTable");
   if(!tableHost) return;
 
-  const rows = incomeRows.map(normalizeIncomeListRow).filter(matchesIncomeFilters).sort(compareIncomeRows);
+  const rows = getCurrentIncomeReportRows();
 
   if(!rows.length){
     tableHost.textContent = incomeRows.length ? "לא נמצאו הכנסות התואמות לסינון." : "אין עדיין הכנסות";
@@ -5721,8 +5844,16 @@ function positionActionMenu(menuId, buttonId){
   const button = $(buttonId);
   if(!menu || !button) return;
 
+  const anchor = button.closest(".action-menu-anchor");
+  if(anchor){
+    menu.style.top = "calc(100% + 6px)";
+    menu.style.left = "";
+    menu.style.right = "0";
+    return;
+  }
+
   const buttonRect = button.getBoundingClientRect();
-  const parentRect = button.closest(".modal-head")?.getBoundingClientRect();
+  const parentRect = button.closest(".modal-head, .income-page-header, .view-head, .card-head-inline")?.getBoundingClientRect();
   if(!parentRect) return;
 
   menu.style.top = `${Math.max(0, buttonRect.bottom - parentRect.top + 6)}px`;
@@ -5737,12 +5868,8 @@ function toggleActionMenu(menuId, buttonId){
 
   const shouldOpen = menu.classList.contains("hidden");
   document.querySelectorAll(".action-menu").forEach(node => node.classList.add("hidden"));
-  [
-    "expenseDetailsShareMenuButton",
-    "zDocumentsShareMenuButton"
-  ].forEach(id => {
-    const btn = $(id);
-    if(btn) btn.setAttribute("aria-expanded", "false");
+  document.querySelectorAll("[data-action-menu-button]").forEach(menuButton => {
+    menuButton.setAttribute("aria-expanded", "false");
   });
 
   if(!shouldOpen) return;
@@ -5827,6 +5954,244 @@ function openPrintWindowWithBlob(blob, title = "מסמך"){
   printWindow.document.close();
 
   setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+}
+
+function openPrintWindowWithHtml(html, title = "מסמך"){
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if(!printWindow){
+    throw new Error("הדפדפן חסם פתיחת חלון להדפסה");
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;margin:16px;color:#172033}h1{margin:0 0 10px;color:#102c4e;font-size:1.3rem}.meta{margin:0 0 14px;color:#667085;font-size:.9rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:.9rem}th{background:#eef3f8;color:#102c4e}tbody tr:nth-child(even){background:#f9fbfe}@page{size:auto;margin:12mm}</style></head><body>${html}<script>window.addEventListener('load',()=>{setTimeout(()=>{window.focus();window.print();},120);});</script></body></html>`);
+  printWindow.document.close();
+}
+
+async function ensureHtml2CanvasLib(){
+  if(window.html2canvas) return window.html2canvas;
+  if(html2CanvasLoadPromise) return html2CanvasLoadPromise;
+
+  html2CanvasLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+    script.async = true;
+    script.onload = () => {
+      if(window.html2canvas) resolve(window.html2canvas);
+      else reject(new Error("טעינת ספריית יצוא PDF נכשלה"));
+    };
+    script.onerror = () => reject(new Error("טעינת ספריית יצוא PDF נכשלה"));
+    document.head.appendChild(script);
+  });
+
+  return html2CanvasLoadPromise;
+}
+
+function createCsvBlob(headers, rows){
+  const escapeCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const lines = [headers, ...(Array.isArray(rows) ? rows : [])]
+    .map(row => (Array.isArray(row) ? row : []).map(escapeCell).join(","));
+  return new Blob(["\uFEFF", `${lines.join("\n")}\n`], {type: "text/csv;charset=utf-8"});
+}
+
+function createReportHtmlTable({title, headers, rows}){
+  const headerCells = (Array.isArray(headers) ? headers : [])
+    .map(value => `<th scope="col">${escapeHtml(value)}</th>`)
+    .join("");
+  const bodyRows = (Array.isArray(rows) ? rows : [])
+    .map(cells => `<tr>${(Array.isArray(cells) ? cells : []).map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`)
+    .join("");
+  return `
+    <h1>${escapeHtml(title || "דוח")}</h1>
+    <p class="meta">עודכן בתאריך ${escapeHtml(today())}</p>
+    <table>
+      <thead><tr>${headerCells}</tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+  `;
+}
+
+function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex}){
+  const headerCells = (Array.isArray(headers) ? headers : [])
+    .map(value => `<th>${escapeHtml(value)}</th>`)
+    .join("");
+  const bodyRows = (Array.isArray(rows) ? rows : [])
+    .map((cells, rowIndex) => {
+      const indexLabel = String(Number(rowStartIndex) + rowIndex + 1);
+      const valueCells = (Array.isArray(cells) ? cells : [])
+        .map(value => `<td>${escapeHtml(value)}</td>`)
+        .join("");
+      return `<tr><td class="idx">${escapeHtml(indexLabel)}</td>${valueCells}</tr>`;
+    })
+    .join("");
+
+  return `
+    <div dir="rtl" lang="he" style="width:1040px;background:#fff;color:#172033;font-family:Arial,'Noto Sans Hebrew','Rubik',sans-serif;padding:24px 26px;">
+      <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px;">
+        <div>
+          <h1 style="margin:0;color:#102c4e;font-size:28px;line-height:1.2;">${escapeHtml(title || "דוח")}</h1>
+          <p style="margin:6px 0 0;color:#667085;font-size:14px;">עודכן בתאריך ${escapeHtml(today())}</p>
+        </div>
+        <p style="margin:0;color:#667085;font-size:14px;">עמוד ${escapeHtml(pageNumber)} מתוך ${escapeHtml(totalPages)}</p>
+      </header>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;direction:rtl;">
+        <thead>
+          <tr>
+            <th style="width:56px;">#</th>
+            ${headerCells}
+          </tr>
+        </thead>
+        <tbody>
+          ${bodyRows}
+        </tbody>
+      </table>
+      <style>
+        th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:14px;line-height:1.35;word-break:break-word}
+        th{background:#eef3f8;color:#102c4e;font-weight:700}
+        tbody tr:nth-child(even){background:#f9fbfe}
+        td.idx,th:first-child{text-align:center;white-space:nowrap}
+      </style>
+    </div>
+  `;
+}
+
+async function renderReportPageToPngBytes({title, headers, rows, pageNumber, totalPages, rowStartIndex}){
+  const html2canvas = await ensureHtml2CanvasLib();
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-99999px";
+  host.style.top = "0";
+  host.style.pointerEvents = "none";
+  host.style.opacity = "0";
+  host.innerHTML = createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex});
+  document.body.appendChild(host);
+
+  try {
+    const pageElement = host.firstElementChild;
+    if(!pageElement) throw new Error("שגיאה בהכנת עמוד PDF");
+
+    const canvas = await html2canvas(pageElement, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if(blob) resolve(blob);
+        else reject(new Error("שגיאה בהכנת עמוד PDF"));
+      }, "image/png", 1);
+    });
+
+    return new Uint8Array(await pngBlob.arrayBuffer());
+  } finally {
+    host.remove();
+  }
+}
+
+async function createTablePdfBlob({title, headers, rows}){
+  const {PDFDocument} = await ensurePdfLib();
+  const pdfDoc = await PDFDocument.create();
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 18;
+  const rowsPerPage = 26;
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const totalPages = Math.max(1, Math.ceil(safeRows.length / rowsPerPage));
+
+  for(let pageIndex = 0; pageIndex < totalPages; pageIndex += 1){
+    const rowStartIndex = pageIndex * rowsPerPage;
+    const chunk = safeRows.slice(rowStartIndex, rowStartIndex + rowsPerPage);
+    // Browser-rendered RTL HTML preserves Hebrew glyph shaping and punctuation exactly.
+    const pagePngBytes = await renderReportPageToPngBytes({
+      title,
+      headers,
+      rows: chunk,
+      pageNumber: pageIndex + 1,
+      totalPages,
+      rowStartIndex
+    });
+    const image = await pdfDoc.embedPng(pagePngBytes);
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+    const drawableWidth = pageWidth - (margin * 2);
+    const drawableHeight = pageHeight - (margin * 2);
+    const scale = Math.min(drawableWidth / image.width, drawableHeight / image.height);
+    const drawWidth = image.width * scale;
+    const drawHeight = image.height * scale;
+    const drawX = (pageWidth - drawWidth) / 2;
+    const drawY = pageHeight - margin - drawHeight;
+
+    page.drawImage(image, {
+      x: drawX,
+      y: drawY,
+      width: drawWidth,
+      height: drawHeight
+    });
+  }
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], {type: "application/pdf"});
+}
+
+async function runInformationScreenAction({menu, actionType}){
+  const collectorName = String(menu?.dataset?.infoActionsCollector || "").trim();
+  if(!collectorName) return;
+
+  const collectors = {
+    collectHomeOverviewInfoReport,
+    collectIncomeInfoReport,
+    collectExpensesInfoReport
+  };
+  const collector = collectors[collectorName];
+  if(typeof collector !== "function") return;
+
+  try {
+    const payload = await collector();
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    const headers = Array.isArray(payload?.headers) ? payload.headers : [];
+    const title = String(payload?.title || "דוח").trim() || "דוח";
+    const filenameBase = String(payload?.filenameBase || `report-${today()}`).trim() || `report-${today()}`;
+
+    if(!rows.length){
+      showToast("אין נתונים לייצוא במצב הדוח הנוכחי", "warning");
+      return;
+    }
+
+    if(actionType === "share"){
+      const pdfBlob = await createTablePdfBlob({title, headers, rows});
+      await shareBlobFile({
+        blob: pdfBlob,
+        filename: `${filenameBase}.pdf`,
+        title,
+        text: `שיתוף ${title}`
+      });
+      showToast("השיתוף הושלם", "ok");
+      return;
+    }
+
+    if(actionType === "export_pdf"){
+      const pdfBlob = await createTablePdfBlob({title, headers, rows});
+      downloadBlob(pdfBlob, `${filenameBase}.pdf`);
+      showToast("קובץ PDF הורד", "ok");
+      return;
+    }
+
+    if(actionType === "print"){
+      const html = createReportHtmlTable({title, headers, rows});
+      openPrintWindowWithHtml(html, title);
+      showToast("נפתח חלון הדפסה", "ok");
+      return;
+    }
+
+    if(actionType === "export_csv"){
+      const csvBlob = createCsvBlob(headers, rows);
+      downloadBlob(csvBlob, `${filenameBase}.csv`);
+      showToast("קובץ CSV הורד", "ok");
+    }
+  } catch(error){
+    console.error(error);
+    showToast(error?.message || "שגיאה בביצוע פעולת מידע", "error");
+  }
 }
 
 async function createSignedUrlForStoragePath(storagePath, ttlSeconds = 300){
@@ -6310,19 +6675,28 @@ async function loadExpenses(){
     `)
     .eq("user_id",userId)
     .order("document_date",{ascending:false})
-    .limit(100);
+    .limit(EXPENSES_VIEW_LIMIT);
 
   if(error){
     $("expensesTable").textContent = error.message;
     return;
   }
 
-  if(!(data || []).length){
-    $("expensesTable").textContent = "אין עדיין הוצאות";
+  expenseRows = Array.isArray(data) ? data : [];
+  renderExpensesList();
+}
+
+function renderExpensesList(){
+  const tableHost = $("expensesTable");
+  if(!tableHost) return;
+
+  const rows = getCurrentExpensesViewRows();
+  if(!rows.length){
+    tableHost.textContent = "אין עדיין הוצאות";
     return;
   }
 
-  $("expensesTable").innerHTML = `
+  tableHost.innerHTML = `
     <table aria-label="טבלת הוצאות">
       <thead>
         <tr>
@@ -6335,14 +6709,14 @@ async function loadExpenses(){
         </tr>
       </thead>
       <tbody>
-        ${(data || []).map(row => `
+        ${rows.map(row => `
           <tr class="expense-row" data-expense="${row.id}" tabindex="0" role="button" aria-label="פתיחת פרטי הוצאה">
             <td><button class="eye eye-expense" type="button" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
-            <td>${row.document_date || ""}</td>
-            <td>${money(row.gross_ils)}</td>
-            <td>${row.supplier_name_snapshot || ""}</td>
-            <td>${row.accounting_types?.name || ""}</td>
-            <td>${row.payment_sources?.name || ""}</td>
+            <td>${row.documentDate || ""}</td>
+            <td>${money(row.grossValue)}</td>
+            <td>${row.supplierName || ""}</td>
+            <td>${row.accountingTypeName || ""}</td>
+            <td>${row.paymentSourceName || ""}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -6370,7 +6744,7 @@ async function loadExpenses(){
 
 async function openExpenseDocument(expenseId){
   const {data,error} = await sb.from("expense_documents")
-    .select("storage_path,document_type,page_number")
+    .select("storage_path,document_type,page_number,original_filename,mime_type")
     .eq("user_id",userId)
     .eq("expense_id",expenseId)
     .order("page_number");
@@ -6380,18 +6754,17 @@ async function openExpenseDocument(expenseId){
     return;
   }
 
-  const chosen = data.find(x => x.document_type === "pdf") || data[0];
-
-  const {data:signed,error:signError} = await sb.storage
-    .from("invoice-documents")
-    .createSignedUrl(chosen.storage_path,60);
-
-  if(signError){
-    showToast(signError.message || "שגיאה בפתיחת מסמך החשבונית", "error");
-    return;
-  }
-
-  window.open(signed.signedUrl,"_blank","noopener,noreferrer");
+  const chosenIndex = Math.max(0, data.findIndex(x => x.document_type === "pdf"));
+  await openExistingDocumentsViewer({
+    documents: data,
+    dialogTitle: "מסמכי הוצאה",
+    fullscreenTitle: "מסמך הוצאה במסך מלא",
+    emptyMessage: "לא נמצא צילום לחשבונית",
+    statusElement: $("expenseStatus"),
+    initialIndex: chosenIndex >= 0 ? chosenIndex : 0,
+    opener: document.querySelector(`.eye-expense[data-expense="${String(expenseId || "").trim().replace(/"/g, '\\"')}"]`) || null,
+    viewerContext: "expense"
+  });
 }
 
 function getExpensePackageFilename(expenseRecord){
@@ -6853,7 +7226,9 @@ async function loadZReports(){
     .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
     .eq("user_id",userId);
 
-  const {data,error} = await query.order("created_at",{ascending:false, nullsFirst:false});
+  const {data,error} = await query
+    .order("created_at",{ascending:false, nullsFirst:false})
+    .limit(INCOME_VIEW_LIMIT);
 
   if(error){
     $("zTable").textContent = error.message;
@@ -7870,9 +8245,14 @@ $("expenseDetailsCloseButton")?.addEventListener("click", () => {
   $("expenseDialog")?.close();
 });
 
-$("expenseDetailsShareMenuButton")?.addEventListener("click", event => {
-  event.stopPropagation();
-  toggleActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+document.querySelectorAll("[data-action-menu-button]").forEach(button => {
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+    const menuId = String(button.dataset.actionMenuButton || "").trim();
+    const buttonId = String(button.id || "").trim();
+    if(!menuId || !buttonId) return;
+    toggleActionMenu(menuId, buttonId);
+  });
 });
 
 $("expenseDetailsShareAction")?.addEventListener("click", () => {
@@ -7890,11 +8270,6 @@ $("expenseDetailsPrintAction")?.addEventListener("click", () => {
   void runExpenseEntityAction("print");
 });
 
-$("zDocumentsShareMenuButton")?.addEventListener("click", event => {
-  event.stopPropagation();
-  toggleActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-});
-
 $("zDocumentsShareAction")?.addEventListener("click", () => {
   hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
   void runCurrentViewerDocumentAction("share");
@@ -7910,17 +8285,34 @@ $("zDocumentsPrintAction")?.addEventListener("click", () => {
   void runCurrentViewerDocumentAction("print");
 });
 
+document.querySelectorAll("[data-info-actions-menu]").forEach(menu => {
+  menu.querySelectorAll("[data-info-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      const menuId = String(menu.id || "").trim();
+      const actionType = String(button.dataset.infoAction || "").trim();
+      if(!menuId || !actionType) return;
+
+      const ownerButton = document.querySelector(`[data-action-menu-button="${menuId}"]`);
+      menu.classList.add("hidden");
+      if(ownerButton) ownerButton.setAttribute("aria-expanded", "false");
+
+      void runInformationScreenAction({menu, actionType});
+    });
+  });
+});
+
 document.addEventListener("click", event => {
   const target = event.target;
   if(!(target instanceof Element)) return;
 
-  if(!target.closest("#expenseDetailsShareMenu") && !target.closest("#expenseDetailsShareMenuButton")){
-    hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+  if(target.closest(".action-menu") || target.closest("[data-action-menu-button]")){
+    return;
   }
 
-  if(!target.closest("#zDocumentsShareMenu") && !target.closest("#zDocumentsShareMenuButton")){
-    hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-  }
+  document.querySelectorAll(".action-menu").forEach(menu => menu.classList.add("hidden"));
+  document.querySelectorAll("[data-action-menu-button]").forEach(button => {
+    button.setAttribute("aria-expanded", "false");
+  });
 });
 
 $("expenseAssetFollowupCreateButton")?.addEventListener("click", () => {

@@ -69,11 +69,15 @@ textarea{min-height:92px}
 main{max-width:1080px;margin:auto;padding:16px}
 .view{display:none}.view.active{display:block}
 h2{margin:4px 0 14px;color:var(--brand)}
+.view-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.view-head h2{margin:0}
 .card{padding:18px;margin-bottom:14px}
 .card-head-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .card-head-inline h3{margin:0}
 .income-page-header{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;direction:rtl}
 .income-page-header h2{margin:0;direction:rtl}
+.action-menu-anchor{position:relative;display:inline-flex;align-items:center}
+.info-overflow-button{min-width:40px;min-height:40px;padding:0;font-size:1.05rem}
 .income-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex-direction:row-reverse}
 .income-new-button{white-space:nowrap}
 .income-icon-button{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;line-height:1}
@@ -185,6 +189,10 @@ th{background:#eef3f8;color:var(--brand)}
 .action-menu{position:absolute;z-index:45;min-width:150px;padding:6px;border:1px solid var(--line);border-radius:10px;background:#fff;box-shadow:0 12px 24px rgba(7,24,42,.16);display:grid;gap:4px}
 .action-menu button{border:0;background:transparent;padding:8px 10px;border-radius:8px;text-align:right;color:var(--brand);font-weight:700;cursor:pointer}
 .action-menu button:hover,.action-menu button:focus-visible{background:#eef4fb;outline:none}
+.modal-head{position:relative}
+.modal-head-actions{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;position:relative}
+.viewer-overflow-button{min-width:36px;min-height:36px;border:0;border-radius:999px;background:transparent;color:#fff;font-size:1.35rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.viewer-overflow-button:hover,.viewer-overflow-button:focus-visible{background:rgba(255,255,255,.14);outline:none}
 
 #zTable .income-table{min-width:0;table-layout:fixed}
 #zTable .income-table th,
@@ -357,6 +365,7 @@ dialog::backdrop{background:#07182a99}
   .topbar-primary{gap:8px}
   .topbar-title{max-width:calc(100% - 148px)}
   .topbar-back{padding:8px 10px;font-size:.95rem}
+  .view-head{align-items:flex-start}
   .income-page-header{align-items:flex-start;gap:10px}
   .income-page-actions{justify-content:flex-start}
   .income-filter-source-list{grid-template-columns:1fr}

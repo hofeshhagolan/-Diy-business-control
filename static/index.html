@@ -68,7 +68,35 @@
 
   <main>
     <section id="homeView" class="view active">
-      <h2>תמונת מצב</h2>
+      <div class="view-head">
+        <h2>תמונת מצב</h2>
+        <div class="action-menu-anchor">
+          <button
+            id="homeInfoMenuButton"
+            type="button"
+            class="row-action info-overflow-button"
+            data-action-menu-button="homeInfoMenu"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="homeInfoMenu"
+            aria-label="פעולות מידע">
+            ⋮
+          </button>
+          <div
+            id="homeInfoMenu"
+            class="action-menu hidden"
+            role="menu"
+            aria-label="פעולות מסך תמונת מצב"
+            data-info-actions-menu
+            data-info-actions-scope="home-overview"
+            data-info-actions-purpose="summary"
+            data-info-actions-collector="collectHomeOverviewInfoReport">
+            <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
+            <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+            <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
+          </div>
+        </div>
+      </div>
       <div class="card snapshot">
         <div class="metric income" data-dashboard-view="incomeView" data-dashboard-label="הכנסות החודש"><span>הכנסות החודש</span><strong id="incomeMonthMetric">₪0.00</strong></div>
         <div class="metric expense" data-dashboard-view="expensesView" data-dashboard-label="הוצאות החודש"><span>הוצאות החודש</span><strong id="expenseMonthMetric">₪0.00</strong></div>
@@ -105,7 +133,36 @@
     </section>
 
     <section id="expensesView" class="view">
-      <h2>הוצאות</h2>
+      <div class="view-head">
+        <h2>הוצאות</h2>
+        <div class="action-menu-anchor">
+          <button
+            id="expensesInfoMenuButton"
+            type="button"
+            class="row-action info-overflow-button"
+            data-action-menu-button="expensesInfoMenu"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="expensesInfoMenu"
+            aria-label="פעולות מידע">
+            ⋮
+          </button>
+          <div
+            id="expensesInfoMenu"
+            class="action-menu hidden"
+            role="menu"
+            aria-label="פעולות מסך הוצאות"
+            data-info-actions-menu
+            data-info-actions-scope="expenses-report"
+            data-info-actions-purpose="report"
+            data-info-actions-collector="collectExpensesInfoReport">
+            <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
+            <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+            <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
+            <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
+          </div>
+        </div>
+      </div>
       <div class="card"><div id="expensesTable" class="table-wrap">טוענת…</div></div>
     </section>
 
@@ -116,6 +173,34 @@
           <button id="incomeNewButton" type="button" class="secondary income-new-button">הכנסה חדשה</button>
           <button id="incomeSortButton" type="button" class="secondary income-icon-button" aria-label="מיון הכנסות" title="מיון הכנסות"><span aria-hidden="true">↕</span></button>
           <button id="incomeFilterButton" type="button" class="secondary income-icon-button" aria-label="סינון הכנסות" title="סינון הכנסות"><span aria-hidden="true">⛃</span></button>
+          <div class="action-menu-anchor">
+            <button
+              id="incomeInfoMenuButton"
+              type="button"
+              class="secondary income-icon-button"
+              data-action-menu-button="incomeInfoMenu"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="incomeInfoMenu"
+              aria-label="פעולות מידע"
+              title="פעולות מידע">
+              <span aria-hidden="true">⋮</span>
+            </button>
+            <div
+              id="incomeInfoMenu"
+              class="action-menu hidden"
+              role="menu"
+              aria-label="פעולות מסך הכנסות"
+              data-info-actions-menu
+              data-info-actions-scope="income-report"
+              data-info-actions-purpose="report"
+              data-info-actions-collector="collectIncomeInfoReport">
+              <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
+              <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+              <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
+              <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="incomeFilterChips" class="income-filter-chips hidden" aria-label="מסננים פעילים"></div>
@@ -212,7 +297,7 @@
     <div id="expenseDialogHeaderActions" class="row-actions hidden" aria-label="פעולות הוצאה">
       <button id="expenseDetailsDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת הוצאה" title="מחיקת הוצאה">❌</button>
       <button id="expenseDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הוצאה" title="עריכת הוצאה">✏️</button>
-      <button id="expenseDetailsShareMenuButton" class="row-action" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="expenseDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">
+      <button id="expenseDetailsShareMenuButton" class="row-action" type="button" data-action-menu-button="expenseDetailsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="expenseDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">
         <svg class="share-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
           <circle cx="6" cy="12" r="2.4"></circle>
           <circle cx="18" cy="6" r="2.4"></circle>
@@ -524,7 +609,15 @@
 <dialog id="zDocumentsDialog" aria-labelledby="zDocumentsDialogTitle">
   <div class="modal-head">
     <strong id="zDocumentsDialogTitle">מסמכי דו״ח Z</strong>
-    <button data-close type="button" aria-label="סגירת חלון מסמכי דו״ח Z">✕</button>
+    <div class="modal-head-actions">
+      <button data-close type="button" aria-label="סגירת חלון מסמכי דו״ח Z">✕</button>
+      <button id="zDocumentsShareMenuButton" type="button" class="viewer-overflow-button" data-action-menu-button="zDocumentsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="zDocumentsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה">⋮</button>
+      <div id="zDocumentsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
+        <button id="zDocumentsShareAction" type="button" role="menuitem">שיתוף</button>
+        <button id="zDocumentsExportAction" type="button" role="menuitem">ייצוא PDF</button>
+        <button id="zDocumentsPrintAction" type="button" role="menuitem">הדפסה</button>
+      </div>
+    </div>
   </div>
   <div class="modal-body">
     <section class="review-document-wrap" aria-label="תצוגת מסמכי דו״ח Z">
@@ -536,13 +629,6 @@
       <button id="zDocumentsPrev" type="button" class="review-item-nav-arrow" aria-label="מסמך קודם" title="מסמך קודם">→</button>
       <p id="zDocumentsPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
       <button id="zDocumentsNext" type="button" class="review-item-nav-arrow" aria-label="מסמך הבא" title="מסמך הבא">←</button>
-      <button id="zDocumentsFullscreenOpen" type="button" class="review-item-nav-back">מסך מלא</button>
-      <button id="zDocumentsShareMenuButton" type="button" class="review-item-nav-back" aria-haspopup="menu" aria-expanded="false" aria-controls="zDocumentsShareMenu">שיתוף / ייצוא / הדפסה</button>
-      <div id="zDocumentsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
-        <button id="zDocumentsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="zDocumentsExportAction" type="button" role="menuitem">ייצוא</button>
-        <button id="zDocumentsPrintAction" type="button" role="menuitem">הדפסה</button>
-      </div>
     </div>
   </div>
 </dialog>

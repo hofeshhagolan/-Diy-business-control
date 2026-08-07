@@ -122,21 +122,11 @@
    - Verification: Static checks passed; browser-level runtime verification for cross-batch oldest-first resume ordering, entry choice behavior, continue-later exit behavior, pending-count indicator updates, and manual-grouping discard confirmation is deferred to the next appropriate deployed/integration test point.
 
 21A. [Current gate / follow-up] Complete “אבדוק מאוחר יותר” for single-invoice and multi-invoice workflows using the existing persisted pending-review system.
-   - Status: Pending
-   - Scope:
-   - A single scanned invoice can be persisted for later review even when the user does not review/save it immediately.
-   - Multi-invoice flows continue using the same persisted pending queue.
-   - Do not introduce a parallel deferred-review system.
-   - Later resume uses the same cross-batch pending-review flow created in Task 21.
-   - The flow remains valid when extracted information is incomplete or unavailable.
-   - Acceptance:
-   - “אבדוק מאוחר יותר” works from the real single-invoice flow.
-   - Existing multi-invoice deferred-review behavior remains intact.
-   - No duplicate expense or duplicate pending-queue persistence.
-   - Deferred items survive closing/reopening and appear in the existing pending-review flow.
-   - Gate:
-   - Complete and runtime-verify Task 21A before Task 22 can be signed off.
-   - Do not start Tasks 25–34 until Task 21A and the critical Task 22 gate are closed.
+   - Status: Done
+   - Result:
+   - Single-invoice and multi-invoice `אבדוק מאוחר יותר` flows persist into the existing pending-review queue, survive close/reopen, resume through the shared pending-review flow, and avoid duplicate pending items or duplicate expenses.
+   - Verification:
+   - Manually verified and approved in production. Do not revisit unless a future regression specifically requires it.
 
 21B. [Integration follow-up] Make expense-dialog primary states mutually exclusive and remove overlapping review UI states.
    - Status: Done
@@ -200,13 +190,11 @@
    - Reopen rule: Do not reopen or redefine Task 24 unless a new verified accessibility defect is discovered.
 
 25. [User-visible cleanup] Finalize pending-invoice list presentation for mobile.
-   - Status: Pending
-   - Scope:
-   - Keep title: חשבוניות בבדיקה
-   - Columns: מס' חשבונית, תאריך, שעה
-   - Invoice entries remain clickable with deterministic unique labels such as חשבונית 1, חשבונית 2, etc.
-   - Remove wording based on קליטה.
-   - Reduce dead horizontal space and unnecessary horizontal scrolling.
+   - Status: Done
+   - Result:
+   - Added the visible title `חשבוניות בבדיקה`, kept the compact three-column layout (`מס' חשבונית`, `תאריך`, `שעה`), preserved clickable deterministic invoice labels, and tightened spacing/column widths to reduce dead horizontal space and unnecessary horizontal scrolling on mobile.
+   - Verification:
+   - Static HTML/CSS validation passed and the rendered diff is limited to the pending-review list presentation.
 
 26. [User-visible cleanup] Finalize active-invoice review navigation and document-first layout.
    - Status: Pending
@@ -357,6 +345,712 @@
    - Test with at least one Z income record and one non-Z income record.
    - Confirm Income list, yearly Income total and Profit calculation reconcile.
 
+37. [Company Documents UX] Complete the company-documents module with search, ordering, restore, and information actions.
+   - Status: Pending
+   - Goal:
+   - Build on the completed Task 36 company-document persistence and deletion-policy work.
+   - Complete the user-facing Company Documents experience without replacing or duplicating the existing storage, database, viewer, rename, file-replacement, or deletion implementation.
+   - Scope:
+   - Company Documents screen:
+   - Keep the Company Documents module active from the Finance hub.
+   - Display one vertically scrollable list of document cards, mobile-first.
+   - Support both default document cards and user-created custom document cards in the same list.
+   - Default document cards: תעודת התאגדות, אישור ניכוי מס במקור, אישור תיק ניכויים, אישור ניהול חשבון, פרוטוקול בעלי מניות, פרוטוקול דירקטוריון.
+   - Each card continues to hold at most one file.
+   - A card without a file remains visible and displays `לא הועלה מסמך`.
+   - Tapping a card without a file must not open an empty viewer; show `לא נמצא קובץ`.
+   - Tapping a card with a file opens the existing shared document viewer.
+   - Keep original filename display when a file exists.
+   - Search:
+   - Add local search to the Company Documents screen.
+   - Search is the only list-discovery control required for this module at this stage.
+   - Do not add sorting or filtering controls.
+   - Personal card order:
+   - Allow the user to drag document cards and change their order.
+   - Persist the personal order per user.
+   - Default and custom cards participate in the same ordered list.
+   - A newly added or restored card may be appended to the end of the list.
+   - Restore deleted default cards:
+   - Add a simple restore action inside Manage Documents.
+   - Show only default document types that are currently missing.
+   - Let the user choose which missing default cards to restore.
+   - Do not recreate deleted defaults automatically on refresh or login.
+   - If a default card is restored together with its previous file, keep the user-edited card name.
+   - If a default card is restored without a file, restore the default Hebrew name.
+   - Editing:
+   - Keep rename and optional file replacement in the same editor.
+   - Name and file changes remain independent.
+   - Renaming must not remove or replace the existing file.
+   - Replacing a file must not change the card name unless the user edits it.
+   - File replacement must be loss-safe: upload and save the new file successfully before deleting the previous stored file; if upload or save fails, keep the previous file and metadata unchanged.
+   - Deletion:
+   - Delete remains available only from the document editor, not from list cards.
+   - Require confirmation before deletion.
+   - Deleting a card removes the database row and its stored file when one exists.
+   - This applies to both default and custom document cards.
+   - A deleted default card stays deleted until the user explicitly restores it.
+   - Information actions:
+   - When a file exists, provide Share, Export, and Print according to the shared information-action rules.
+   - Export saves the original stored file and preserves the original filename.
+   - Print is a separate action from Export.
+   - Share uses the device share flow and does not expose a permanent public URL.
+   - The viewer may expose Share, Export, and Print in a compact layout that does not reduce the document viewing area unnecessarily.
+   - When no file exists, Share, Export, and Print must be hidden or disabled.
+   - Constraints:
+   - Reuse the existing private storage, signed/private viewer, ownership rules, and Task 36 data model.
+   - Do not create a second company-document table or parallel document framework.
+   - Do not add version history, expiry dates, renewal reminders, folders, tags, OCR, signatures, or team permission complexity.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Search finds matching default and custom document cards.
+   - No sort or filter controls are introduced.
+   - Dragging cards changes the order and the order survives refresh and re-login.
+   - A new custom card appears in the list and can be repositioned.
+   - A deleted default card is not recreated automatically.
+   - Manage Documents shows only missing default cards for restore.
+   - Restore without a file uses the default Hebrew name.
+   - Restore with the previous file keeps the user-edited name.
+   - Clicking an empty card shows `לא נמצא קובץ`.
+   - Clicking a card with a file opens the existing viewer.
+   - Rename-only preserves the existing file.
+   - Replace-only preserves the existing card name.
+   - Failed replacement preserves the old file.
+   - Successful replacement deletes the old stored file only after the new file is saved.
+   - Delete is absent from list cards and available inside the editor.
+   - Deleting a card removes its row and stored file.
+   - Share, Export, and Print work for image and PDF documents.
+   - Cross-user access remains blocked.
+   - Completion rule:
+   - Task 37 is complete only after the required migration or data changes (if any), deployment, and production runtime verification are successful.
+
+38. [Finance Hub] Complete Finance as the central navigation hub for financial modules.
+   - Status: Pending
+   - Goal:
+   - Complete the Finance screen as a lightweight navigation hub that provides access to all financial modules without duplicating their management interfaces.
+   - Scope:
+   - Finance is a navigation hub only.
+   - Do not recreate Income, Expenses or other management screens inside Finance.
+   - Finance provides direct access to: הכנסות, הוצאות, בנקים, מע"מ, מסמכי חברה, הלוואות בעלים.
+   - Each destination opens the single implementation of that module.
+   - Finance must never become a second dashboard.
+   - Reuse existing navigation architecture.
+   - Maintain a clean mobile-first layout.
+   - Cards with implemented destinations are fully clickable.
+   - Cards for future modules may display a disabled state until implemented.
+   - Constraints:
+   - No duplicated business logic.
+   - No duplicated CRUD screens.
+   - Preserve existing dashboard navigation.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Every Finance card opens the correct destination.
+   - No duplicate Income or Expense screens exist.
+   - Navigation is consistent from Dashboard and Finance.
+   - Disabled future modules cannot be opened.
+   - Completion rule:
+   - Complete after production runtime verification of all Finance navigation paths.
+
+39. [Expense Details Dialog] Build the complete expense details experience using the existing expense architecture.
+   - Status: Pending
+   - Goal:
+   - Add a dedicated read-first Expense Details dialog that centralizes all information related to a saved expense without replacing the existing create/edit workflow.
+   - Scope:
+   - Open from the Expenses list.
+   - Present business information before edit actions.
+   - Display: Supplier, Invoice number, Date and time, Net / VAT / Gross, Accounting category, Charge / Credit, Funding source, Payment method, Project, Notes, Linked documents.
+   - Documents:
+   - Reuse the existing shared document viewer.
+   - Support image and PDF documents.
+   - Support multiple attached documents.
+   - Selecting a document opens the shared viewer.
+   - When no document exists, present an appropriate empty state.
+   - Information actions:
+   - Share, Export, Print using the shared cross-system implementation.
+   - Export preserves original filenames where relevant.
+   - Print remains separate from Export.
+   - Actions: Edit, Delete, Close.
+   - Constraints:
+   - Reuse existing expense entities and document infrastructure.
+   - Do not duplicate expense-edit screens.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Every expense opens correctly from the Expenses list.
+   - All stored fields are displayed correctly.
+   - Multiple documents open in the shared viewer.
+   - Share, Export and Print function correctly.
+   - Edit returns to the existing edit flow.
+   - Delete follows existing integrity rules.
+   - Completion rule:
+   - Complete after production runtime verification.
+
+40. [Income Details Dialog] Build the complete income details experience using the unified Income architecture.
+   - Status: Pending
+   - Goal:
+   - Create a dedicated read-first Income Details dialog for both Z-report income and non-Z income while reusing the existing unified Income screen and document infrastructure.
+   - Scope:
+   - Open from the Income list.
+   - Support both Z income and other income types in the same details dialog.
+   - Display: Income type, Date and time, Amount, Project, Payment method, Reference number (when applicable), Notes, Linked documents.
+   - Documents:
+   - Reuse the existing shared viewer.
+   - Support multiple image/PDF attachments.
+   - Selecting a document opens the shared viewer.
+   - Show an appropriate empty state when no documents exist.
+   - Information actions:
+   - Share, Export, Print using the shared cross-system implementation.
+   - Export preserves original filenames where applicable.
+   - Print remains separate from Export.
+   - Actions: Edit, Delete, Close.
+   - Constraints:
+   - Reuse the existing unified Income architecture.
+   - Do not create separate details implementations for Z and non-Z income.
+   - Reuse the shared document infrastructure and information-action components.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Z-report income opens correctly.
+   - Non-Z income opens correctly.
+   - All stored fields are displayed accurately.
+   - Multiple documents open in the shared viewer.
+   - Share, Export and Print work correctly.
+   - Edit returns to the existing edit flow.
+   - Delete follows existing integrity rules.
+   - Completion rule:
+   - Complete after production runtime verification.
+
+41. [Shared Information Actions] Implement reusable Viewer / Share / Export / Print infrastructure for information screens.
+   - Status: Pending
+   - Goal:
+   - Create one shared implementation for viewing, sharing, exporting, and printing information across the application.
+   - Reuse this infrastructure in Company Documents, Expense Details, Income Details, and future information screens instead of building separate behavior in each module.
+   - Scope:
+   - Information-screen rule: apply Share, Export, and Print to information screens including list screens; do not add these actions to create, edit, or data-entry screens.
+   - Viewer:
+   - Reuse one shared viewer for supported images and PDFs.
+   - The viewer displays only the selected document.
+   - Do not add previous/next document navigation inside the viewer; to open another document, the user returns to the originating document list.
+   - When no file exists, do not open an empty viewer; show `לא נמצא קובץ`.
+   - Viewer actions: allow Share, Export, and Print from the viewer; keep action controls compact.
+   - Share:
+   - Open the device or operating-system share flow.
+   - If an existing PDF is already available, share it; otherwise generate the required temporary PDF.
+   - Do not expose permanent public document URLs.
+   - For tabular reports, Share uses a PDF representation. Excel and CSV remain Export formats only.
+   - Export:
+   - Use one `ייצא` button offering only formats relevant to the current information screen.
+   - Export means saving a file to the computer or device.
+   - When exporting an existing stored document, preserve the original filename.
+   - Print:
+   - Print is a separate action from Export.
+   - Print uses the operating-system or browser print flow.
+   - When appropriate, reuse the same PDF output used for sharing and PDF export.
+   - Report PDF standard: business logo, business name, report name, generation date and time, name of the user who generated the report, all active filters, page numbering. The generated report must reflect the current visible report state.
+   - File-replacement safety: when replacing a stored file, do not delete the previous file before the replacement file has been uploaded and saved successfully; if upload or save fails, keep the previous file and metadata unchanged.
+   - Interaction and feedback: show loading state during processing; prevent duplicate clicks; show clear success and failure messages.
+   - Initial integrations: Company Documents, Expense Details, Income Details, Reports, Supplier Card when implemented, Asset Card when implemented.
+   - Constraints:
+   - Reuse existing private storage and signed/private file-access patterns.
+   - Do not create parallel Viewer, Share, Export, or Print implementations per module.
+   - Do not introduce unrelated formats or actions that were not approved.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Viewer opens supported image and PDF files from each initial integrated module.
+   - Empty-file actions show `לא נמצא קובץ` and do not open an empty viewer.
+   - Viewer controls remain compact on mobile.
+   - Share opens the native share flow where supported.
+   - Shared links or files do not expose permanent public URLs.
+   - Export presents one button with only relevant formats.
+   - Exported existing documents keep their original filenames.
+   - Print is separate from Export.
+   - A tabular report shares as PDF. Excel and CSV remain export-only formats.
+   - Report PDF contains all approved identifying and filter information.
+   - Generated report output matches the current visible data and filters.
+   - Duplicate clicks are blocked during processing.
+   - A failed file replacement leaves the previous file intact.
+   - Cross-user document access remains blocked.
+   - Completion rule:
+   - Task 41 is complete only after integration into the approved initial modules, deployment, and production runtime verification.
+
+42. [Projects] Implement the Projects module as the business activity backbone of the system.
+   - Status: Pending
+   - Goal:
+   - Introduce Projects as a shared business entity that organizes income, expenses, assets and future modules without creating separate systems for each business activity.
+   - Scope:
+   - Create a dedicated Projects management screen.
+   - Include the built-in project `כללי`.
+   - Every income and expense must belong to exactly one project; if no specific project applies, automatically use `כללי`.
+   - Allow creating new projects and editing project details.
+   - Support Active / Inactive status; inactive projects remain available historically but are not offered by default for new records.
+   - Deleting a project: a project containing linked entities cannot be deleted until all linked entities are reassigned; require selecting a replacement project before deletion completes.
+   - Relationships: Expenses belong to one project; Income belongs to one project; future assets, suppliers, reports and analytics reuse the same project entity.
+   - Filtering: support filtering Income and Expenses by project; future modules reuse the same filtering model.
+   - Constraints:
+   - Do not build separate project types for restaurant, food truck, lodging or other activities.
+   - Reuse one shared Projects entity across the application.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Built-in project `כללי` exists.
+   - New income and expense records always have exactly one project.
+   - Inactive projects are hidden by default from new-entry selectors.
+   - Project deletion requires reassignment when linked records exist.
+   - Filters return only matching project data.
+   - Completion rule:
+   - Complete after deployment and production runtime verification.
+
+43. [Supplier Card] Implement the Supplier Card as the central business view for each supplier.
+   - Status: Pending
+   - Goal:
+   - Transform suppliers from a simple selection field into a reusable business entity while keeping the module lightweight and focused on real operational needs.
+   - Scope:
+   - Create a dedicated Supplier Card screen.
+   - Display: Supplier name, Business name (when different), Tax ID, Contact information when available, Active / Inactive status.
+   - Financial information: Related expenses, Related invoices and documents, Total amounts paid, Purchase history.
+   - Relationships: Linked projects, Linked assets purchased from the supplier, Future integration with supplier orders, deliveries and delivery-time analysis.
+   - Documents: Reuse the shared document infrastructure; support viewing, sharing, exporting and printing supplier documents.
+   - Ordering workflow: prepare the Supplier Card for future ordering integration without implementing full purchasing management; support storing preferred ordering method and related contact details.
+   - Business rules:
+   - New suppliers can still be created directly during expense entry.
+   - Newly created suppliers are automatically selected for the current expense.
+   - Suppliers with linked expenses cannot be deleted.
+   - Suppliers without linked expenses may be deleted.
+   - Inactive suppliers remain available historically but are hidden by default when selecting a supplier for a new expense.
+   - Constraints:
+   - Do not build a full CRM.
+   - Do not implement purchasing, deliveries or payment tracking in this task.
+   - Reuse existing supplier data wherever possible.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Supplier opens from linked expenses.
+   - Related expenses and documents are displayed correctly.
+   - Documents open in the shared viewer.
+   - Active / Inactive behavior matches approved rules.
+   - Delete rules prevent removing suppliers with linked expenses.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+44. [Asset Card] Implement the Asset module and connect assets to the complete purchasing lifecycle.
+   - Status: Pending
+   - Goal:
+   - Build a dedicated Asset Card that represents business assets created from purchases while preventing duplicate data entry by reusing existing expense and document information.
+   - Scope:
+   - Create a dedicated Assets management screen.
+   - Allow creating an asset directly from an existing expense.
+   - Reuse existing information from the expense, invoice and source document whenever possible.
+   - Asset card includes: Name / Description, Category / Type, Purchase date, Supplier, Purchase cost, Source document, Originating expense, Assigned project, Relevant accounting information.
+   - Relationships: Asset ↔ Expense, Asset ↔ Supplier, Asset ↔ Project, Asset ↔ Source document.
+   - Navigation: open the Asset Card from linked expenses; open the originating expense from the Asset Card.
+   - Documents: Reuse the shared document viewer; support Share / Export / Print through the shared infrastructure.
+   - Business rules:
+   - Avoid duplicate data entry.
+   - The asset must never become an isolated record.
+   - Future lifecycle, maintenance, depreciation, warranties and operational management remain out of scope for this task.
+   - Constraints:
+   - Do not build inventory management.
+   - Reuse existing entities and document infrastructure.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Asset creation from an expense reuses existing business data.
+   - Supplier, project, expense and source document remain linked.
+   - Asset and originating expense open each other correctly.
+   - Documents open in the shared viewer.
+   - No duplicate business data is created.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+45. [Accounting Categories] Implement accounting-category management and safe reassignment rules.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated accounting-category module that supports day-to-day business management while remaining compatible with accountant workflows.
+   - Scope:
+   - Create a dedicated Accounting Categories management screen.
+   - Support the approved default categories: רכוש קבוע, הוצאות הקמה, מלאי, עובדים, הוצאה שוטפת, תשלום מראש, ציוד מתכלה.
+   - Allow adding additional categories when business needs require them.
+   - Allow editing category names and status.
+   - Deletion: a category with linked expenses cannot simply be deleted; require selecting a replacement category; reassign all linked expenses before completing deletion.
+   - Expense behavior: every expense has one primary accounting category; do not split a single expense into multiple accounting categories.
+   - Relationships: reuse existing expense architecture; reports and filters automatically use the updated category assignments.
+   - Constraints:
+   - This is a business-management classification and does not replace the accountant's final accounting treatment.
+   - Do not introduce multi-category allocation or percentage splitting.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Default categories exist.
+   - New categories can be created.
+   - Category deletion requires reassignment when linked expenses exist.
+   - Linked expenses move correctly to the replacement category.
+   - Reports and filters reflect the reassigned category.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+46. [Global Search] Implement unified global and local search across the application.
+   - Status: Pending
+   - Goal:
+   - Allow users to quickly locate business information anywhere in the system while preserving simple, module-focused local searches.
+   - Scope:
+   - Global Search: add one application-wide search entry point; search by keyword across Expenses, Income, Suppliers, Projects, Company Documents, Assets (after Task 44); present grouped results by entity type; selecting a result opens the relevant screen or details dialog.
+   - Local Search: every major module continues to provide its own local search where approved; local search searches only within the current module.
+   - Search behavior: match meaningful business fields; ignore inactive modules that have not yet been implemented; keep mobile-first performance and simple interaction.
+   - Constraints:
+   - Do not replace module-specific filters.
+   - Do not implement advanced search syntax or saved searches.
+   - Do not introduce full-text indexing beyond current business needs.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Global search finds supported entities.
+   - Results open the correct destination.
+   - Local searches remain independent.
+   - Searches remain responsive on mobile.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+47. [Calendar] Implement the business calendar as the central scheduling view.
+   - Status: Pending
+   - Goal:
+   - Provide a simple business calendar for planning and viewing business activities without becoming a full project-management system.
+   - Scope:
+   - Create a dedicated Calendar screen.
+   - Support Month, Week and Day views optimized for mobile.
+   - Allow creating, editing and deleting calendar events.
+   - Each event includes: Title, Date, Start and end time, Optional notes, Optional linked project.
+   - Navigation: open from the Dashboard when the Calendar card becomes active; open directly from the main navigation.
+   - Future integration: prepare links to Tasks, Supplier Orders, Deliveries and Projects without implementing those modules in this task.
+   - Business rules: calendar events remain independent of expenses and income unless explicitly linked; preserve one shared calendar for the business.
+   - Constraints:
+   - Do not implement recurring events, reminders, external calendar synchronization or team scheduling.
+   - Do not introduce resource planning or Gantt functionality.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Events can be created, edited and deleted.
+   - Month, Week and Day views display correctly.
+   - Linked projects open correctly when present.
+   - Calendar performs well on mobile devices.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+48. [Tasks] Implement the business task management module.
+   - Status: Pending
+   - Goal:
+   - Provide a lightweight task-management module focused on real business work, integrated with the Calendar and Projects modules without becoming a full project-management platform.
+   - Scope:
+   - Create a dedicated Tasks screen.
+   - Allow creating, editing, completing and deleting tasks.
+   - Each task includes: Title, Description (optional), Status (Open / Completed), Due date (optional), Optional linked project, Notes.
+   - Dashboard integration: the Dashboard task card becomes active after this module is implemented; show open task count.
+   - Calendar integration: tasks with a due date may appear in the Calendar.
+   - Business rules: tasks remain separate from expenses, income and documents unless explicitly linked in future work; completed tasks remain available in history.
+   - Constraints:
+   - Do not implement subtasks, recurring tasks, Kanban boards, dependencies, assignments, notifications or collaboration features.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Tasks can be created, edited, completed and deleted.
+   - Open/completed status behaves correctly.
+   - Dashboard reflects open task count.
+   - Due-date tasks appear correctly in Calendar integration.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+49. [Supplier Orders] Implement supplier order management as the first stage of the purchasing workflow.
+   - Status: Pending
+   - Goal:
+   - Add a lightweight purchasing workflow that allows the business to manage supplier orders without introducing a full procurement system.
+   - Scope:
+   - Create a dedicated Supplier Orders screen.
+   - Each order includes: Supplier, Project, Order date, Expected delivery date (optional), Status (Open / Partially Received / Completed / Cancelled), Notes, Linked documents.
+   - Relationships: Supplier → Order → Delivery → Invoice/Document → Expense; link orders to existing Supplier Cards and future Deliveries.
+   - Documents: reuse the shared Viewer, Share, Export and Print infrastructure.
+   - Business rules: orders may exist before an invoice is received; an order can later be linked to expenses and supplier documents.
+   - Constraints:
+   - Do not implement inventory reservation, approvals, quotations, multi-step procurement or payment management.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Orders can be created, edited and completed.
+   - Orders link correctly to suppliers and projects.
+   - Documents open in the shared viewer.
+   - Status changes behave correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+50. [Deliveries] Implement supplier deliveries as the receiving stage of the purchasing workflow.
+   - Status: Pending
+   - Goal:
+   - Record and manage supplier deliveries while connecting them to supplier orders, invoices, expenses and future delivery analytics.
+   - Scope:
+   - Create a dedicated Deliveries screen.
+   - Each delivery includes: Supplier, Related supplier order (optional), Project, Expected delivery date, Actual delivery date, Status (Pending / Partially Received / Received / Cancelled), Notes, Linked documents.
+   - Relationships: Supplier → Order → Delivery → Invoice/Document → Expense; allow deliveries with or without an originating supplier order; support linking one delivery to one or more future expenses when applicable.
+   - Documents: reuse the shared Viewer, Share, Export and Print infrastructure.
+   - Business rules: partial deliveries are supported; a delivery may be completed before the supplier invoice is received; receiving a delivery does not automatically create an expense.
+   - Future preparation: preserve delivery dates for future delivery-time statistics.
+   - Constraints:
+   - Do not implement inventory receiving, barcode scanning, warehouse locations or stock adjustments.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Deliveries can be created, edited and completed.
+   - Partial deliveries behave correctly.
+   - Supplier, order and project links remain valid.
+   - Documents open correctly in the shared viewer.
+   - Delivery completion does not automatically create an expense.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+51. [Delivery Time Analytics] Implement supplier delivery-time tracking and performance metrics.
+   - Status: Pending
+   - Goal:
+   - Measure supplier delivery performance using real delivery history to support future purchasing decisions.
+   - Scope:
+   - Reuse data collected by Supplier Orders and Deliveries.
+   - Calculate delivery duration using: order date, expected delivery date, actual delivery date.
+   - Display per supplier: average delivery time, on-time deliveries, late deliveries, early deliveries, number of completed deliveries.
+   - Display basic delivery history inside the Supplier Card.
+   - Allow filtering statistics by project and date range.
+   - Business rules: only completed deliveries participate in statistics; cancelled deliveries are excluded; partial deliveries contribute only after completion.
+   - Future preparation: reuse these metrics when suggesting realistic expected delivery dates for new supplier orders.
+   - Constraints:
+   - Do not introduce predictive AI, supplier scoring, procurement optimization or external logistics integrations.
+   - Reuse existing Supplier, Orders and Deliveries entities.
+   - Preserve accessibility improvements from Task 24.
+   - Verification:
+   - Delivery durations are calculated correctly.
+   - Cancelled deliveries are excluded.
+   - Supplier statistics match delivery history.
+   - Project and date filters work correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+52. [Asset Lifecycle] Extend the Asset module with lifecycle management.
+   - Status: Pending
+   - Goal:
+   - Extend the Asset module beyond the initial Asset Card by managing the complete business lifecycle of an asset while keeping the implementation focused on real operational needs.
+   - Scope:
+   - Extend the existing Asset Card.
+   - Maintain one complete history for every asset.
+   - Add lifecycle information: Acquisition, Operational status, Maintenance history, Asset-related expenses, Additional documents, Disposal / Retirement.
+   - Support attaching additional documents throughout the asset's lifetime.
+   - Allow linking future expenses directly to the asset.
+   - Display the complete chronological asset history.
+   - Reuse Supplier, Expense, Project, Shared Documents and the shared Viewer / Share / Export / Print infrastructure.
+   - Business rules: assets are business entities and are not inventory; every asset keeps a connection to its originating purchase whenever one exists; asset-related expenses supplement the asset history and do not replace the original purchase expense.
+   - Future preparation: preserve the ability to support depreciation, warranty tracking and additional operational information later without redesigning the data model.
+   - Constraints:
+   - Do not implement depreciation calculations.
+   - Do not implement maintenance scheduling.
+   - Do not implement inventory management.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Additional expenses can be linked to an asset.
+   - Additional documents appear in the asset history.
+   - Asset history is chronological.
+   - Supplier, Project, Expense and Asset relationships remain consistent.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+53. [Banks] Implement the Banks module as the central management area for business bank accounts.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated Banks module within Finance that centralizes business bank accounts and prepares the system for future financial capabilities without introducing unnecessary banking complexity.
+   - Scope:
+   - Create a dedicated Banks management screen.
+   - Manage business bank accounts.
+   - Display: Bank name, Account nickname, Account number (masked where appropriate), Active / Inactive status, Notes.
+   - Allow creating, editing and deactivating bank accounts.
+   - Reuse existing Funding Sources and Payment Methods where applicable.
+   - Prepare future integration with VAT, Owner Loans, Cash Flow and Government Payments.
+   - Business rules: banks are financial entities only; expenses and income continue to store Funding Source and Payment Method independently; inactive bank accounts remain available historically but cannot be selected for new records.
+   - Constraints:
+   - Do not implement automatic bank synchronization.
+   - Do not import bank statements.
+   - Do not implement reconciliation or open banking APIs.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Bank accounts can be created, edited and deactivated.
+   - Inactive accounts cannot be selected for new records.
+   - Existing linked records remain valid.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+54. [VAT] Implement the VAT management module.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated VAT module that gives the business visibility into VAT information derived from existing business records while keeping tax-management complexity out of the current phase.
+   - Scope:
+   - Create a dedicated VAT screen accessible from Finance.
+   - Display VAT information calculated from existing Expenses and Income.
+   - Provide period-based VAT summaries.
+   - Allow filtering by reporting period and project.
+   - Allow exporting VAT reports using the shared Export infrastructure.
+   - Support Share and Print using the shared information-actions infrastructure.
+   - Business rules: VAT information is calculated from existing transactions; the module is informational and supports business control; it does not replace the accountant or official tax reporting.
+   - Future preparation: prepare integration with future Government Payments and advanced financial reporting.
+   - Constraints:
+   - Do not implement tax filing.
+   - Do not submit reports to authorities.
+   - Do not calculate penalties or interest.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - VAT summaries match underlying expenses and income.
+   - Filters return correct reporting periods.
+   - Export, Share and Print work correctly.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+55. [Owner Loans] Implement the Owner Loans module.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated module for managing owner loans separately from funding sources while maintaining a clear picture of amounts invested in or withdrawn from the business by each owner.
+   - Scope:
+   - Create a dedicated Owner Loans screen accessible from Finance.
+   - Support multiple owners.
+   - Display: Owner, Transaction date, Amount, Direction (Loan to Business / Repayment), Notes, Linked supporting documents (optional).
+   - Automatically calculate the running balance for each owner.
+   - Allow creating, editing and deleting owner-loan transactions.
+   - Reuse the shared document infrastructure; support Viewer, Share, Export and Print.
+   - Business rules: Owner Loans remain separate from Payment Methods and Funding Sources; each transaction belongs to exactly one owner; historical transactions remain unchanged even if an owner becomes inactive.
+   - Future preparation: prepare integration with Banks, Cash Flow and advanced financial reporting.
+   - Constraints:
+   - Do not implement interest calculations.
+   - Do not implement repayment schedules.
+   - Do not implement accounting journal entries.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Transactions can be created, edited and deleted.
+   - Running balances are calculated correctly.
+   - Supporting documents open correctly in the shared viewer.
+   - Navigation from Finance works correctly.
+   - Share, Export and Print function correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+56. [VAT Reporting Periods] Prevent accidental changes to already-reported VAT periods.
+   - Status: Pending
+   - Goal:
+   - Protect the integrity of accounting records by warning the user before creating or modifying financial records that belong to a VAT reporting period already reported to the accountant.
+   - Scope:
+   - Introduce one shared "Reported VAT Period" concept used by both Income and Expenses.
+   - Support marking a VAT reporting period as Reported or Not Reported.
+   - Before saving or editing an Income or Expense: determine the VAT reporting period from the document date; if that period is already marked as Reported, show a warning dialog and allow the user to continue anyway without blocking the save.
+   - Warning text: explain that the record belongs to a period already reported to the accountant; explain that a correcting VAT report or accountant action may be required.
+   - The dialog appears only once per save attempt.
+   - Do not automatically change document date, entry date, or VAT period.
+   - Reuse one shared warning flow for both Income and Expenses.
+   - Constraints:
+   - Do not lock reported periods.
+   - Do not prevent editing.
+   - Do not implement accountant approval workflows.
+   - Do not calculate corrective VAT automatically.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Saving inside an unreported period proceeds normally.
+   - Saving inside a reported period shows the warning exactly once.
+   - Choosing Continue saves successfully.
+   - Choosing Cancel aborts the save.
+   - Income and Expense use the same warning behavior.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+57. [Budgets] Implement the Budgets module for business planning and control.
+   - Status: Pending
+   - Goal:
+   - Provide a practical budgeting module that helps compare planned spending against actual business activity without adding unnecessary financial complexity.
+   - Scope:
+   - Create a dedicated Budgets screen accessible from Finance.
+   - Allow creating annual and monthly budgets.
+   - Budgets may be defined by: Project, Accounting category, Overall business.
+   - Display: Planned amount, Actual amount, Remaining budget, Budget utilization (%), Over-budget indication.
+   - Automatically calculate actual values from existing expenses.
+   - Support filtering by period and project.
+   - Reuse the shared Export, Share and Print infrastructure.
+   - Business rules: budgets are management tools and do not modify accounting records; actual values are calculated from approved business data; budget overruns generate clear visual warnings but do not block business operations.
+   - Future preparation: prepare integration with Cash Flow, AI Business Insights and advanced financial reports.
+   - Constraints:
+   - Do not implement approval workflows.
+   - Do not implement budget versioning or forecasting.
+   - Do not modify expense records.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Budgets can be created, edited and deleted.
+   - Planned and actual values are calculated correctly.
+   - Over-budget indicators appear correctly.
+   - Filters and exports work correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+58. [Cash Flow] Implement the Cash Flow module for business liquidity monitoring.
+   - Status: Pending
+   - Goal:
+   - Provide a practical cash-flow view that helps the business understand incoming and outgoing money using existing business data, without replacing accounting software.
+   - Scope:
+   - Create a dedicated Cash Flow screen accessible from Finance.
+   - Display cash-flow summaries by: Month, Year, Project.
+   - Show: Total inflows, Total outflows, Net cash flow, Opening balance (manual if required), Closing balance.
+   - Calculate values from existing Income, Expenses and Owner Loans.
+   - Prepare integration with Banks and Budgets.
+   - Support filtering, Share, Export and Print using the shared infrastructure.
+   - Business rules: Cash Flow is a management tool only; calculations are based on recorded business transactions; the module never modifies source records.
+   - Future preparation: prepare support for future forecasting and scenario analysis.
+   - Constraints:
+   - Do not implement bank reconciliation.
+   - Do not predict future cash flow automatically.
+   - Do not replace accountant reports.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Cash-flow calculations match underlying business data.
+   - Filters produce correct results.
+   - Share, Export and Print operate correctly.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+59. [Government Payments] Implement the Government Payments module.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated module for managing payments to government authorities while keeping them separate from supplier expenses and routine business transactions.
+   - Scope:
+   - Create a dedicated Government Payments screen within Finance.
+   - Support payment records for: VAT, Income Tax, National Insurance, Additional authorities when required.
+   - Each payment includes: Authority, Reporting period, Due date, Payment date, Amount, Status, Notes, Supporting documents.
+   - Reuse the shared document infrastructure; support Viewer, Share, Export and Print.
+   - Prepare future integration with VAT, Banks and Cash Flow.
+   - Business rules: government payments are independent financial records; they are not supplier expenses; completed historical records remain immutable.
+   - Constraints:
+   - Do not implement electronic filing.
+   - Do not connect to government systems.
+   - Do not calculate taxes automatically.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Payments can be created, edited and completed.
+   - Documents open correctly in the shared viewer.
+   - Navigation from Finance works correctly.
+   - Share, Export and Print function correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+60. [AI Business Insights] Implement AI-powered business insights.
+   - Status: Pending
+   - Goal:
+   - Provide practical AI-generated business insights that help the owner understand business performance using existing business data, without replacing professional accounting or business judgment.
+   - Scope:
+   - Create a dedicated AI Business Insights screen accessible from Finance.
+   - Generate insights from existing business information including: Income, Expenses, Projects, Budgets, Cash Flow, Supplier activity.
+   - Examples of supported insights: spending trends, income trends, budget overruns, project profitability indicators, supplier purchasing patterns, cash-flow observations.
+   - Display insights in plain language.
+   - Allow refreshing insights on demand.
+   - Support Share, Export and Print using the shared infrastructure.
+   - Business rules: AI insights are advisory only; business records remain the source of truth; insights never modify business data automatically.
+   - Future preparation: prepare support for future predictive analysis, recommendations and advanced decision-support capabilities.
+   - Constraints:
+   - Do not automatically change business records.
+   - Do not generate accounting entries.
+   - Do not replace accountant advice.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Insights are generated from current business data.
+   - Refresh produces updated insights.
+   - Share, Export and Print function correctly.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
 61. [Reported Periods] Implement reported-period management and late-entry warnings.
    - Status: Pending
    - Goal:
@@ -393,6 +1087,24 @@
    - Reports and VAT calculations continue using the document date.
    - Completion rule:
    - Complete after deployment and successful production runtime verification.
+
+62. [Future Enhancements & Backlog] Reserved for future features after completion of the core business-management platform.
+   - Status: Deferred
+   - Goal:
+   - Keep a dedicated backlog for ideas and future capabilities without allowing them to expand the current implementation scope.
+   - Scope:
+   - This section intentionally contains no implementation work during the current project phase.
+   - New ideas should be added here only after evaluating whether they are truly necessary.
+   - Items may include future enhancements such as: Advanced automation, External integrations, AI improvements, Advanced analytics, Industry-specific features, Other post-release ideas.
+   - Business rules:
+   - Nothing in this task may be implemented before all planned production tasks are completed and accepted.
+   - Constraints:
+   - Do not move backlog items into active development without explicit approval.
+   - Preserve the project's philosophy of minimal complexity and practical business value.
+   - Verification:
+   - Not applicable during the current implementation phase.
+   - Completion rule:
+   - Remains deferred until after the planned platform is fully completed and production-approved.
 
 # Current-phase completion rule
 

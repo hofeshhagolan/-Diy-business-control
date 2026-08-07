@@ -47,6 +47,7 @@ const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
 const zDocumentsSignedUrlCache = new Map();
 const incomeTypeSuggestions = new Map();
+const expenseSupplierSuggestions = new Map();
 const VIEWER_PDF_DEBUG = true;
 const GROUPING_CONFIDENCE_THRESHOLD = 0.8;
 const Z_INCOME_TYPE_DEFAULT = 'דו"ח Z';
@@ -220,7 +221,7 @@ const syncQuickAddButtonVisibility = viewId => {
   const quickAddButton = $("quickAddButton");
   if(!quickAddButton) return;
 
-  const hideQuickAdd = viewId === "companyDocumentsView" || viewId === "incomeView";
+  const hideQuickAdd = viewId !== ROOT_VIEW_ID;
   quickAddButton.classList.toggle("hidden", hideQuickAdd);
   quickAddButton.disabled = hideQuickAdd;
 };
@@ -1027,6 +1028,7 @@ function openIncomeFilterDialog(){
 
 function openExpenseFilterDialog(){
   syncExpenseFilterDialogFromState();
+  renderExpenseSupplierSuggestionsPanel($("expenseFilterSupplier")?.value || "");
   $("expenseFilterDialog")?.showModal();
 }
 
@@ -1233,6 +1235,28 @@ function bindIncomeTypeSuggestionInteractions(){
   document.addEventListener("click", event => {
     if(event.target === input || panel.contains(event.target)) return;
     closeIncomeTypeSuggestions();
+  });
+}
+
+function bindExpenseSupplierSuggestionInteractions(){
+  const input = $("expenseFilterSupplier");
+  const panel = $("expenseFilterSupplierSuggestions");
+  if(!input || !panel) return;
+
+  input.addEventListener("focus", openExpenseSupplierSuggestions);
+  input.addEventListener("click", openExpenseSupplierSuggestions);
+  input.addEventListener("input", () => renderExpenseSupplierSuggestionsPanel(input.value));
+  input.addEventListener("keydown", event => {
+    if(event.key === "Escape"){
+      closeExpenseSupplierSuggestions();
+    }
+  });
+
+  panel.addEventListener("mousedown", event => event.preventDefault());
+
+  document.addEventListener("click", event => {
+    if(event.target === input || panel.contains(event.target)) return;
+    closeExpenseSupplierSuggestions();
   });
 }
 
@@ -5882,7 +5906,7 @@ async function enterApp(){
   await loadBusiness();
   void flushPendingExpenseStorageCleanup();
   await loadLookups();
-  await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees(), loadIncomeTypeSuggestions(), loadCompanyDocuments()]);
+  await Promise.all([loadDashboard(), loadExpenses(), loadZReports(), loadEmployees(), loadIncomeTypeSuggestions(), loadExpenseSupplierSuggestions(), loadCompanyDocuments()]);
   void refreshPendingInvoiceCountIndicator();
   void resumeDurableInvoiceCheckpoints();
 }
@@ -6274,7 +6298,7 @@ function positionActionMenu(menuId, buttonId){
   const button = $(buttonId);
   if(!menu || !button) return;
 
-  const anchor = button.closest(".action-menu-anchor");
+  const anchor = button.closest(".action-menu-anchor, .modal-head-actions, #expenseDialogHeaderActions, #incomeDialogHeaderActions");
   if(anchor){
     menu.style.top = "calc(100% + 6px)";
     menu.style.left = "";
@@ -6366,35 +6390,141 @@ async function shareBlobFile({blob, filename, title = "", text = ""}){
   showToast("שיתוף לא נתמך במכשיר זה. הקובץ הורד למכשיר.", "warning");
 }
 
+function printInHiddenFrame(sourceUrl, title = "מסמך", revokeAfterPrint = false){
+  const frame = document.createElement("iframe");
+  frame.title = title;
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.opacity = "0";
+  frame.style.pointerEvents = "none";
+  frame.style.border = "0";
+
+  const cleanup = () => {
+    if(revokeAfterPrint){
+      try { URL.revokeObjectURL(sourceUrl); } catch {}
+    }
+    frame.remove();
+  };
+
+  frame.onload = () => {
+    const targetWindow = frame.contentWindow;
+    if(!targetWindow){
+      cleanup();
+      return;
+    }
+
+    const finish = () => setTimeout(cleanup, 400);
+    try {
+      targetWindow.onafterprint = finish;
+    } catch {}
+
+    setTimeout(() => {
+      try {
+        targetWindow.focus();
+        targetWindow.print();
+      } catch(error){
+        console.error(error);
+      }
+      setTimeout(finish, 1200);
+    }, 180);
+  };
+
+  frame.src = sourceUrl;
+  document.body.appendChild(frame);
+}
+
 function openPrintWindowWithBlob(blob, title = "מסמך"){
   const objectUrl = URL.createObjectURL(blob);
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
-  if(!printWindow){
-    URL.revokeObjectURL(objectUrl);
-    throw new Error("הדפדפן חסם פתיחת חלון להדפסה");
-  }
-
-  const isPdf = String(blob.type || "").toLowerCase().includes("pdf");
-  const content = isPdf
-    ? `<iframe src="${objectUrl}" style="width:100%;height:100%;border:0" title="${escapeHtml(title)}"></iframe>`
-    : `<img src="${objectUrl}" alt="${escapeHtml(title)}" style="max-width:100%;height:auto;display:block;margin:0 auto">`;
-
-  printWindow.document.open();
-  printWindow.document.write(`<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>html,body{height:100%;margin:0}</style></head><body>${content}<script>window.addEventListener('load',()=>{setTimeout(()=>{window.focus();window.print();},150);});</script></body></html>`);
-  printWindow.document.close();
-
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+  printInHiddenFrame(objectUrl, title, true);
 }
 
 function openPrintWindowWithHtml(html, title = "מסמך"){
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
-  if(!printWindow){
-    throw new Error("הדפדפן חסם פתיחת חלון להדפסה");
+  const htmlBlob = new Blob([
+    `<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;margin:16px;color:#172033}h1{margin:0 0 10px;color:#102c4e;font-size:1.3rem}.meta{margin:0 0 14px;color:#667085;font-size:.9rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:.9rem}th{background:#eef3f8;color:#102c4e}tbody tr:nth-child(even){background:#f9fbfe}@page{size:auto;margin:12mm}</style></head><body>${html}</body></html>`
+  ], {type:"text/html;charset=utf-8"});
+  const objectUrl = URL.createObjectURL(htmlBlob);
+  printInHiddenFrame(objectUrl, title, true);
+}
+
+function addExpenseSupplierSuggestion(rawValue){
+  const value = String(rawValue || "").trim();
+  if(!value) return false;
+  const beforeSize = expenseSupplierSuggestions.size;
+  expenseSupplierSuggestions.set(value.toLowerCase(), value);
+  return expenseSupplierSuggestions.size !== beforeSize;
+}
+
+function getExpenseSupplierSuggestions(){
+  return Array.from(expenseSupplierSuggestions.values())
+    .sort((left, right) => left.localeCompare(right, "he", {numeric:true, sensitivity:"base"}));
+}
+
+function renderExpenseSupplierSuggestionsPanel(filterText = ""){
+  const panel = $("expenseFilterSupplierSuggestions");
+  if(!panel) return;
+
+  const normalizedFilter = String(filterText || "").trim().toLowerCase();
+  const suggestions = getExpenseSupplierSuggestions().filter(value => {
+    if(!normalizedFilter) return true;
+    return value.toLowerCase().includes(normalizedFilter);
+  });
+
+  if(!suggestions.length){
+    panel.innerHTML = "";
+    panel.classList.add("hidden");
+    return;
   }
 
-  printWindow.document.open();
-  printWindow.document.write(`<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;margin:16px;color:#172033}h1{margin:0 0 10px;color:#102c4e;font-size:1.3rem}.meta{margin:0 0 14px;color:#667085;font-size:.9rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:.9rem}th{background:#eef3f8;color:#102c4e}tbody tr:nth-child(even){background:#f9fbfe}@page{size:auto;margin:12mm}</style></head><body>${html}<script>window.addEventListener('load',()=>{setTimeout(()=>{window.focus();window.print();},120);});</script></body></html>`);
-  printWindow.document.close();
+  panel.innerHTML = suggestions.map(value => `
+    <button type="button" class="income-type-suggestion" role="option" data-expense-supplier-suggestion="${value.replace(/"/g, "&quot;")}">${value}</button>
+  `).join("");
+  panel.classList.remove("hidden");
+
+  panel.querySelectorAll("[data-expense-supplier-suggestion]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const selectedValue = button.dataset.expenseSupplierSuggestion || "";
+      const input = $("expenseFilterSupplier");
+      if(input) input.value = selectedValue;
+      expenseFilterDraft.supplier = selectedValue;
+      renderExpenseSupplierSuggestionsPanel(selectedValue);
+      panel.classList.add("hidden");
+      expenseFilterState = {...expenseFilterDraft};
+      renderExpenseFilterChips();
+      await loadExpenses();
+      $("expenseFilterDialog")?.close();
+    });
+  });
+}
+
+function openExpenseSupplierSuggestions(){
+  renderExpenseSupplierSuggestionsPanel($("expenseFilterSupplier")?.value || "");
+}
+
+function closeExpenseSupplierSuggestions(){
+  const panel = $("expenseFilterSupplierSuggestions");
+  if(!panel) return;
+  panel.classList.add("hidden");
+}
+
+async function loadExpenseSupplierSuggestions(){
+  expenseSupplierSuggestions.clear();
+  if(!sb || !userId) return;
+
+  const {data, error} = await sb.from("expenses")
+    .select("supplier_name_snapshot")
+    .eq("user_id", userId)
+    .order("supplier_name_snapshot", {ascending:true});
+
+  if(error){
+    console.error(error);
+    return;
+  }
+
+  (Array.isArray(data) ? data : []).forEach(row => addExpenseSupplierSuggestion(row?.supplier_name_snapshot));
+  renderExpenseSupplierSuggestionsPanel($("expenseFilterSupplier")?.value || "");
 }
 
 async function ensureHtml2CanvasLib(){
@@ -7221,7 +7351,7 @@ async function confirmAndDeleteCurrentExpense(){
     }
 
     $("expenseDialog")?.close();
-    await Promise.all([loadExpenses(), loadDashboard()]);
+    await Promise.all([loadExpenses(), loadDashboard(), loadExpenseSupplierSuggestions()]);
     if(storagePaths.length && getPendingExpenseStorageCleanupPaths().length){
       showToast("ההוצאה נמחקה. ניקוי קבצי המסמך יושלם אוטומטית.", "ok");
     } else {
@@ -8096,6 +8226,7 @@ document.querySelectorAll("[data-action]").forEach(button => {
 });
 
 bindIncomeTypeSuggestionInteractions();
+bindExpenseSupplierSuggestionInteractions();
 
 async function showExpensePendingEntryChoice(){
   try {
@@ -8386,6 +8517,7 @@ $("incomeFilterClearButton")?.addEventListener("click", () => {
 $("expenseFilterClearButton")?.addEventListener("click", () => {
   void clearExpenseFilters();
   $("expenseFilterDialog")?.close();
+  closeExpenseSupplierSuggestions();
 });
 
 $("incomeFilterProject")?.addEventListener("change", event => {
@@ -8414,6 +8546,7 @@ $("incomeFilterDocumentDateTo")?.addEventListener("change", event => {
 
 $("expenseFilterSupplier")?.addEventListener("input", event => {
   expenseFilterDraft.supplier = event.target.value || "";
+  renderExpenseSupplierSuggestionsPanel(event.target.value || "");
 });
 
 $("expenseFilterAccountingType")?.addEventListener("change", event => {
@@ -9478,7 +9611,7 @@ $("expenseForm").onsubmit = async event => {
     }
 
     try {
-      await Promise.all([loadExpenses(),loadDashboard()]);
+      await Promise.all([loadExpenses(),loadDashboard(),loadExpenseSupplierSuggestions()]);
     } catch(refreshError){
       console.error(refreshError);
     }

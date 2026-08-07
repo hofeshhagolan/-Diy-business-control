@@ -81,6 +81,7 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .income-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-start;flex-direction:row-reverse}
 .income-new-button{white-space:nowrap}
 .income-icon-button{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;line-height:1}
+.income-icon-button svg{display:block;fill:currentColor}
 .income-icon-button.is-active{background:#eef5fb;border-color:#b7cae1;color:var(--brand2)}
 .income-filter-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
 .income-filter-chip-list{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -189,7 +190,7 @@ th{background:#eef3f8;color:var(--brand)}
 .row-action.delete-action{border-color:#f0c2c2;color:#b23a3a}
 .share-icon{display:block}
 .share-icon circle{fill:currentColor}
-.action-menu{position:absolute;z-index:45;min-width:150px;padding:6px;border:1px solid var(--line);border-radius:10px;background:#fff;box-shadow:0 12px 24px rgba(7,24,42,.16);display:grid;gap:4px}
+.action-menu{position:absolute;z-index:70;min-width:150px;padding:6px;border:1px solid var(--line);border-radius:10px;background:#fff;box-shadow:0 12px 24px rgba(7,24,42,.16);display:grid;gap:4px}
 .action-menu button{border:0;background:transparent;padding:8px 10px;border-radius:8px;text-align:right;color:var(--brand);font-weight:700;cursor:pointer}
 .action-menu button:hover,.action-menu button:focus-visible{background:#eef4fb;outline:none}
 .modal-head{position:relative;z-index:2;overflow:visible}

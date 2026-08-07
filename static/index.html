@@ -206,14 +206,27 @@
   </div>
 </dialog>
 
-<dialog id="expenseDialog">
+<dialog id="expenseDialog" aria-labelledby="expenseDialogTitle">
   <div class="modal-head">
     <strong id="expenseDialogTitle">הוצאה חדשה</strong>
     <div id="expenseDialogHeaderActions" class="row-actions hidden" aria-label="פעולות הוצאה">
-      <button id="expenseDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הוצאה" title="עריכת הוצאה">✏️</button>
       <button id="expenseDetailsDeleteButton" class="row-action delete-action" type="button" aria-label="מחיקת הוצאה" title="מחיקת הוצאה">❌</button>
+      <button id="expenseDetailsEditButton" class="row-action edit-action" type="button" aria-label="עריכת הוצאה" title="עריכת הוצאה">✏️</button>
+      <button id="expenseDetailsShareMenuButton" class="row-action" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="expenseDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">
+        <svg class="share-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+          <circle cx="6" cy="12" r="2.4"></circle>
+          <circle cx="18" cy="6" r="2.4"></circle>
+          <circle cx="18" cy="18" r="2.4"></circle>
+          <path d="M8 11l7-4M8 13l7 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        </svg>
+      </button>
+      <div id="expenseDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הוצאה">
+        <button id="expenseDetailsShareAction" type="button" role="menuitem">שיתוף</button>
+        <button id="expenseDetailsExportPdfAction" type="button" role="menuitem">ייצוא PDF</button>
+        <button id="expenseDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
+      </div>
     </div>
-    <button data-close aria-label="סגירת חלון הוצאה חדשה">✕</button>
+    <button id="expenseDialogCloseButton" data-close aria-label="סגירת חלון הוצאה">✕</button>
   </div>
   <div class="modal-body">
     <div class="file-actions">
@@ -293,33 +306,45 @@
     </section>
 
     <section id="expenseDetailsView" class="expense-details hidden" aria-label="פרטי הוצאה">
-      <div class="expense-details-head">
-        <div>
-          <p class="expense-details-label">ספק</p>
-          <p id="expenseDetailsSupplier" class="expense-details-supplier">-</p>
-          <p id="expenseDetailsSupplierReg" class="expense-details-sub">-</p>
+      <section class="expense-details-section expense-details-section-primary" aria-label="פרטי ספק">
+        <p class="expense-details-label">ספק</p>
+        <p id="expenseDetailsSupplier" class="expense-details-supplier">-</p>
+        <p id="expenseDetailsSupplierReg" class="expense-details-sub">-</p>
+      </section>
+
+      <section class="expense-details-section expense-details-section-compact" aria-label="פרטי מסמך">
+        <div class="expense-details-kv"><span>מספר חשבונית</span><strong id="expenseDetailsDocumentNumber">-</strong></div>
+        <div class="expense-details-kv"><span>תאריך מסמך</span><strong id="expenseDetailsDate">-</strong></div>
+      </section>
+
+      <section class="expense-details-section" aria-label="סכומים">
+        <p class="expense-details-label">סכומים</p>
+        <div class="expense-amounts-grid">
+          <div class="expense-amount-item"><span>ברוטו</span><strong id="expenseDetailsGross">-</strong></div>
+          <div class="expense-amount-item"><span>נטו</span><strong id="expenseDetailsNet">-</strong></div>
+          <div class="expense-amount-item"><span>מע״מ</span><strong id="expenseDetailsVat">-</strong></div>
         </div>
-        <button id="expenseDetailsSupplierCardButton" type="button" class="secondary" disabled aria-disabled="true">כרטיס ספק - זמין בהמשך</button>
-      </div>
+      </section>
 
-      <div class="expense-details-grid">
-        <div class="expense-details-item"><span>מספר חשבונית</span><strong id="expenseDetailsDocumentNumber">-</strong></div>
-        <div class="expense-details-item"><span>תאריך מסמך</span><strong id="expenseDetailsDate">-</strong></div>
-        <div class="expense-details-item"><span>תיאור</span><strong id="expenseDetailsDescription">-</strong></div>
-        <div class="expense-details-item"><span>הערות</span><strong id="expenseDetailsNotes">-</strong></div>
-        <div class="expense-details-item"><span>ברוטו</span><strong id="expenseDetailsGross">-</strong></div>
-        <div class="expense-details-item"><span>נטו</span><strong id="expenseDetailsNet">-</strong></div>
-        <div class="expense-details-item"><span>מע״מ</span><strong id="expenseDetailsVat">-</strong></div>
-        <div class="expense-details-item"><span>סוג חשבונאי</span><strong id="expenseDetailsAccountingType">-</strong></div>
-        <div class="expense-details-item"><span>חיוב / זיכוי</span><strong id="expenseDetailsDebitCredit">-</strong></div>
-        <div class="expense-details-item"><span>קטגוריה</span><strong id="expenseDetailsCategory">-</strong></div>
-        <div class="expense-details-item"><span>פרויקט</span><strong id="expenseDetailsProject">-</strong></div>
-        <div class="expense-details-item"><span>מקור תשלום</span><strong id="expenseDetailsPaymentSource">-</strong></div>
-        <div class="expense-details-item"><span>אמצעי תשלום</span><strong id="expenseDetailsPaymentMethod">-</strong></div>
-      </div>
+      <section class="expense-details-section" aria-label="מסמכים מקושרים">
+        <p class="expense-details-label">מסמכים מקושרים</p>
+        <p id="expenseDetailsDocumentsEmpty" class="expense-details-sub">אין מסמכים מצורפים</p>
+        <div id="expenseDetailsDocumentsList" class="expense-linked-documents hidden" role="list" aria-label="רשימת מסמכים מקושרים"></div>
+      </section>
 
-      <div class="expense-details-actions">
-        <button id="expenseDetailsViewDocumentButton" type="button" class="secondary">צפה בחשבונית</button>
+      <section class="expense-details-section expense-details-section-compact" aria-label="פרטים חשבונאיים וניהוליים">
+        <div class="expense-details-kv"><span>סוג חשבונאי</span><strong id="expenseDetailsAccountingType">-</strong></div>
+        <div class="expense-details-kv"><span>קטגוריה</span><strong id="expenseDetailsCategory">-</strong></div>
+        <div class="expense-details-kv"><span>חיוב / זיכוי</span><strong id="expenseDetailsDebitCredit">-</strong></div>
+        <div class="expense-details-kv"><span>מקור תשלום</span><strong id="expenseDetailsPaymentSource">-</strong></div>
+        <div class="expense-details-kv"><span>אמצעי תשלום</span><strong id="expenseDetailsPaymentMethod">-</strong></div>
+        <div class="expense-details-kv"><span>פרויקט</span><strong id="expenseDetailsProject">-</strong></div>
+        <div class="expense-details-kv"><span>הערות</span><strong id="expenseDetailsNotes">-</strong></div>
+        <div class="expense-details-kv"><span>דיווח לרו״ח</span><strong id="expenseDetailsReportingStatus">-</strong></div>
+      </section>
+
+      <div class="expense-details-footer-actions">
+        <button id="expenseDetailsCloseButton" type="button" class="secondary">סגירה</button>
       </div>
     </section>
 
@@ -512,6 +537,12 @@
       <p id="zDocumentsPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
       <button id="zDocumentsNext" type="button" class="review-item-nav-arrow" aria-label="מסמך הבא" title="מסמך הבא">←</button>
       <button id="zDocumentsFullscreenOpen" type="button" class="review-item-nav-back">מסך מלא</button>
+      <button id="zDocumentsShareMenuButton" type="button" class="review-item-nav-back" aria-haspopup="menu" aria-expanded="false" aria-controls="zDocumentsShareMenu">שיתוף / ייצוא / הדפסה</button>
+      <div id="zDocumentsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
+        <button id="zDocumentsShareAction" type="button" role="menuitem">שיתוף</button>
+        <button id="zDocumentsExportAction" type="button" role="menuitem">ייצוא</button>
+        <button id="zDocumentsPrintAction" type="button" role="menuitem">הדפסה</button>
+      </div>
     </div>
   </div>
 </dialog>

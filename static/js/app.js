@@ -33,6 +33,8 @@ let currentZDocuments = [];
 let currentZDocumentIndex = -1;
 let currentZViewerDocument = null;
 let zDocumentsFullscreenOpener = null;
+let zDocumentsDialogOpener = null;
+let currentZViewerContext = "generic";
 let zDocumentsLoadToken = 0;
 let companyDocumentRows = [];
 let companyDocumentsSearchTerm = "";
@@ -106,6 +108,14 @@ let currentExpenseDialogMode = EXPENSE_DIALOG_MODES.NEW;
 let currentExpenseDetailsRecord = null;
 let currentExpenseEditId = "";
 let currentExpensePermissions = {canEdit:true, canDelete:true};
+let currentExpenseDetailsDocuments = [];
+let currentExpenseDetailsOpener = null;
+let pdfLibLoadPromise = null;
+let currentExpensePackagePdfCache = {
+  expenseId: "",
+  signature: "",
+  blob: null
+};
 let incomeRows = [];
 let incomeSortState = {...DEFAULT_INCOME_SORT_STATE};
 let incomeSortDraft = {...DEFAULT_INCOME_SORT_STATE};
@@ -2257,7 +2267,16 @@ function attachViewerFrameDebug(frame, {storagePath, signedUrl, mimeType, fullsc
   });
 }
 
-async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך", fullscreenTitle = "מסמך במסך מלא", emptyMessage = "אין מסמך להצגה.", statusElement = null} = {}){
+async function openExistingDocumentsViewer({
+  documents,
+  dialogTitle = "מסמך",
+  fullscreenTitle = "מסמך במסך מלא",
+  emptyMessage = "אין מסמך להצגה.",
+  statusElement = null,
+  initialIndex = 0,
+  opener = null,
+  viewerContext = "generic"
+} = {}){
   if(statusElement) setStatus(statusElement, "", "");
   const safeDocuments = (Array.isArray(documents) ? documents : []).filter(documentMeta => String(documentMeta?.storage_path || "").trim());
   if(!safeDocuments.length){
@@ -2267,7 +2286,9 @@ async function openExistingDocumentsViewer({documents, dialogTitle = "מסמך",
 
   if($("zDocumentsDialogTitle")) $("zDocumentsDialogTitle").textContent = dialogTitle;
   if($("zDocumentsFullscreenTitle")) $("zDocumentsFullscreenTitle").textContent = fullscreenTitle;
-  setZViewerDocuments(safeDocuments);
+  zDocumentsDialogOpener = opener;
+  currentZViewerContext = viewerContext;
+  setZViewerDocuments(safeDocuments, initialIndex);
   renderZViewerState({message: "טוען מסמך..."});
   $("zDocumentsDialog")?.showModal();
   await renderCurrentZDocument();
@@ -5688,6 +5709,319 @@ function setExpenseDetailsValue(id, value, fallback = "-"){
   el.textContent = expenseDisplayValue(value, fallback);
 }
 
+function hideActionMenu(menuId, buttonId){
+  const menu = $(menuId);
+  const button = $(buttonId);
+  if(menu) menu.classList.add("hidden");
+  if(button) button.setAttribute("aria-expanded", "false");
+}
+
+function positionActionMenu(menuId, buttonId){
+  const menu = $(menuId);
+  const button = $(buttonId);
+  if(!menu || !button) return;
+
+  const buttonRect = button.getBoundingClientRect();
+  const parentRect = button.closest(".modal-head")?.getBoundingClientRect();
+  if(!parentRect) return;
+
+  menu.style.top = `${Math.max(0, buttonRect.bottom - parentRect.top + 6)}px`;
+  menu.style.left = "";
+  menu.style.right = `${Math.max(0, parentRect.right - buttonRect.right)}px`;
+}
+
+function toggleActionMenu(menuId, buttonId){
+  const menu = $(menuId);
+  const button = $(buttonId);
+  if(!menu || !button) return;
+
+  const shouldOpen = menu.classList.contains("hidden");
+  document.querySelectorAll(".action-menu").forEach(node => node.classList.add("hidden"));
+  [
+    "expenseDetailsShareMenuButton",
+    "zDocumentsShareMenuButton"
+  ].forEach(id => {
+    const btn = $(id);
+    if(btn) btn.setAttribute("aria-expanded", "false");
+  });
+
+  if(!shouldOpen) return;
+  positionActionMenu(menuId, buttonId);
+  menu.classList.remove("hidden");
+  button.setAttribute("aria-expanded", "true");
+}
+
+async function ensurePdfLib(){
+  if(window.PDFLib) return window.PDFLib;
+  if(pdfLibLoadPromise) return pdfLibLoadPromise;
+
+  pdfLibLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+    script.async = true;
+    script.onload = () => {
+      if(window.PDFLib) resolve(window.PDFLib);
+      else reject(new Error("טעינת ספריית PDF נכשלה"));
+    };
+    script.onerror = () => reject(new Error("טעינת ספריית PDF נכשלה"));
+    document.head.appendChild(script);
+  });
+
+  return pdfLibLoadPromise;
+}
+
+async function fetchBlobFromSignedUrl(signedUrl){
+  const response = await fetch(signedUrl);
+  if(!response.ok){
+    throw new Error("שגיאה בטעינת המסמך לצורך יצוא");
+  }
+  return response.blob();
+}
+
+function downloadBlob(blob, filename){
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = filename || "file";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function shareBlobFile({blob, filename, title = "", text = ""}){
+  if(!blob) throw new Error("לא ניתן לשתף קובץ ריק");
+
+  const safeName = String(filename || "file.pdf").trim() || "file.pdf";
+  const file = new File([blob], safeName, {type: blob.type || "application/pdf"});
+
+  if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+    await navigator.share({title, text, files:[file]});
+    return;
+  }
+
+  if(navigator.share){
+    await navigator.share({title, text, url: location.href});
+    return;
+  }
+
+  downloadBlob(blob, safeName);
+  showToast("שיתוף לא נתמך במכשיר זה. הקובץ הורד למכשיר.", "warning");
+}
+
+function openPrintWindowWithBlob(blob, title = "מסמך"){
+  const objectUrl = URL.createObjectURL(blob);
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if(!printWindow){
+    URL.revokeObjectURL(objectUrl);
+    throw new Error("הדפדפן חסם פתיחת חלון להדפסה");
+  }
+
+  const isPdf = String(blob.type || "").toLowerCase().includes("pdf");
+  const content = isPdf
+    ? `<iframe src="${objectUrl}" style="width:100%;height:100%;border:0" title="${escapeHtml(title)}"></iframe>`
+    : `<img src="${objectUrl}" alt="${escapeHtml(title)}" style="max-width:100%;height:auto;display:block;margin:0 auto">`;
+
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>html,body{height:100%;margin:0}</style></head><body>${content}<script>window.addEventListener('load',()=>{setTimeout(()=>{window.focus();window.print();},150);});</script></body></html>`);
+  printWindow.document.close();
+
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+}
+
+async function createSignedUrlForStoragePath(storagePath, ttlSeconds = 300){
+  const {data:signed, error} = await sb.storage
+    .from("invoice-documents")
+    .createSignedUrl(storagePath, ttlSeconds);
+
+  if(error || !signed?.signedUrl){
+    throw new Error(error?.message || "שגיאה בטעינת קישור למסמך");
+  }
+
+  return signed.signedUrl;
+}
+
+async function fetchExpenseDocuments(expenseId){
+  const safeExpenseId = String(expenseId || "").trim();
+  if(!safeExpenseId) return [];
+
+  const {data, error} = await sb.from("expense_documents")
+    .select("id,storage_path,original_filename,mime_type,document_type,page_number")
+    .eq("user_id", userId)
+    .eq("expense_id", safeExpenseId)
+    .order("page_number", {ascending: true});
+
+  if(error) throw error;
+
+  return (Array.isArray(data) ? data : []).map((row, index) => ({
+    ...row,
+    original_filename: String(row?.original_filename || "").trim() || `מסמך ${index + 1}`,
+    mime_type: String(row?.mime_type || "").trim() || (row?.document_type === "pdf" ? "application/pdf" : "application/octet-stream")
+  }));
+}
+
+function getExpensePackageSignature(expenseRecord, documents){
+  const recordId = String(expenseRecord?.id || "").trim();
+  const docSignature = (Array.isArray(documents) ? documents : [])
+    .map(doc => `${String(doc?.id || "")}:${String(doc?.storage_path || "")}:${String(doc?.page_number || "")}`)
+    .join("|");
+  return `${recordId}::${docSignature}`;
+}
+
+async function readBlobAsDataUrl(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("שגיאה בקריאת מסמך"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function blobToPngBytes(blob){
+  const imageUrl = await readBlobAsDataUrl(blob);
+
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("שגיאה בהמרת תמונה"));
+    img.src = imageUrl;
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d");
+  if(!ctx) throw new Error("שגיאה בהמרת תמונה");
+
+  ctx.drawImage(image, 0, 0);
+  const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/png", 1));
+  if(!pngBlob) throw new Error("שגיאה בהמרת תמונה");
+  return new Uint8Array(await pngBlob.arrayBuffer());
+}
+
+async function buildExpenseSummaryPngBytes(expenseRecord, documents){
+  const canvas = document.createElement("canvas");
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const ctx = canvas.getContext("2d");
+  if(!ctx) throw new Error("שגיאה ביצירת תקציר הוצאה");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#0f2742";
+  ctx.font = "700 46px 'Arial'";
+  ctx.fillText("Expense Summary", 72, 96);
+
+  const lines = [
+    `Supplier: ${expenseDisplayValue(expenseRecord?.supplier_name_snapshot, "Not set")}`,
+    `Supplier registration: ${expenseDisplayValue(expenseRecord?.supplier_registration_snapshot, "Not set")}`,
+    `Invoice number: ${expenseDisplayValue(expenseRecord?.document_number, "Not set")}`,
+    `Document date: ${expenseDisplayValue(expenseRecord?.document_date, "Not set")}`,
+    `Gross: ${money(expenseRecord?.gross_ils || 0)}`,
+    `Net: ${money(expenseRecord?.net_ils || 0)}`,
+    `VAT: ${money(expenseRecord?.vat_ils || 0)}`,
+    `Accounting type: ${expenseDisplayValue(expenseRecord?.accounting_types?.name, "Not set")}`,
+    `Category: ${expenseDisplayValue(expenseRecord?.categories?.name, "Not set")}`,
+    `Charge/Credit: ${expenseDisplayValue(expenseRecord?.debit_credit || expenseRecord?.debit_or_credit, "Not set")}`,
+    `Funding source: ${expenseDisplayValue(expenseRecord?.payment_sources?.name, "Not set")}`,
+    `Payment method: ${expenseDisplayValue(expenseRecord?.payment_methods?.name, "Not set")}`,
+    `Project: ${expenseDisplayValue(expenseRecord?.projects?.name, "Not set")}`,
+    `Notes: ${expenseDisplayValue(expenseRecord?.notes, "No notes")}`,
+    "Reporting status:",
+    `Linked documents: ${Array.isArray(documents) ? documents.length : 0}`
+  ];
+
+  ctx.font = "400 30px 'Arial'";
+  ctx.fillStyle = "#1f2f43";
+  let y = 170;
+  lines.forEach(line => {
+    ctx.fillText(line, 72, y);
+    y += 72;
+  });
+
+  const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/png", 1));
+  if(!pngBlob) throw new Error("שגיאה ביצירת תקציר הוצאה");
+  return new Uint8Array(await pngBlob.arrayBuffer());
+}
+
+async function buildExpensePackagePdfBlob(expenseRecord, documents){
+  const {PDFDocument} = await ensurePdfLib();
+  const pdfDoc = await PDFDocument.create();
+
+  const summaryPngBytes = await buildExpenseSummaryPngBytes(expenseRecord, documents);
+  const summaryImage = await pdfDoc.embedPng(summaryPngBytes);
+  const summaryPage = pdfDoc.addPage([595.28, 841.89]);
+  const summaryScale = Math.min(595.28 / summaryImage.width, 841.89 / summaryImage.height);
+  const summaryWidth = summaryImage.width * summaryScale;
+  const summaryHeight = summaryImage.height * summaryScale;
+  summaryPage.drawImage(summaryImage, {
+    x: (595.28 - summaryWidth) / 2,
+    y: (841.89 - summaryHeight) / 2,
+    width: summaryWidth,
+    height: summaryHeight
+  });
+
+  for(const documentMeta of (Array.isArray(documents) ? documents : [])){
+    const storagePath = String(documentMeta?.storage_path || "").trim();
+    if(!storagePath) continue;
+
+    const mimeType = String(documentMeta?.mime_type || "").toLowerCase();
+    const signedUrl = await createSignedUrlForStoragePath(storagePath, 300);
+    const blob = await fetchBlobFromSignedUrl(signedUrl);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+
+    if(mimeType === "application/pdf"){
+      const sourcePdf = await PDFDocument.load(bytes);
+      const pages = await pdfDoc.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      pages.forEach(page => pdfDoc.addPage(page));
+      continue;
+    }
+
+    const imageBytes = mimeType.includes("png")
+      ? bytes
+      : mimeType.includes("jpeg") || mimeType.includes("jpg")
+        ? bytes
+        : await blobToPngBytes(blob);
+
+    const embeddedImage = mimeType.includes("png") || (!mimeType.includes("jpeg") && !mimeType.includes("jpg"))
+      ? await pdfDoc.embedPng(imageBytes)
+      : await pdfDoc.embedJpg(imageBytes);
+
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    const scale = Math.min(595.28 / embeddedImage.width, 841.89 / embeddedImage.height);
+    const width = embeddedImage.width * scale;
+    const height = embeddedImage.height * scale;
+
+    page.drawImage(embeddedImage, {
+      x: (595.28 - width) / 2,
+      y: (841.89 - height) / 2,
+      width,
+      height
+    });
+  }
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], {type: "application/pdf"});
+}
+
+async function getExpensePackagePdfBlob(expenseRecord, documents){
+  const expenseId = String(expenseRecord?.id || "").trim();
+  if(!expenseId) throw new Error("לא נמצאה הוצאה");
+
+  const signature = getExpensePackageSignature(expenseRecord, documents);
+  if(
+    currentExpensePackagePdfCache.blob
+    && currentExpensePackagePdfCache.expenseId === expenseId
+    && currentExpensePackagePdfCache.signature === signature
+  ){
+    return currentExpensePackagePdfCache.blob;
+  }
+
+  const blob = await buildExpensePackagePdfBlob(expenseRecord, documents);
+  currentExpensePackagePdfCache = {expenseId, signature, blob};
+  return blob;
+}
+
 function isFixedAssetAccountingTypeName(name){
   const normalized = String(name || "")
     .replace(/\s+/g, " ")
@@ -5730,11 +6064,11 @@ function renderExpenseDetailsReadOnly(expenseRecord){
 
   const accountingTypeName = expenseRecord.accounting_types?.name || "";
   const debitCreditValue = expenseRecord.debit_credit || expenseRecord.debit_or_credit || "";
+
   setExpenseDetailsValue("expenseDetailsSupplier", expenseRecord.supplier_name_snapshot);
   setExpenseDetailsValue("expenseDetailsSupplierReg", expenseRecord.supplier_registration_snapshot, "ללא מספר זיהוי ספק");
   setExpenseDetailsValue("expenseDetailsDocumentNumber", expenseRecord.document_number);
   setExpenseDetailsValue("expenseDetailsDate", expenseRecord.document_date);
-  setExpenseDetailsValue("expenseDetailsDescription", expenseRecord.description);
   setExpenseDetailsValue("expenseDetailsNotes", expenseRecord.notes, "ללא הערות");
   setExpenseDetailsValue("expenseDetailsGross", money(expenseRecord.gross_ils || 0));
   setExpenseDetailsValue("expenseDetailsNet", money(expenseRecord.net_ils || 0));
@@ -5745,6 +6079,60 @@ function renderExpenseDetailsReadOnly(expenseRecord){
   setExpenseDetailsValue("expenseDetailsProject", expenseRecord.projects?.name);
   setExpenseDetailsValue("expenseDetailsPaymentSource", expenseRecord.payment_sources?.name);
   setExpenseDetailsValue("expenseDetailsPaymentMethod", expenseRecord.payment_methods?.name);
+
+  // Integration point only: reporting status source exists outside current repo scope.
+  const reportingStatusElement = $("expenseDetailsReportingStatus");
+  if(reportingStatusElement) reportingStatusElement.textContent = "";
+}
+
+function renderExpenseDetailsDocuments(documents){
+  const list = $("expenseDetailsDocumentsList");
+  const empty = $("expenseDetailsDocumentsEmpty");
+  if(!list || !empty) return;
+
+  const rows = Array.isArray(documents) ? documents : [];
+  if(!rows.length){
+    list.innerHTML = "";
+    list.classList.add("hidden");
+    empty.classList.remove("hidden");
+    empty.textContent = "אין מסמכים מצורפים";
+    return;
+  }
+
+  list.classList.remove("hidden");
+  empty.classList.add("hidden");
+
+  list.innerHTML = rows.map((row, index) => {
+    const safeName = escapeHtml(String(row?.original_filename || `מסמך ${index + 1}`).trim() || `מסמך ${index + 1}`);
+    return `
+      <button
+        type="button"
+        class="expense-linked-document-button"
+        data-expense-document-index="${index}"
+        role="listitem"
+        aria-label="פתיחת ${safeName}"
+        title="פתיחת ${safeName}">
+        <span>${safeName}</span>
+        <b aria-hidden="true">›</b>
+      </button>
+    `;
+  }).join("");
+
+  list.querySelectorAll(".expense-linked-document-button").forEach(button => {
+    button.addEventListener("click", () => {
+      const requestedIndex = Number(button.dataset.expenseDocumentIndex || 0);
+      void openExistingDocumentsViewer({
+        documents: currentExpenseDetailsDocuments,
+        dialogTitle: "מסמכי הוצאה",
+        fullscreenTitle: "מסמך הוצאה במסך מלא",
+        emptyMessage: "אין מסמכים מצורפים",
+        statusElement: $("expenseStatus"),
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
+        opener: button,
+        viewerContext: "expense"
+      });
+    });
+  });
 }
 
 function setExpenseDialogMode(mode){
@@ -5755,6 +6143,7 @@ function setExpenseDialogMode(mode){
   const detailsActions = $("expenseDialogHeaderActions");
   const expenseForm = $("expenseForm");
   const deferButton = $("expenseFormDeferButton");
+  const closeButton = $("expenseDialogCloseButton");
   const submitButton = expenseForm?.querySelector('button[type="submit"], button:not([type])');
 
   if(mode === EXPENSE_DIALOG_MODES.NEW){
@@ -5765,6 +6154,7 @@ function setExpenseDialogMode(mode){
       deferButton.textContent = "אבדוק מאוחר יותר";
       deferButton.classList.remove("hidden");
     }
+    if(closeButton) closeButton.setAttribute("aria-label", "סגירת חלון הוצאה חדשה");
     if(submitButton) submitButton.textContent = "שמרי חשבונית בהוצאות";
     return;
   }
@@ -5785,6 +6175,7 @@ function setExpenseDialogMode(mode){
   setStatus($("expenseStatus"), "", "");
   if(title) title.textContent = "פרטי הוצאה";
   detailsActions?.classList.remove("hidden");
+  if(closeButton) closeButton.setAttribute("aria-label", "סגירת חלון פרטי הוצאה");
   if(detailsView) detailsView.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_READONLY);
   if(expenseForm) expenseForm.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_EDIT);
 
@@ -5797,8 +6188,10 @@ function setExpenseDialogMode(mode){
 
   const editButton = $("expenseDetailsEditButton");
   const deleteButton = $("expenseDetailsDeleteButton");
+  const shareMenuButton = $("expenseDetailsShareMenuButton");
   if(editButton) editButton.disabled = !currentExpensePermissions.canEdit || mode === EXPENSE_DIALOG_MODES.DETAILS_EDIT;
   if(deleteButton) deleteButton.disabled = !currentExpensePermissions.canDelete;
+  if(shareMenuButton) shareMenuButton.disabled = mode === EXPENSE_DIALOG_MODES.DETAILS_EDIT;
 }
 
 async function getExpenseRecordForDetails(expenseId){
@@ -5822,21 +6215,29 @@ async function getExpenseRecordForDetails(expenseId){
   return data || null;
 }
 
-async function openExpenseDetailsDialog(expenseId){
+async function openExpenseDetailsDialog(expenseId, opener = null){
   try {
-    const expenseRecord = await getExpenseRecordForDetails(expenseId);
+    const [expenseRecord, documents] = await Promise.all([
+      getExpenseRecordForDetails(expenseId),
+      fetchExpenseDocuments(expenseId)
+    ]);
+
     if(!expenseRecord){
       showToast("ההוצאה לא נמצאה", "error");
       return;
     }
 
     resetExpenseDialogState();
+    currentExpenseDetailsOpener = opener;
     currentExpenseDetailsRecord = expenseRecord;
+    currentExpenseDetailsDocuments = documents;
     currentExpenseEditId = expenseRecord.id;
     currentExpensePermissions = readExpensePermissions(expenseRecord);
     renderExpenseDetailsReadOnly(expenseRecord);
+    renderExpenseDetailsDocuments(documents);
     setExpenseDialogMode(EXPENSE_DIALOG_MODES.DETAILS_READONLY);
     $("expenseDialog")?.showModal();
+    $("expenseDialogCloseButton")?.focus();
   } catch(error){
     console.error(error);
     showToast(error?.message || "שגיאה בטעינת פרטי הוצאה", "error");
@@ -5957,12 +6358,12 @@ async function loadExpenses(){
 
   document.querySelectorAll(".expense-row[data-expense]").forEach(row => {
     row.onclick = () => {
-      void openExpenseDetailsDialog(row.dataset.expense);
+      void openExpenseDetailsDialog(row.dataset.expense, row);
     };
     row.onkeydown = event => {
       if(event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      void openExpenseDetailsDialog(row.dataset.expense);
+      void openExpenseDetailsDialog(row.dataset.expense, row);
     };
   });
 }
@@ -5993,9 +6394,91 @@ async function openExpenseDocument(expenseId){
   window.open(signed.signedUrl,"_blank","noopener,noreferrer");
 }
 
-function setZViewerDocuments(documents){
+function getExpensePackageFilename(expenseRecord){
+  const supplier = String(expenseRecord?.supplier_name_snapshot || "expense").trim().replace(/\s+/g, "-");
+  const documentDate = String(expenseRecord?.document_date || "date").trim();
+  const expenseId = String(expenseRecord?.id || "expense").trim();
+  return `expense-${supplier}-${documentDate}-${expenseId}.pdf`;
+}
+
+async function runExpenseEntityAction(actionType){
+  if(!currentExpenseDetailsRecord) return;
+
+  try {
+    setStatus($("expenseStatus"), "מכינה קובץ PDF של ההוצאה...", "");
+    const documents = Array.isArray(currentExpenseDetailsDocuments) ? currentExpenseDetailsDocuments : [];
+    const pdfBlob = await getExpensePackagePdfBlob(currentExpenseDetailsRecord, documents);
+    const filename = getExpensePackageFilename(currentExpenseDetailsRecord);
+
+    if(actionType === "share"){
+      await shareBlobFile({
+        blob: pdfBlob,
+        filename,
+        title: "פרטי הוצאה",
+        text: "שיתוף קובץ הוצאה"
+      });
+      setStatus($("expenseStatus"), "השיתוף הושלם", "ok");
+      return;
+    }
+
+    if(actionType === "export"){
+      downloadBlob(pdfBlob, filename);
+      setStatus($("expenseStatus"), "קובץ ההוצאה הורד", "ok");
+      return;
+    }
+
+    if(actionType === "print"){
+      openPrintWindowWithBlob(pdfBlob, "הדפסת הוצאה");
+      setStatus($("expenseStatus"), "נפתח חלון הדפסה", "ok");
+      return;
+    }
+  } catch(error){
+    console.error(error);
+    setStatus($("expenseStatus"), error?.message || "שגיאה בפעולת הוצאה", "error");
+  }
+}
+
+async function runCurrentViewerDocumentAction(actionType){
+  if(!currentZViewerDocument?.storage_path) return;
+
+  try {
+    const signedUrl = currentZViewerDocument.signedUrl
+      || await createSignedUrlForStoragePath(currentZViewerDocument.storage_path, 300);
+    const blob = await fetchBlobFromSignedUrl(signedUrl);
+    const fallbackName = `document-${currentZDocumentIndex + 1}`;
+    const filename = String(currentZViewerDocument?.original_filename || fallbackName).trim() || fallbackName;
+
+    if(actionType === "share"){
+      await shareBlobFile({
+        blob,
+        filename,
+        title: "שיתוף מסמך",
+        text: "שיתוף מסמך מצורף"
+      });
+      return;
+    }
+
+    if(actionType === "export"){
+      downloadBlob(blob, filename);
+      return;
+    }
+
+    if(actionType === "print"){
+      openPrintWindowWithBlob(blob, "הדפסת מסמך");
+    }
+  } catch(error){
+    console.error(error);
+    const targetStatus = currentZViewerContext === "expense" ? $("expenseStatus") : $("zStatus");
+    setStatus(targetStatus, error?.message || "שגיאה בפעולת המסמך", "error");
+  }
+}
+
+function setZViewerDocuments(documents, startIndex = 0){
   currentZDocuments = Array.isArray(documents) ? documents : [];
-  currentZDocumentIndex = currentZDocuments.length ? 0 : -1;
+  const normalizedIndex = Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
+  currentZDocumentIndex = currentZDocuments.length
+    ? Math.min(normalizedIndex, currentZDocuments.length - 1)
+    : -1;
   currentZViewerDocument = null;
   updateZViewerNavigation();
 }
@@ -6009,6 +6492,7 @@ function updateZViewerNavigation(){
   const next = $("zDocumentsNext");
   const pos = $("zDocumentsPosition");
   const openFullscreen = $("zDocumentsFullscreenOpen");
+  const shareMenuButton = $("zDocumentsShareMenuButton");
   const fullscreenNav = $("zDocumentsFullscreenPageNav");
   const fullscreenPrev = $("zDocumentsFullscreenPrev");
   const fullscreenNext = $("zDocumentsFullscreenNext");
@@ -6021,6 +6505,9 @@ function updateZViewerNavigation(){
   if(openFullscreen){
     openFullscreen.classList.toggle("hidden", !canOpenFullscreen);
     openFullscreen.disabled = !canOpenFullscreen;
+  }
+  if(shareMenuButton){
+    shareMenuButton.disabled = !canOpenFullscreen;
   }
 
   const hasMulti = total > 1;
@@ -6286,6 +6773,8 @@ function resetZDocumentsViewerState(){
   currentZDocuments = [];
   currentZDocumentIndex = -1;
   currentZViewerDocument = null;
+  zDocumentsDialogOpener = null;
+  currentZViewerContext = "generic";
   closeZDocumentsFullscreen({restoreFocus: false});
   renderZViewerState({message: "אין מסמך להצגה."});
   updateZViewerNavigation();
@@ -6536,7 +7025,16 @@ $("expenseDialog")?.addEventListener("cancel", event => {
 });
 
 $("expenseDialog")?.addEventListener("close", () => {
+  hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
   closeExpenseReviewFullscreen({shouldRestoreFocus:false});
+  if(
+    currentExpenseDetailsOpener
+    && typeof currentExpenseDetailsOpener.focus === "function"
+    && !currentExpenseDetailsOpener.disabled
+    && !currentExpenseDetailsOpener.classList.contains("hidden")
+  ){
+    currentExpenseDetailsOpener.focus();
+  }
   resetExpenseDialogState();
 });
 
@@ -6567,6 +7065,17 @@ $("zForm")?.addEventListener("reset", () => {
 });
 
 $("zDocumentsDialog")?.addEventListener("close", () => {
+  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+  if(
+    zDocumentsDialogOpener
+    && typeof zDocumentsDialogOpener.focus === "function"
+    && !zDocumentsDialogOpener.disabled
+    && !zDocumentsDialogOpener.classList.contains("hidden")
+  ){
+    zDocumentsDialogOpener.focus();
+  }
+  zDocumentsDialogOpener = null;
+  currentZViewerContext = "generic";
   resetZDocumentsViewerState();
 });
 
@@ -6867,8 +7376,11 @@ function resetExpenseDialogState(){
   isDeferredAnalyzeInFlight = false;
   currentExpenseDialogMode = EXPENSE_DIALOG_MODES.NEW;
   currentExpenseDetailsRecord = null;
+  currentExpenseDetailsDocuments = [];
+  currentExpenseDetailsOpener = null;
   currentExpenseEditId = "";
   currentExpensePermissions = {canEdit:true, canDelete:true};
+  currentExpensePackagePdfCache = {expenseId: "", signature: "", blob: null};
   $("singleCameraInput").value = "";
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
@@ -7346,19 +7858,70 @@ $("expenseFormDeferButton").onclick = () => {
   void handleExpenseContinueLaterAction();
 };
 
-$("expenseDetailsEditButton").onclick = () => {
+$("expenseDetailsEditButton")?.addEventListener("click", () => {
   startEditingCurrentExpense();
-};
+});
 
-$("expenseDetailsDeleteButton").onclick = () => {
+$("expenseDetailsDeleteButton")?.addEventListener("click", () => {
   void confirmAndDeleteCurrentExpense();
-};
+});
 
-$("expenseDetailsViewDocumentButton").onclick = () => {
-  const expenseId = String(currentExpenseDetailsRecord?.id || "").trim();
-  if(!expenseId) return;
-  void openExpenseDocument(expenseId);
-};
+$("expenseDetailsCloseButton")?.addEventListener("click", () => {
+  $("expenseDialog")?.close();
+});
+
+$("expenseDetailsShareMenuButton")?.addEventListener("click", event => {
+  event.stopPropagation();
+  toggleActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+});
+
+$("expenseDetailsShareAction")?.addEventListener("click", () => {
+  hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+  void runExpenseEntityAction("share");
+});
+
+$("expenseDetailsExportPdfAction")?.addEventListener("click", () => {
+  hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+  void runExpenseEntityAction("export");
+});
+
+$("expenseDetailsPrintAction")?.addEventListener("click", () => {
+  hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+  void runExpenseEntityAction("print");
+});
+
+$("zDocumentsShareMenuButton")?.addEventListener("click", event => {
+  event.stopPropagation();
+  toggleActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+});
+
+$("zDocumentsShareAction")?.addEventListener("click", () => {
+  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+  void runCurrentViewerDocumentAction("share");
+});
+
+$("zDocumentsExportAction")?.addEventListener("click", () => {
+  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+  void runCurrentViewerDocumentAction("export");
+});
+
+$("zDocumentsPrintAction")?.addEventListener("click", () => {
+  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+  void runCurrentViewerDocumentAction("print");
+});
+
+document.addEventListener("click", event => {
+  const target = event.target;
+  if(!(target instanceof Element)) return;
+
+  if(!target.closest("#expenseDetailsShareMenu") && !target.closest("#expenseDetailsShareMenuButton")){
+    hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
+  }
+
+  if(!target.closest("#zDocumentsShareMenu") && !target.closest("#zDocumentsShareMenuButton")){
+    hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
+  }
+});
 
 $("expenseAssetFollowupCreateButton")?.addEventListener("click", () => {
   showToast("זמין בהמשך", "ok");
@@ -7667,10 +8230,13 @@ $("expenseForm").onsubmit = async event => {
 
     if(isEditingDetailsMode){
       const refreshedExpense = await getExpenseRecordForDetails(expenseId);
+      const refreshedDocuments = await fetchExpenseDocuments(expenseId);
       if(refreshedExpense){
         currentExpenseDetailsRecord = refreshedExpense;
+        currentExpenseDetailsDocuments = refreshedDocuments;
         currentExpensePermissions = readExpensePermissions(refreshedExpense);
         renderExpenseDetailsReadOnly(refreshedExpense);
+        renderExpenseDetailsDocuments(refreshedDocuments);
       }
 
       setStatus($("expenseStatus"), "ההוצאה עודכנה", "ok");

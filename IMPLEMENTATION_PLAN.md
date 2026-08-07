@@ -357,6 +357,43 @@
    - Test with at least one Z income record and one non-Z income record.
    - Confirm Income list, yearly Income total and Profit calculation reconcile.
 
+61. [Reported Periods] Implement reported-period management and late-entry warnings.
+   - Status: Pending
+   - Goal:
+   - Allow the business to manage periods that have already been reported to the accountant and warn before adding new transactions into those periods.
+   - Dependency:
+   - Implement only after Task 60 – Financial Reports.
+   - Do not start this task before the reporting workflow exists.
+   - Scope:
+   - Allow the user to mark a reporting period as reported to the accountant.
+   - Allow reversing that status.
+   - Use the document date to determine whether a new income or expense belongs to a reported period.
+   - Before saving into a reported period, show a non-blocking warning.
+   - Apply to both Income and Expenses.
+   - Integrate the period status with Financial Reports and future VAT reporting.
+   - Warning behavior:
+   - Do not block saving.
+   - Do not change the document date automatically.
+   - Do not change the entry date automatically.
+   - Show the warning once per save attempt.
+   - Allow:
+   - `המשך ושמור`
+   - `ביטול`
+   - Constraints:
+   - Do not implement this task before Task 60.
+   - Do not add a standalone reported-period table without a user-facing management flow.
+   - Do not change existing accounting, VAT, export, or period calculations.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - A period can be marked as reported and reopened.
+   - New income and expenses in a reported period trigger the warning.
+   - Saving can continue after confirmation.
+   - Cancelling leaves the form unchanged.
+   - Document date and entry date remain unchanged.
+   - Reports and VAT calculations continue using the document date.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
 # Current-phase completion rule
 
 - Task 22 is intentionally deferred and serves as the final comprehensive regression and acceptance gate after the currently planned implementation work (Tasks 25–34) has been completed.

@@ -275,6 +275,8 @@ const money = n => new Intl.NumberFormat("he-IL", {
   style:"currency", currency:"ILS", minimumFractionDigits:2, maximumFractionDigits:2
 }).format(Number(n || 0));
 
+const moneyAbs = n => money(Math.abs(Number(n || 0)));
+
 const today = () => new Date().toISOString().slice(0,10);
 const currentTime = () => {
   const now = new Date();
@@ -432,12 +434,18 @@ async function fetchAllIncomeReportRows(){
 
 function normalizeExpenseReportRow(row){
   const safeDate = String(row?.document_date || "").trim();
+  const snapshotSupplierName = String(row?.supplier_name_snapshot || "").trim();
+  const relatedSupplierName = String(row?.suppliers?.name || "").trim();
+  const debitCreditValue = resolveExpenseDebitCreditValue(row);
   return {
     id: String(row?.id || "").trim(),
     documentDate: safeDate,
     documentDateTime: safeDate ? `${safeDate}T00:00:00` : "",
     grossValue: Number(row?.gross_ils || 0),
-    supplierName: String(row?.supplier_name_snapshot || "").trim(),
+    netValue: Number(row?.net_ils || 0),
+    vatValue: Number(row?.vat_ils || 0),
+    debitCreditValue,
+    supplierName: snapshotSupplierName || relatedSupplierName,
     accountingTypeIdValue: String(row?.accounting_type_id || "").trim(),
     accountingTypeName: String(row?.accounting_types?.name || "").trim(),
     paymentSourceIdValue: String(row?.payment_source_id || "").trim(),
@@ -449,6 +457,64 @@ function normalizeExpenseReportRow(row){
 
 function getExpenseSortDefinition(fieldKey){
   return EXPENSE_SORT_FIELD_DEFINITIONS.find(field => field.key === fieldKey) || EXPENSE_SORT_FIELD_DEFINITIONS[0];
+}
+
+function normalizeSupplierSearchText(value){
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getSupplierSearchTokens(value){
+  const normalized = normalizeSupplierSearchText(value);
+  return normalized ? normalized.split(" ").filter(Boolean) : [];
+}
+
+function supplierMatchesSearch(supplierValue, searchValue){
+  const tokens = getSupplierSearchTokens(searchValue);
+  if(!tokens.length) return true;
+
+  const supplier = normalizeSupplierSearchText(supplierValue);
+  return tokens.every(token => supplier.includes(token));
+}
+
+function escapeIlikeToken(value){
+  return String(value || "").replace(/[\\%_]/g, "\\$&");
+}
+
+function resolveExpenseDebitCreditValue(expenseRecord){
+  const explicit = String(expenseRecord?.debit_or_credit || "").trim();
+  if(explicit === "חיוב" || explicit === "זיכוי") return explicit;
+  const gross = Number(expenseRecord?.gross_ils || 0);
+  return gross < 0 ? "זיכוי" : "חיוב";
+}
+
+function renderDebitCreditBadgeText(rawValue, {includeContainer = false} = {}){
+  const value = String(rawValue || "").trim();
+  if(value !== "חיוב" && value !== "זיכוי") return value || "לא צוין";
+
+  if(value === "זיכוי"){
+    const inner = '<span class="debit-credit-value debit-credit-credit">זיכוי</span>';
+    return includeContainer
+      ? `<span class="debit-credit-badge">${inner}</span>`
+      : inner;
+  }
+
+  const inner = '<span class="debit-credit-value">חיוב</span>';
+  return includeContainer
+    ? `<span class="debit-credit-badge">${inner}</span>`
+    : inner;
+}
+
+function applyDebitCreditSignToAmounts({gross = 0, net = 0, vat = 0, debitCredit = "חיוב"}){
+  const sign = debitCredit === "זיכוי" ? -1 : 1;
+  return {
+    gross: Math.abs(Number(gross || 0)) * sign,
+    net: Math.abs(Number(net || 0)) * sign,
+    vat: Math.abs(Number(vat || 0)) * sign
+  };
 }
 
 function getExpenseSortValue(row, fieldKey){
@@ -487,8 +553,7 @@ function compareExpenseRows(left, right){
 
 function matchesExpenseFilters(row){
   const filters = expenseFilterState;
-  const supplierQuery = String(filters.supplier || "").trim().toLowerCase();
-  if(supplierQuery && !String(row.supplierName || "").toLowerCase().includes(supplierQuery)) return false;
+  if(!supplierMatchesSearch(row.supplierName || "", filters.supplier || "")) return false;
   if(filters.accountingTypeId && row.accountingTypeIdValue !== filters.accountingTypeId) return false;
   if(filters.paymentSourceId && row.paymentSourceIdValue !== filters.paymentSourceId) return false;
   if(filters.documentDateFrom && row.documentDate && row.documentDate < filters.documentDateFrom) return false;
@@ -509,8 +574,10 @@ function getCurrentExpensesViewRows(){
 
 function applyExpenseFiltersToQuery(query, filters = expenseFilterState){
   let nextQuery = query;
-  const supplierQuery = String(filters.supplier || "").trim();
-  if(supplierQuery) nextQuery = nextQuery.ilike("supplier_name_snapshot", `%${supplierQuery}%`);
+  const supplierTokens = getSupplierSearchTokens(filters.supplier || "");
+  supplierTokens.forEach(token => {
+    nextQuery = nextQuery.ilike("supplier_name_snapshot", `%${escapeIlikeToken(token)}%`);
+  });
   if(filters.accountingTypeId) nextQuery = nextQuery.eq("accounting_type_id", filters.accountingTypeId);
   if(filters.paymentSourceId) nextQuery = nextQuery.eq("payment_source_id", filters.paymentSourceId);
   if(filters.documentDateFrom) nextQuery = nextQuery.gte("document_date", filters.documentDateFrom);
@@ -551,7 +618,10 @@ async function fetchAllExpensesReportRows(){
       id,
       document_date,
       gross_ils,
+      net_ils,
+      vat_ils,
       supplier_name_snapshot,
+      suppliers(name),
       accounting_type_id,
       accounting_types(name),
       payment_source_id,
@@ -605,10 +675,11 @@ async function collectExpensesInfoReport(){
   return {
     title: "דוח הוצאות",
     filenameBase: `expenses-report-${today()}`,
-    headers: ["תאריך", "סכום", "ספק", "סוג חשבונאי", "מקור תשלום", "מסמכים"],
+    headers: ["תאריך", "סכום", "חיוב / זיכוי", "ספק", "סוג חשבונאי", "מקור תשלום", "מסמכים"],
     rows: rows.map(row => [
       row.documentDate || "",
-      money(row.grossValue),
+      moneyAbs(row.grossValue),
+      row.debitCreditValue || "חיוב",
       row.supplierName || "",
       row.accountingTypeName || "",
       row.paymentSourceName || "",
@@ -1780,7 +1851,6 @@ const EXPENSE_WRITE_PAYLOAD_FIELDS = Object.freeze([
   "supplier_id",
   "supplier_name_snapshot",
   "supplier_registration_snapshot",
-  "debit_or_credit",
   "document_date",
   "document_number",
   "description",
@@ -1805,9 +1875,6 @@ function toExpenseWritePayload(sourcePayload){
     }
   });
 
-  const normalizedDebitOrCredit = String(payload.debit_or_credit || "").trim();
-  payload.debit_or_credit = normalizedDebitOrCredit === "זיכוי" ? "זיכוי" : "חיוב";
-
   return payload;
 }
 
@@ -1818,7 +1885,6 @@ function buildExpenseRollbackPayload(expenseRecord){
     supplier_id: expenseRecord.supplier_id || null,
     supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
     supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
-    debit_or_credit: expenseRecord.debit_or_credit || null,
     document_date: expenseRecord.document_date || null,
     document_number: expenseRecord.document_number || "",
     description: expenseRecord.description || "",
@@ -6616,7 +6682,13 @@ function createReportHtmlTable({title, headers, rows}){
     .map(value => `<th scope="col">${escapeHtml(value)}</th>`)
     .join("");
   const bodyRows = (Array.isArray(rows) ? rows : [])
-    .map(cells => `<tr>${(Array.isArray(cells) ? cells : []).map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`)
+    .map(cells => `<tr>${(Array.isArray(cells) ? cells : []).map(value => {
+      const normalizedValue = String(value || "").trim();
+      const cellValue = normalizedValue === "זיכוי"
+        ? '<span style="color:#b42318;font-weight:800;">זיכוי</span>'
+        : escapeHtml(value);
+      return `<td>${cellValue}</td>`;
+    }).join("")}</tr>`)
     .join("");
   return `
     <h1>${escapeHtml(title || "דוח")}</h1>
@@ -6636,7 +6708,13 @@ function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, r
     .map((cells, rowIndex) => {
       const indexLabel = String(Number(rowStartIndex) + rowIndex + 1);
       const valueCells = (Array.isArray(cells) ? cells : [])
-        .map(value => `<td>${escapeHtml(value)}</td>`)
+        .map(value => {
+          const normalizedValue = String(value || "").trim();
+          const cellValue = normalizedValue === "זיכוי"
+            ? '<span style="color:#b42318;font-weight:800;">זיכוי</span>'
+            : escapeHtml(value);
+          return `<td>${cellValue}</td>`;
+        })
         .join("");
       return `<tr><td class="idx">${escapeHtml(indexLabel)}</td>${valueCells}</tr>`;
     })
@@ -6898,7 +6976,7 @@ function createEntitySummaryMarkup({title, sections}){
               ${(Array.isArray(section?.rows) ? section.rows : []).map(row => `
                 <div style="display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:12px;align-items:start;">
                   <strong style="color:#667085;font-size:14px;line-height:1.4;">${escapeHtml(row?.label || "")}</strong>
-                  <span style="color:#172033;font-size:15px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${escapeHtml(row?.value || "-")}</span>
+                  <span style="color:#172033;font-size:15px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${String(row?.value || "").trim() === "זיכוי" ? '<span style="color:#b42318;font-weight:800;">זיכוי</span>' : escapeHtml(row?.value || "-")}</span>
                 </div>
               `).join("")}
             </div>
@@ -6942,6 +7020,7 @@ async function renderMarkupToPngBytes(markup, errorMessage){
 }
 
 async function buildExpenseSummaryPngBytes(expenseRecord, documents){
+  const debitCreditValue = resolveExpenseDebitCreditValue(expenseRecord);
   const markup = createEntitySummaryMarkup({
     title: "פרטי הוצאה",
     sections: [
@@ -6957,9 +7036,9 @@ async function buildExpenseSummaryPngBytes(expenseRecord, documents){
       {
         title: "סכומים",
         rows: [
-          {label:"ברוטו", value: money(expenseRecord?.gross_ils || 0)},
-          {label:"נטו", value: money(expenseRecord?.net_ils || 0)},
-          {label:"מע״מ", value: money(expenseRecord?.vat_ils || 0)}
+          {label:"ברוטו", value: moneyAbs(expenseRecord?.gross_ils || 0)},
+          {label:"נטו", value: moneyAbs(expenseRecord?.net_ils || 0)},
+          {label:"מע״מ", value: moneyAbs(expenseRecord?.vat_ils || 0)}
         ]
       },
       {
@@ -6967,7 +7046,7 @@ async function buildExpenseSummaryPngBytes(expenseRecord, documents){
         rows: [
           {label:"סוג חשבונאי", value: expenseDisplayValue(expenseRecord?.accounting_types?.name)},
           {label:"קטגוריה", value: expenseDisplayValue(expenseRecord?.categories?.name)},
-          {label:"חיוב / זיכוי", value: expenseDisplayValue(expenseRecord?.debit_or_credit, "לא צוין")},
+          {label:"חיוב / זיכוי", value: debitCreditValue},
           {label:"מקור תשלום", value: expenseDisplayValue(expenseRecord?.payment_sources?.name)},
           {label:"אמצעי תשלום", value: expenseDisplayValue(expenseRecord?.payment_methods?.name)},
           {label:"פרויקט", value: expenseDisplayValue(expenseRecord?.projects?.name)},
@@ -7168,12 +7247,15 @@ function shouldShowExpenseAssetFollowupFromForm(){
 function populateExpenseFormFromExistingExpense(expenseRecord){
   if(!expenseRecord) return;
 
+  const debitCreditValue = resolveExpenseDebitCreditValue(expenseRecord);
+  const grossValue = Math.abs(Number(expenseRecord.gross_ils || 0)) || 0;
+
   $("expenseDate").value = expenseRecord.document_date || "";
-  $("expenseGross").value = Number(expenseRecord.gross_ils || 0) || "";
+  $("expenseGross").value = grossValue || "";
   $("expenseSupplier").value = expenseRecord.supplier_name_snapshot || "";
   $("expenseSupplierReg").value = expenseRecord.supplier_registration_snapshot || "";
   $("expenseDocumentNumber").value = expenseRecord.document_number || "";
-  $("expenseDebitCredit").value = expenseRecord.debit_or_credit || "חיוב";
+  $("expenseDebitCredit").value = debitCreditValue;
   $("expenseAccountingType").value = expenseRecord.accounting_type_id || "";
   $("expenseCategory").value = expenseRecord.category_id || "";
   $("expenseProject").value = expenseRecord.project_id || "";
@@ -7187,18 +7269,21 @@ function renderExpenseDetailsReadOnly(expenseRecord){
   if(!expenseRecord) return;
 
   const accountingTypeName = expenseRecord.accounting_types?.name || "";
-  const debitCreditValue = expenseRecord.debit_or_credit || "";
+  const debitCreditValue = resolveExpenseDebitCreditValue(expenseRecord);
 
   setExpenseDetailsValue("expenseDetailsSupplier", expenseRecord.supplier_name_snapshot);
   setExpenseDetailsValue("expenseDetailsSupplierReg", expenseRecord.supplier_registration_snapshot, "ללא מספר זיהוי ספק");
   setExpenseDetailsValue("expenseDetailsDocumentNumber", expenseRecord.document_number);
   setExpenseDetailsValue("expenseDetailsDate", expenseRecord.document_date);
   setExpenseDetailsValue("expenseDetailsNotes", expenseRecord.notes, "ללא הערות");
-  setExpenseDetailsValue("expenseDetailsGross", money(expenseRecord.gross_ils || 0));
-  setExpenseDetailsValue("expenseDetailsNet", money(expenseRecord.net_ils || 0));
-  setExpenseDetailsValue("expenseDetailsVat", money(expenseRecord.vat_ils || 0));
+  setExpenseDetailsValue("expenseDetailsGross", moneyAbs(expenseRecord.gross_ils || 0));
+  setExpenseDetailsValue("expenseDetailsNet", moneyAbs(expenseRecord.net_ils || 0));
+  setExpenseDetailsValue("expenseDetailsVat", moneyAbs(expenseRecord.vat_ils || 0));
   setExpenseDetailsValue("expenseDetailsAccountingType", accountingTypeName);
-  setExpenseDetailsValue("expenseDetailsDebitCredit", debitCreditValue, "לא צוין");
+  const debitCreditElement = $("expenseDetailsDebitCredit");
+  if(debitCreditElement){
+    debitCreditElement.innerHTML = renderDebitCreditBadgeText(debitCreditValue, {includeContainer:true});
+  }
   setExpenseDetailsValue("expenseDetailsCategory", expenseRecord.categories?.name);
   setExpenseDetailsValue("expenseDetailsProject", expenseRecord.projects?.name);
   setExpenseDetailsValue("expenseDetailsPaymentSource", expenseRecord.payment_sources?.name);
@@ -7427,7 +7512,10 @@ async function loadExpenses(){
       id,
       document_date,
       gross_ils,
+      net_ils,
+      vat_ils,
       supplier_name_snapshot,
+      suppliers(name),
       accounting_type_id,
       accounting_types(name),
       payment_source_id,
@@ -7467,6 +7555,7 @@ function renderExpensesList(){
           <th scope="col" aria-label="פעולות צפייה במסמכים">👁</th>
           <th scope="col">תאריך</th>
           <th scope="col">סכום</th>
+          <th scope="col">חיוב / זיכוי</th>
           <th scope="col">ספק</th>
           <th scope="col">סוג חשבונאי</th>
           <th scope="col">מקור תשלום</th>
@@ -7477,7 +7566,8 @@ function renderExpensesList(){
           <tr class="expense-row" data-expense="${row.id}" tabindex="0" role="button" aria-label="פתיחת פרטי הוצאה">
             <td><button class="eye eye-expense" type="button" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
             <td>${row.documentDate || ""}</td>
-            <td>${money(row.grossValue)}</td>
+            <td>${moneyAbs(row.grossValue)}</td>
+            <td>${renderDebitCreditBadgeText(row.debitCreditValue || "חיוב", {includeContainer:true})}</td>
             <td>${row.supplierName || ""}</td>
             <td>${row.accountingTypeName || ""}</td>
             <td>${row.paymentSourceName || ""}</td>
@@ -9518,12 +9608,19 @@ $("expenseForm").onsubmit = async event => {
       supplierId = existingSupplier.id;
     }
 
+    const selectedDebitCredit = String($("expenseDebitCredit")?.value || "חיוב").trim() === "זיכוי" ? "זיכוי" : "חיוב";
+    const signedAmounts = applyDebitCreditSignToAmounts({
+      gross,
+      net,
+      vat,
+      debitCredit: selectedDebitCredit
+    });
+
     const payload = toExpenseWritePayload({
       user_id:userId,
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-      debit_or_credit: $("expenseDebitCredit")?.value || "חיוב",
       document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
@@ -9533,9 +9630,9 @@ $("expenseForm").onsubmit = async event => {
       project_id:$("expenseProject").value || null,
       payment_source_id:$("expensePaymentSource").value || null,
       payment_method_id:$("expensePaymentMethod").value || null,
-      gross_ils:gross,
-      net_ils:net,
-      vat_ils:vat
+      gross_ils:signedAmounts.gross,
+      net_ils:signedAmounts.net,
+      vat_ils:signedAmounts.vat
     });
 
     const duplicateWarning = await checkExpenseDuplicateWarning({
@@ -9590,7 +9687,6 @@ $("expenseForm").onsubmit = async event => {
             supplier_id: payload.supplier_id,
             supplier_name_snapshot: payload.supplier_name_snapshot,
             supplier_registration_snapshot: payload.supplier_registration_snapshot,
-            debit_or_credit: payload.debit_or_credit,
             document_date: payload.document_date,
             document_number: payload.document_number,
             description: payload.description,

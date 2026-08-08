@@ -1776,10 +1776,45 @@ function buildExpenseDocumentStoragePath(expenseId, saveAttemptId, index, origin
   return `${userId}/${safeExpenseId}/${safeAttemptId}/${orderPrefix}-${safeFilename}`;
 }
 
+const EXPENSE_WRITE_PAYLOAD_FIELDS = Object.freeze([
+  "supplier_id",
+  "supplier_name_snapshot",
+  "supplier_registration_snapshot",
+  "debit_or_credit",
+  "document_date",
+  "document_number",
+  "description",
+  "notes",
+  "category_id",
+  "accounting_type_id",
+  "project_id",
+  "payment_source_id",
+  "payment_method_id",
+  "gross_ils",
+  "net_ils",
+  "vat_ils"
+]);
+
+function toExpenseWritePayload(sourcePayload){
+  const source = sourcePayload && typeof sourcePayload === "object" ? sourcePayload : {};
+  const payload = {};
+
+  EXPENSE_WRITE_PAYLOAD_FIELDS.forEach(field => {
+    if(Object.prototype.hasOwnProperty.call(source, field)){
+      payload[field] = source[field];
+    }
+  });
+
+  const normalizedDebitOrCredit = String(payload.debit_or_credit || "").trim();
+  payload.debit_or_credit = normalizedDebitOrCredit === "זיכוי" ? "זיכוי" : "חיוב";
+
+  return payload;
+}
+
 function buildExpenseRollbackPayload(expenseRecord){
   if(!expenseRecord) return null;
 
-  return {
+  return toExpenseWritePayload({
     supplier_id: expenseRecord.supplier_id || null,
     supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
     supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
@@ -1796,7 +1831,7 @@ function buildExpenseRollbackPayload(expenseRecord){
     gross_ils: Number(expenseRecord.gross_ils || 0) || 0,
     net_ils: Number(expenseRecord.net_ils || 0) || 0,
     vat_ils: Number(expenseRecord.vat_ils || 0) || 0
-  };
+  });
 }
 
 async function rollbackExpenseDocumentSaveAttempt({expenseId, isEditingDetailsMode, originalExpenseSnapshot, uploadedStoragePaths}){
@@ -8526,7 +8561,12 @@ $("incomeFilterForm")?.addEventListener("submit", event => {
 
 $("expenseFilterForm")?.addEventListener("submit", async event => {
   event.preventDefault();
-  expenseFilterState = {...expenseFilterDraft};
+  const supplierInputValue = String($("expenseFilterSupplier")?.value || "");
+  expenseFilterDraft.supplier = supplierInputValue;
+  expenseFilterState = {
+    ...expenseFilterDraft,
+    supplier: supplierInputValue
+  };
   $("expenseFilterDialog")?.close();
   renderExpenseFilterChips();
   await loadExpenses();
@@ -9478,13 +9518,12 @@ $("expenseForm").onsubmit = async event => {
       supplierId = existingSupplier.id;
     }
 
-    const normalizedDebitOrCredit = String($("expenseDebitCredit")?.value || "חיוב").trim();
-    const payload = {
+    const payload = toExpenseWritePayload({
       user_id:userId,
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-      debit_or_credit: normalizedDebitOrCredit === "זיכוי" ? "זיכוי" : "חיוב",
+      debit_or_credit: $("expenseDebitCredit")?.value || "חיוב",
       document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
@@ -9497,11 +9536,7 @@ $("expenseForm").onsubmit = async event => {
       gross_ils:gross,
       net_ils:net,
       vat_ils:vat
-    };
-
-    if(payload.debit_or_credit !== "חיוב" && payload.debit_or_credit !== "זיכוי"){
-      payload.debit_or_credit = "חיוב";
-    }
+    });
 
     const duplicateWarning = await checkExpenseDuplicateWarning({
       supplierName,

@@ -1783,7 +1783,7 @@ function buildExpenseRollbackPayload(expenseRecord){
     supplier_id: expenseRecord.supplier_id || null,
     supplier_name_snapshot: expenseRecord.supplier_name_snapshot || "",
     supplier_registration_snapshot: expenseRecord.supplier_registration_snapshot || "",
-    debit_or_credit: expenseRecord.debit_or_credit || expenseRecord.debit_credit || null,
+    debit_or_credit: expenseRecord.debit_or_credit || null,
     document_date: expenseRecord.document_date || null,
     document_number: expenseRecord.document_number || "",
     description: expenseRecord.description || "",
@@ -6286,10 +6286,29 @@ function setExpenseDetailsValue(id, value, fallback = "-"){
   el.textContent = expenseDisplayValue(value, fallback);
 }
 
+function closeAllActionMenus(){
+  document.querySelectorAll(".action-menu").forEach(menu => {
+    menu.classList.add("hidden");
+    menu.removeAttribute("data-open");
+    menu.style.top = "";
+    menu.style.left = "";
+    menu.style.right = "";
+    menu.style.bottom = "";
+    menu.style.position = "fixed";
+  });
+
+  document.querySelectorAll("[data-action-menu-button]").forEach(button => {
+    button.setAttribute("aria-expanded", "false");
+  });
+}
+
 function hideActionMenu(menuId, buttonId){
   const menu = $(menuId);
   const button = $(buttonId);
-  if(menu) menu.classList.add("hidden");
+  if(menu){
+    menu.classList.add("hidden");
+    menu.removeAttribute("data-open");
+  }
   if(button) button.setAttribute("aria-expanded", "false");
 }
 
@@ -6298,21 +6317,22 @@ function positionActionMenu(menuId, buttonId){
   const button = $(buttonId);
   if(!menu || !button) return;
 
-  const anchor = button.closest(".action-menu-anchor, .modal-head-actions, #expenseDialogHeaderActions, #incomeDialogHeaderActions");
-  if(anchor){
-    menu.style.top = "calc(100% + 6px)";
-    menu.style.left = "";
-    menu.style.right = "0";
-    return;
-  }
-
   const buttonRect = button.getBoundingClientRect();
-  const parentRect = button.closest(".modal-head, .income-page-header, .view-head, .card-head-inline")?.getBoundingClientRect();
-  if(!parentRect) return;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const menuWidth = Math.min(180, Math.max(150, viewportWidth - 24));
+  const menuHeight = Math.min(240, Math.max(120, viewportHeight - 24));
+  const left = Math.max(12, Math.min(buttonRect.right - menuWidth, viewportWidth - menuWidth - 12));
+  const top = Math.max(12, Math.min(buttonRect.bottom + 8, viewportHeight - menuHeight - 12));
 
-  menu.style.top = `${Math.max(0, buttonRect.bottom - parentRect.top + 6)}px`;
-  menu.style.left = "";
-  menu.style.right = `${Math.max(0, parentRect.right - buttonRect.right)}px`;
+  menu.style.position = "fixed";
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  menu.style.maxHeight = `${menuHeight}px`;
+  menu.style.overflow = "auto";
+  menu.style.zIndex = "1100";
 }
 
 function toggleActionMenu(menuId, buttonId){
@@ -6321,15 +6341,18 @@ function toggleActionMenu(menuId, buttonId){
   if(!menu || !button) return;
 
   const shouldOpen = menu.classList.contains("hidden");
-  document.querySelectorAll(".action-menu").forEach(node => node.classList.add("hidden"));
-  document.querySelectorAll("[data-action-menu-button]").forEach(menuButton => {
-    menuButton.setAttribute("aria-expanded", "false");
-  });
+  closeAllActionMenus();
 
   if(!shouldOpen) return;
   positionActionMenu(menuId, buttonId);
   menu.classList.remove("hidden");
+  menu.setAttribute("data-open", "true");
   button.setAttribute("aria-expanded", "true");
+
+  requestAnimationFrame(() => {
+    const focusTarget = menu.querySelector("button, [href], [tabindex]:not([tabindex='-1'])");
+    if(focusTarget instanceof HTMLElement) focusTarget.focus();
+  });
 }
 
 async function ensurePdfLib(){
@@ -6909,7 +6932,7 @@ async function buildExpenseSummaryPngBytes(expenseRecord, documents){
         rows: [
           {label:"סוג חשבונאי", value: expenseDisplayValue(expenseRecord?.accounting_types?.name)},
           {label:"קטגוריה", value: expenseDisplayValue(expenseRecord?.categories?.name)},
-          {label:"חיוב / זיכוי", value: expenseDisplayValue(expenseRecord?.debit_credit || expenseRecord?.debit_or_credit, "לא צוין")},
+          {label:"חיוב / זיכוי", value: expenseDisplayValue(expenseRecord?.debit_or_credit, "לא צוין")},
           {label:"מקור תשלום", value: expenseDisplayValue(expenseRecord?.payment_sources?.name)},
           {label:"אמצעי תשלום", value: expenseDisplayValue(expenseRecord?.payment_methods?.name)},
           {label:"פרויקט", value: expenseDisplayValue(expenseRecord?.projects?.name)},
@@ -7115,7 +7138,7 @@ function populateExpenseFormFromExistingExpense(expenseRecord){
   $("expenseSupplier").value = expenseRecord.supplier_name_snapshot || "";
   $("expenseSupplierReg").value = expenseRecord.supplier_registration_snapshot || "";
   $("expenseDocumentNumber").value = expenseRecord.document_number || "";
-  $("expenseDebitCredit").value = expenseRecord.debit_credit || expenseRecord.debit_or_credit || "חיוב";
+  $("expenseDebitCredit").value = expenseRecord.debit_or_credit || "חיוב";
   $("expenseAccountingType").value = expenseRecord.accounting_type_id || "";
   $("expenseCategory").value = expenseRecord.category_id || "";
   $("expenseProject").value = expenseRecord.project_id || "";
@@ -7129,7 +7152,7 @@ function renderExpenseDetailsReadOnly(expenseRecord){
   if(!expenseRecord) return;
 
   const accountingTypeName = expenseRecord.accounting_types?.name || "";
-  const debitCreditValue = expenseRecord.debit_credit || expenseRecord.debit_or_credit || "";
+  const debitCreditValue = expenseRecord.debit_or_credit || "";
 
   setExpenseDetailsValue("expenseDetailsSupplier", expenseRecord.supplier_name_snapshot);
   setExpenseDetailsValue("expenseDetailsSupplierReg", expenseRecord.supplier_registration_snapshot, "ללא מספר זיהוי ספק");
@@ -9237,6 +9260,12 @@ document.querySelectorAll("[data-action-menu-button]").forEach(button => {
   });
 });
 
+document.addEventListener("keydown", event => {
+  if(event.key === "Escape") {
+    closeAllActionMenus();
+  }
+});
+
 $("expenseDetailsShareAction")?.addEventListener("click", () => {
   hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
   void runExpenseEntityAction("share");
@@ -9306,10 +9335,7 @@ document.addEventListener("click", event => {
     return;
   }
 
-  document.querySelectorAll(".action-menu").forEach(menu => menu.classList.add("hidden"));
-  document.querySelectorAll("[data-action-menu-button]").forEach(button => {
-    button.setAttribute("aria-expanded", "false");
-  });
+  closeAllActionMenus();
 });
 
 $("expenseAssetFollowupCreateButton")?.addEventListener("click", () => {
@@ -9452,12 +9478,13 @@ $("expenseForm").onsubmit = async event => {
       supplierId = existingSupplier.id;
     }
 
+    const normalizedDebitOrCredit = String($("expenseDebitCredit")?.value || "חיוב").trim();
     const payload = {
       user_id:userId,
       supplier_id:supplierId,
       supplier_name_snapshot:supplierName,
       supplier_registration_snapshot:$("expenseSupplierReg").value.trim(),
-      debit_or_credit: $("expenseDebitCredit")?.value || "חיוב",
+      debit_or_credit: normalizedDebitOrCredit === "זיכוי" ? "זיכוי" : "חיוב",
       document_date:validated.documentDate,
       document_number:$("expenseDocumentNumber").value.trim(),
       description:$("expenseDescription").value.trim(),
@@ -9528,6 +9555,7 @@ $("expenseForm").onsubmit = async event => {
             supplier_id: payload.supplier_id,
             supplier_name_snapshot: payload.supplier_name_snapshot,
             supplier_registration_snapshot: payload.supplier_registration_snapshot,
+            debit_or_credit: payload.debit_or_credit,
             document_date: payload.document_date,
             document_number: payload.document_number,
             description: payload.description,
@@ -9573,26 +9601,6 @@ $("expenseForm").onsubmit = async event => {
       }
 
       expenseId = expense.id;
-    }
-
-    const {error:debitCreditPersistError} = await sb.from("expenses")
-      .update({debit_or_credit: payload.debit_or_credit})
-      .eq("user_id", userId)
-      .eq("id", expenseId);
-
-    if(debitCreditPersistError){
-      const rollbackError = await rollbackExpenseDocumentSaveAttempt({
-        expenseId,
-        isEditingDetailsMode,
-        originalExpenseSnapshot,
-        uploadedStoragePaths: []
-      });
-
-      const message = rollbackError
-        ? `שמירת חיוב/זיכוי נכשלה, וביטול השמירה לא הושלם: ${rollbackError.message || "שגיאה בביטול השמירה"}`
-        : (debitCreditPersistError.message || "שגיאה בשמירת חיוב/זיכוי");
-      setStatus($("expenseStatus"), message, "error");
-      return;
     }
 
     try {

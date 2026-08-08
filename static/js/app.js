@@ -574,11 +574,6 @@ function getCurrentExpensesViewRows(){
 
 function applyExpenseFiltersToQuery(query, filters = expenseFilterState){
   let nextQuery = query;
-  const supplierTokens = getSupplierSearchTokens(filters.supplier || "");
-  supplierTokens.forEach(token => {
-    const escapedToken = escapeIlikeToken(token);
-    nextQuery = nextQuery.or(`supplier_name_snapshot.ilike.%${escapedToken}%,suppliers.name.ilike.%${escapedToken}%`);
-  });
   if(filters.accountingTypeId) nextQuery = nextQuery.eq("accounting_type_id", filters.accountingTypeId);
   if(filters.paymentSourceId) nextQuery = nextQuery.eq("payment_source_id", filters.paymentSourceId);
   if(filters.documentDateFrom) nextQuery = nextQuery.gte("document_date", filters.documentDateFrom);
@@ -1100,7 +1095,7 @@ function openIncomeFilterDialog(){
 
 function openExpenseFilterDialog(){
   syncExpenseFilterDialogFromState();
-  renderExpenseSupplierSuggestionsPanel($("expenseFilterSupplier")?.value || "");
+  closeExpenseSupplierSuggestions();
   $("expenseFilterDialog")?.showModal();
 }
 
@@ -1313,10 +1308,9 @@ function bindIncomeTypeSuggestionInteractions(){
 function bindExpenseSupplierSuggestionInteractions(){
   const input = $("expenseFilterSupplier");
   const panel = $("expenseFilterSupplierSuggestions");
+  const dialog = $("expenseFilterDialog");
   if(!input || !panel) return;
 
-  input.addEventListener("focus", openExpenseSupplierSuggestions);
-  input.addEventListener("click", openExpenseSupplierSuggestions);
   input.addEventListener("input", () => renderExpenseSupplierSuggestionsPanel(input.value));
   input.addEventListener("keydown", event => {
     if(event.key === "Escape"){
@@ -1328,6 +1322,12 @@ function bindExpenseSupplierSuggestionInteractions(){
 
   document.addEventListener("click", event => {
     if(event.target === input || panel.contains(event.target)) return;
+    closeExpenseSupplierSuggestions();
+  });
+
+  dialog?.addEventListener("focusin", event => {
+    const target = event.target;
+    if(target === input || panel.contains(target)) return;
     closeExpenseSupplierSuggestions();
   });
 }
@@ -6609,17 +6609,13 @@ function renderExpenseSupplierSuggestionsPanel(filterText = ""){
   panel.classList.remove("hidden");
 
   panel.querySelectorAll("[data-expense-supplier-suggestion]").forEach(button => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const selectedValue = button.dataset.expenseSupplierSuggestion || "";
       const input = $("expenseFilterSupplier");
       if(input) input.value = selectedValue;
       expenseFilterDraft.supplier = selectedValue;
-      renderExpenseSupplierSuggestionsPanel(selectedValue);
       panel.classList.add("hidden");
-      expenseFilterState = {...expenseFilterDraft};
-      renderExpenseFilterChips();
-      await loadExpenses();
-      $("expenseFilterDialog")?.close();
+      if(input) input.focus();
     });
   });
 }

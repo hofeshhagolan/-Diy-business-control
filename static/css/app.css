@@ -263,6 +263,19 @@ dialog::backdrop{background:#07182a99}
 .expense-linked-document-button{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;background:#fff;padding:9px 10px;color:var(--brand);font-weight:700;text-align:right;cursor:pointer}
 .expense-linked-document-button span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .expense-linked-document-button b{font-size:1rem;line-height:1}
+.expense-edit-documents{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#f8fbff}
+.expense-edit-documents-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.expense-edit-documents-head h3{margin:0;color:var(--brand);font-size:1rem}
+.expense-edit-documents-list{display:grid;gap:8px}
+.expense-edit-document-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.expense-edit-document-main{min-width:0}
+.expense-edit-document-name{display:block;width:100%;border:0;background:transparent;color:var(--brand2);font-weight:800;text-align:right;padding:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.expense-edit-document-name:disabled{color:var(--muted);cursor:default}
+.expense-edit-document-status{display:block;margin-top:4px;color:var(--muted);font-size:.82rem}
+.expense-edit-document-actions{display:flex;gap:6px;flex-wrap:wrap}
+.expense-edit-document-actions button{min-height:38px;padding:7px 10px}
+.expense-edit-document-row.is-deleted{opacity:.7}
+#expenseEditDocumentAddInput,#expenseEditDocumentReplaceInput{display:none}
 .expense-details-footer-actions{display:flex;justify-content:flex-start;padding-top:2px}
 .expense-asset-prompt{padding:12px;border:1px solid #cfe0ef;border-radius:12px;background:#f8fbff;display:grid;gap:8px}
 .expense-asset-question{margin:0;color:var(--brand);font-weight:800}

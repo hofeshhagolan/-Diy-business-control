@@ -133,6 +133,10 @@ let currentExpenseEditId = "";
 let currentExpensePermissions = {canEdit:true, canDelete:true};
 let currentExpenseDetailsDocuments = [];
 let currentExpenseDetailsOpener = null;
+let expenseDocumentEditReplacements = new Map();
+let expenseDocumentEditDeletedIds = new Set();
+let expenseDocumentEditAddedFiles = [];
+let pendingExpenseDocumentReplacementId = "";
 let pdfLibLoadPromise = null;
 let html2CanvasLoadPromise = null;
 let currentExpensePackagePdfCache = {
@@ -2063,6 +2067,115 @@ async function saveExpenseDocumentsForExpense({expenseId, isEditingDetailsMode, 
       throw combinedError;
     }
 
+    throw error;
+  }
+}
+
+function getExpenseDocumentFileMetadata(file){
+  const originalFilename = String(file?.name || "document").trim() || "document";
+  const declaredMimeType = String(file?.type || "").trim().toLowerCase();
+  const mimeType = declaredMimeType || (/\.pdf$/i.test(originalFilename) ? "application/pdf" : "application/octet-stream");
+  return {
+    original_filename: originalFilename,
+    mime_type: mimeType,
+    document_type: mimeType === "application/pdf" || /\.pdf$/i.test(originalFilename) ? "pdf" : "image"
+  };
+}
+
+async function saveExpenseDocumentEditsForExpense({expenseId, originalExpenseSnapshot}){
+  const existingDocuments = Array.isArray(currentExpenseDetailsDocuments) ? currentExpenseDetailsDocuments : [];
+  const replacements = existingDocuments
+    .filter(documentRow => !expenseDocumentEditDeletedIds.has(String(documentRow.id || "")))
+    .map(documentRow => ({documentRow, file: expenseDocumentEditReplacements.get(String(documentRow.id || ""))}))
+    .filter(item => item.file);
+  const deletedDocumentIds = existingDocuments
+    .map(documentRow => String(documentRow.id || ""))
+    .filter(documentId => documentId && expenseDocumentEditDeletedIds.has(documentId));
+  const addedFiles = expenseDocumentEditAddedFiles.slice();
+
+  if(!replacements.length && !deletedDocumentIds.length && !addedFiles.length) return;
+
+  const saveAttemptId = generateClientSideUuid();
+  const uploadedStoragePaths = [];
+  const replacementPayload = [];
+  const additionPayload = [];
+  const maxPageNumber = existingDocuments.reduce(
+    (highest, documentRow) => Math.max(highest, Number(documentRow?.page_number || 0)),
+    0
+  );
+
+  try {
+    const uploadPlans = [
+      ...replacements.map(item => ({...item, kind:"replacement"})),
+      ...addedFiles.map((file, index) => ({file, kind:"addition", pageNumber:maxPageNumber + index + 1}))
+    ];
+
+    for(let index = 0; index < uploadPlans.length; index++){
+      const uploadPlan = uploadPlans[index];
+      const metadata = getExpenseDocumentFileMetadata(uploadPlan.file);
+      const storagePath = buildExpenseDocumentStoragePath(
+        expenseId,
+        saveAttemptId,
+        index + 1,
+        metadata.original_filename
+      );
+      const upload = await sb.storage
+        .from("invoice-documents")
+        .upload(storagePath, uploadPlan.file, {contentType:metadata.mime_type, upsert:false});
+
+      if(upload.error){
+        throw new Error(upload.error.message || "שגיאה בהעלאת קובץ המסמך");
+      }
+
+      uploadedStoragePaths.push(storagePath);
+      if(uploadPlan.kind === "replacement"){
+        replacementPayload.push({
+          document_id: uploadPlan.documentRow.id,
+          storage_path: storagePath,
+          ...metadata
+        });
+      } else {
+        additionPayload.push({
+          storage_path: storagePath,
+          page_number: uploadPlan.pageNumber,
+          ...metadata
+        });
+      }
+    }
+
+    const {data:mutationResult, error:mutationError} = await sb.rpc(
+      "update_expense_documents_atomic",
+      {
+        p_expense_id: expenseId,
+        p_replacements: replacementPayload,
+        p_additions: additionPayload,
+        p_deleted_document_ids: deletedDocumentIds
+      }
+    );
+
+    if(mutationError){
+      throw new Error(mutationError.message || "שגיאה בעדכון מסמכי ההוצאה");
+    }
+
+    const mutationRow = Array.isArray(mutationResult) ? mutationResult[0] : mutationResult;
+    const oldStoragePaths = (Array.isArray(mutationRow?.storage_paths) ? mutationRow.storage_paths : [])
+      .map(path => String(path || "").trim())
+      .filter(Boolean);
+    if(oldStoragePaths.length){
+      const cleanupError = await cleanupUploadedExpenseFiles(oldStoragePaths);
+      if(cleanupError) enqueuePendingExpenseStorageCleanup(oldStoragePaths);
+    }
+  } catch(error){
+    const rollbackError = await rollbackExpenseDocumentSaveAttempt({
+      expenseId,
+      isEditingDetailsMode: true,
+      originalExpenseSnapshot,
+      uploadedStoragePaths
+    });
+
+    if(rollbackError){
+      throw new Error(`${error.message || "שגיאה בעדכון מסמכי ההוצאה"}. ${rollbackError.message || "שחזור ההוצאה לא הושלם"}`);
+    }
     throw error;
   }
 }
@@ -7364,6 +7477,116 @@ function renderExpenseDetailsDocuments(documents){
   });
 }
 
+function resetExpenseDocumentEditState(){
+  expenseDocumentEditReplacements = new Map();
+  expenseDocumentEditDeletedIds = new Set();
+  expenseDocumentEditAddedFiles = [];
+  pendingExpenseDocumentReplacementId = "";
+  if($("expenseEditDocumentAddInput")) $("expenseEditDocumentAddInput").value = "";
+  if($("expenseEditDocumentReplaceInput")) $("expenseEditDocumentReplaceInput").value = "";
+}
+
+function renderExpenseDocumentEditList(){
+  const list = $("expenseEditDocumentsList");
+  const empty = $("expenseEditDocumentsEmpty");
+  if(!list || !empty) return;
+
+  const existingDocuments = Array.isArray(currentExpenseDetailsDocuments) ? currentExpenseDetailsDocuments : [];
+  const hasRows = existingDocuments.length > 0 || expenseDocumentEditAddedFiles.length > 0;
+  empty.classList.toggle("hidden", hasRows);
+  list.classList.toggle("hidden", !hasRows);
+  if(!hasRows){
+    list.innerHTML = "";
+    return;
+  }
+
+  const existingMarkup = existingDocuments.map((documentRow, index) => {
+    const documentId = String(documentRow?.id || "");
+    const replacementFile = expenseDocumentEditReplacements.get(documentId);
+    const isDeleted = expenseDocumentEditDeletedIds.has(documentId);
+    const displayName = replacementFile?.name || documentRow?.original_filename || `מסמך ${index + 1}`;
+    const statusText = isDeleted ? "יימחק בעת השמירה" : (replacementFile ? "קובץ חלופי נבחר" : "מסמך קיים");
+    return `
+      <div class="expense-edit-document-row ${isDeleted ? "is-deleted" : ""}">
+        <div class="expense-edit-document-main">
+          <button type="button" class="expense-edit-document-name" data-expense-edit-open-index="${index}" ${isDeleted ? "disabled" : ""} title="פתיחת המסמך הקיים">${escapeHtml(String(displayName))}</button>
+          <span class="expense-edit-document-status">${statusText}</span>
+        </div>
+        <div class="expense-edit-document-actions">
+          ${isDeleted ? `
+            <button type="button" class="secondary" data-expense-edit-restore-id="${documentId}">ביטול מחיקה</button>
+          ` : `
+            <button type="button" class="secondary" data-expense-edit-replace-id="${documentId}">החלפה</button>
+            <button type="button" class="secondary" data-expense-edit-delete-id="${documentId}">מחיקה</button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const addedMarkup = expenseDocumentEditAddedFiles.map((file, index) => `
+    <div class="expense-edit-document-row">
+      <div class="expense-edit-document-main">
+        <strong class="expense-edit-document-name">${escapeHtml(String(file?.name || `מסמך חדש ${index + 1}`))}</strong>
+        <span class="expense-edit-document-status">מסמך חדש</span>
+      </div>
+      <div class="expense-edit-document-actions">
+        <button type="button" class="secondary" data-expense-edit-remove-added-index="${index}">הסרה</button>
+      </div>
+    </div>
+  `).join("");
+
+  list.innerHTML = existingMarkup + addedMarkup;
+
+  list.querySelectorAll("[data-expense-edit-open-index]").forEach(button => {
+    button.addEventListener("click", () => {
+      const requestedIndex = Number(button.dataset.expenseEditOpenIndex || 0);
+      void openExistingDocumentsViewer({
+        documents: currentExpenseDetailsDocuments,
+        dialogTitle: "מסמכי הוצאה",
+        fullscreenTitle: "מסמך הוצאה במסך מלא",
+        emptyMessage: "אין מסמכים מצורפים",
+        statusElement: $("expenseStatus"),
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
+        opener: button,
+        viewerContext: "expense"
+      });
+    });
+  });
+
+  list.querySelectorAll("[data-expense-edit-replace-id]").forEach(button => {
+    button.addEventListener("click", () => {
+      pendingExpenseDocumentReplacementId = button.dataset.expenseEditReplaceId || "";
+      openFileInputPicker($("expenseEditDocumentReplaceInput"), {resetValue:true});
+    });
+  });
+
+  list.querySelectorAll("[data-expense-edit-delete-id]").forEach(button => {
+    button.addEventListener("click", () => {
+      const documentId = button.dataset.expenseEditDeleteId || "";
+      expenseDocumentEditReplacements.delete(documentId);
+      expenseDocumentEditDeletedIds.add(documentId);
+      renderExpenseDocumentEditList();
+    });
+  });
+
+  list.querySelectorAll("[data-expense-edit-restore-id]").forEach(button => {
+    button.addEventListener("click", () => {
+      expenseDocumentEditDeletedIds.delete(button.dataset.expenseEditRestoreId || "");
+      renderExpenseDocumentEditList();
+    });
+  });
+
+  list.querySelectorAll("[data-expense-edit-remove-added-index]").forEach(button => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.expenseEditRemoveAddedIndex);
+      if(!Number.isInteger(index) || index < 0 || index >= expenseDocumentEditAddedFiles.length) return;
+      expenseDocumentEditAddedFiles.splice(index, 1);
+      renderExpenseDocumentEditList();
+    });
+  });
+}
+
 function setExpenseDialogMode(mode){
   currentExpenseDialogMode = mode;
 
@@ -7374,10 +7597,12 @@ function setExpenseDialogMode(mode){
   const deferButton = $("expenseFormDeferButton");
   const closeButton = $("expenseDialogCloseButton");
   const submitButton = expenseForm?.querySelector('button[type="submit"], button:not([type])');
+  const editDocuments = $("expenseEditDocuments");
 
   if(mode === EXPENSE_DIALOG_MODES.NEW){
     detailsView?.classList.add("hidden");
     detailsActions?.classList.add("hidden");
+    editDocuments?.classList.add("hidden");
     if(title) title.textContent = "הוצאה חדשה";
     if(deferButton){
       deferButton.textContent = "אבדוק מאוחר יותר";
@@ -7407,6 +7632,7 @@ function setExpenseDialogMode(mode){
   if(closeButton) closeButton.setAttribute("aria-label", "סגירת חלון פרטי הוצאה");
   if(detailsView) detailsView.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_READONLY);
   if(expenseForm) expenseForm.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_EDIT);
+  if(editDocuments) editDocuments.classList.toggle("hidden", mode !== EXPENSE_DIALOG_MODES.DETAILS_EDIT);
 
   if(deferButton) deferButton.classList.add("hidden");
   if(submitButton){
@@ -7476,7 +7702,9 @@ async function openExpenseDetailsDialog(expenseId, opener = null){
 function startEditingCurrentExpense(){
   if(!currentExpenseDetailsRecord || !currentExpensePermissions.canEdit) return;
   clearFormFieldValidation($("expenseForm"));
+  resetExpenseDocumentEditState();
   populateExpenseFormFromExistingExpense(currentExpenseDetailsRecord);
+  renderExpenseDocumentEditList();
   setExpenseDialogMode(EXPENSE_DIALOG_MODES.DETAILS_EDIT);
 }
 
@@ -8899,6 +9127,7 @@ $("zBrowseInput")?.addEventListener("change", event => updateZFiles(event.curren
 
 function resetExpenseDialogState(){
   selectedFiles = [];
+  resetExpenseDocumentEditState();
   clearLocalFileObjectUrls();
   extractedPreviewSignedUrlCache.clear();
   expenseExtractedPreviewLoadToken += 1;
@@ -8926,6 +9155,36 @@ function resetExpenseDialogState(){
   setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
   setExpenseDialogMode(EXPENSE_DIALOG_MODES.NEW);
 }
+
+$("expenseEditDocumentAddButton")?.addEventListener("click", () => {
+  openFileInputPicker($("expenseEditDocumentAddInput"), {resetValue:true});
+});
+
+$("expenseEditDocumentAddInput")?.addEventListener("change", event => {
+  const input = event.currentTarget;
+  const files = Array.from(input.files || []).filter(isSupportedCompanyDocumentFile);
+  const existingKeys = new Set(expenseDocumentEditAddedFiles.map(file => getFileKey(file)));
+  files.forEach(file => {
+    const key = getFileKey(file);
+    if(existingKeys.has(key)) return;
+    expenseDocumentEditAddedFiles.push(file);
+    existingKeys.add(key);
+  });
+  input.value = "";
+  renderExpenseDocumentEditList();
+});
+
+$("expenseEditDocumentReplaceInput")?.addEventListener("change", event => {
+  const input = event.currentTarget;
+  const replacementFile = Array.from(input.files || [])[0] || null;
+  const documentId = pendingExpenseDocumentReplacementId;
+  input.value = "";
+  pendingExpenseDocumentReplacementId = "";
+  if(!documentId || !replacementFile || !isSupportedCompanyDocumentFile(replacementFile)) return;
+  expenseDocumentEditDeletedIds.delete(documentId);
+  expenseDocumentEditReplacements.set(documentId, replacementFile);
+  renderExpenseDocumentEditList();
+});
 
 async function checkExpenseDuplicateWarning({supplierName = "", gross = 0, documentDate = "", currentExpenseId = ""}){
   const normalizedSupplier = String(supplierName || "").trim();
@@ -9796,11 +10055,15 @@ $("expenseForm").onsubmit = async event => {
     }
 
     try {
-      await saveExpenseDocumentsForExpense({
-        expenseId,
-        isEditingDetailsMode,
-        originalExpenseSnapshot
-      });
+      if(isEditingDetailsMode){
+        await saveExpenseDocumentEditsForExpense({expenseId, originalExpenseSnapshot});
+      } else {
+        await saveExpenseDocumentsForExpense({
+          expenseId,
+          isEditingDetailsMode,
+          originalExpenseSnapshot
+        });
+      }
     } catch(documentError){
       setStatus(
         $("expenseStatus"),

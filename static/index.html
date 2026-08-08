@@ -22,7 +22,7 @@
   </div>
 </section>
 
-<section id="authScreen" class="auth">
+<section id="authScreen" class="auth hidden">
   <div class="auth-wrap">
     <div class="brand">
       <h1>DIY Business Control</h1>
@@ -464,6 +464,16 @@
       <label>אמצעי תשלום<select id="expensePaymentMethod"></select></label>
       <label class="wide">שירות / מוצר<input id="expenseDescription"></label>
       <label class="wide">הערות<textarea id="expenseNotes"></textarea></label>
+      <section id="expenseEditDocuments" class="expense-edit-documents wide hidden" aria-label="ניהול מסמכי הוצאה">
+        <div class="expense-edit-documents-head">
+          <h3>מסמכים</h3>
+          <button id="expenseEditDocumentAddButton" type="button" class="secondary">הוספת מסמך</button>
+        </div>
+        <p id="expenseEditDocumentsEmpty" class="expense-details-sub">אין מסמכים מצורפים</p>
+        <div id="expenseEditDocumentsList" class="expense-edit-documents-list hidden"></div>
+        <input id="expenseEditDocumentAddInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf" multiple>
+        <input id="expenseEditDocumentReplaceInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf">
+      </section>
       <div class="expense-form-actions wide">
         <button type="submit" class="primary">שמרי חשבונית בהוצאות</button>
         <button id="expenseFormDeferButton" type="button" class="secondary">אבדוק מאוחר יותר</button>

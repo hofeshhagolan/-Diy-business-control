@@ -561,6 +561,16 @@ function matchesExpenseFilters(row){
   return true;
 }
 
+function hasActiveExpenseFilters(){
+  return Boolean(
+    String(expenseFilterState.supplier || "").trim()
+    || expenseFilterState.accountingTypeId
+    || expenseFilterState.paymentSourceId
+    || expenseFilterState.documentDateFrom
+    || expenseFilterState.documentDateTo
+  );
+}
+
 function getExpenseReportRowsFromSource(sourceRows){
   return (Array.isArray(sourceRows) ? sourceRows : [])
     .map(normalizeExpenseReportRow)
@@ -1310,6 +1320,16 @@ function bindExpenseSupplierSuggestionInteractions(){
   const panel = $("expenseFilterSupplierSuggestions");
   const dialog = $("expenseFilterDialog");
   if(!input || !panel) return;
+
+  input.addEventListener("click", () => {
+    const isOpen = !panel.classList.contains("hidden");
+    if(isOpen){
+      closeExpenseSupplierSuggestions();
+      return;
+    }
+
+    renderExpenseSupplierSuggestionsPanel(input.value);
+  });
 
   input.addEventListener("input", () => renderExpenseSupplierSuggestionsPanel(input.value));
   input.addEventListener("keydown", event => {
@@ -7552,7 +7572,7 @@ function renderExpensesList(){
     <table aria-label="טבלת הוצאות">
       <thead>
         <tr>
-          <th scope="col" aria-label="פעולות צפייה במסמכים">👁</th>
+          <th scope="col" aria-label="מצב מסמכים">מסמכים</th>
           <th scope="col">תאריך</th>
           <th scope="col">סכום</th>
           <th scope="col">חיוב / זיכוי</th>
@@ -7562,9 +7582,26 @@ function renderExpensesList(){
         </tr>
       </thead>
       <tbody>
-        ${rows.map(row => `
+        ${rows.map(row => {
+          const documentCount = Number(row.documentsCount || 0);
+          const hasDocuments = documentCount > 0;
+          const documentLabel = hasDocuments
+            ? `פתיחת מסמכי הוצאה (${documentCount})`
+            : "אין מסמכים מצורפים להוצאה";
+
+          return `
           <tr class="expense-row" data-expense="${row.id}" tabindex="0" role="button" aria-label="פתיחת פרטי הוצאה">
-            <td><button class="eye eye-expense" type="button" data-expense="${row.id}" aria-label="צפייה במסמכי הוצאה">👁</button></td>
+            <td>
+              <button
+                class="doc-indicator ${hasDocuments ? "active" : "inactive"} eye-expense"
+                type="button"
+                ${hasDocuments ? `data-expense="${row.id}"` : "disabled aria-disabled=\"true\""}
+                aria-label="${documentLabel}"
+                title="${documentLabel}">
+                <span class="doc-indicator-icon">${hasDocuments ? "📎" : "📄"}</span>
+                <span class="doc-indicator-text">${hasDocuments ? `(${documentCount})` : "(0)"}</span>
+              </button>
+            </td>
             <td>${row.documentDate || ""}</td>
             <td>${moneyAbs(row.grossValue)}</td>
             <td>${renderDebitCreditBadgeText(row.debitCreditValue || "חיוב", {includeContainer:true})}</td>
@@ -7572,7 +7609,8 @@ function renderExpensesList(){
             <td>${row.accountingTypeName || ""}</td>
             <td>${row.paymentSourceName || ""}</td>
           </tr>
-        `).join("")}
+        `;
+        }).join("")}
       </tbody>
     </table>
   `;

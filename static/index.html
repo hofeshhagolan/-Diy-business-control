@@ -565,6 +565,8 @@
 
       <section class="expense-details-section expense-details-section-compact" aria-label="פרטים נוספים">
         <div class="expense-details-kv"><span>פרויקט</span><strong id="incomeDetailsProject">-</strong></div>
+        <div id="incomeDetailsPaymentMethodRow" class="expense-details-kv hidden"><span>אמצעי תשלום</span><strong id="incomeDetailsPaymentMethod"></strong></div>
+        <div id="incomeDetailsReferenceNumberRow" class="expense-details-kv hidden"><span>מספר אסמכתא</span><strong id="incomeDetailsReferenceNumber"></strong></div>
         <div class="expense-details-kv"><span>הערות</span><strong id="incomeDetailsNotes">-</strong></div>
         <div class="expense-details-kv"><span>דיווח לרו״ח</span><strong id="incomeDetailsReportingStatus">-</strong></div>
       </section>
@@ -584,6 +586,8 @@
         <div id="zIncomeTypeSuggestions" class="income-type-suggestions hidden" role="listbox" aria-label="הצעות לסוג הכנסה"></div>
       </label>
       <label>פרויקט<select id="zProject"></select></label>
+      <label id="zPaymentMethodField" class="hidden">אמצעי תשלום<select id="zPaymentMethod"></select></label>
+      <label id="zReferenceNumberField" class="hidden">מספר אסמכתא<input id="zReferenceNumber" type="text"></label>
       <label class="wide">הערות<textarea id="zNotes"></textarea></label>
       <div class="wide file-actions">
         <button id="zBrowseButton" class="secondary" type="button">צרפי מסמכים</button>

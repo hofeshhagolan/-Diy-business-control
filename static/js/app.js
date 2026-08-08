@@ -301,6 +301,20 @@ function normalizeIncomeType(rawValue){
   return value || Z_INCOME_TYPE_DEFAULT;
 }
 
+function syncIncomePaymentFields(){
+  const isZReport = String($("zIncomeType")?.value || "").trim() === Z_INCOME_TYPE_DEFAULT;
+  const paymentMethodField = $("zPaymentMethodField");
+  const referenceNumberField = $("zReferenceNumberField");
+
+  paymentMethodField?.classList.toggle("hidden", isZReport);
+  referenceNumberField?.classList.toggle("hidden", isZReport);
+
+  if(isZReport){
+    if($("zPaymentMethod")) $("zPaymentMethod").value = "";
+    if($("zReferenceNumber")) $("zReferenceNumber").value = "";
+  }
+}
+
 function getIncomeSortDefinition(fieldKey){
   return INCOME_SORT_FIELD_DEFINITIONS.find(field => field.key === fieldKey) || INCOME_SORT_FIELD_DEFINITIONS[0];
 }
@@ -427,7 +441,7 @@ function getCurrentIncomeReportRows(){
 
 async function fetchAllIncomeReportRows(){
   let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
     .eq("user_id",userId));
 
   const {data, error} = await applyIncomeSortToQuery(query);
@@ -1176,6 +1190,8 @@ function renderIncomeList(){
                   data-z-report-total="${Number(row.amountValue || 0)}"
                   data-z-report-income-type="${String(row.incomeTypeValue || "").replace(/"/g, "&quot;")}"
                   data-z-report-project-id="${String(row.projectIdValue || "").replace(/"/g, "&quot;")}"
+                  data-z-report-payment-method-id="${String(row.payment_method_id || "").replace(/"/g, "&quot;")}"
+                  data-z-report-reference-number="${escapeHtml(row.reference_number || "")}"
                   data-z-report-notes="${String(row.notes || "").replace(/"/g, "&quot;")}"
                   data-z-report-income-source="${row.sourceValue}"
                   aria-label="עריכת הכנסה"
@@ -1297,7 +1313,10 @@ function bindIncomeTypeSuggestionInteractions(){
 
   input.addEventListener("focus", openIncomeTypeSuggestions);
   input.addEventListener("click", openIncomeTypeSuggestions);
-  input.addEventListener("input", () => renderIncomeTypeSuggestionsPanel(input.value));
+  input.addEventListener("input", () => {
+    renderIncomeTypeSuggestionsPanel(input.value);
+    syncIncomePaymentFields();
+  });
   input.addEventListener("keydown", event => {
     if(event.key === "Escape"){
       closeIncomeTypeSuggestions();
@@ -1309,6 +1328,7 @@ function bindIncomeTypeSuggestionInteractions(){
     const button = event.target.closest("[data-income-type-suggestion]");
     if(!button) return;
     input.value = button.dataset.incomeTypeSuggestion || Z_INCOME_TYPE_DEFAULT;
+    syncIncomePaymentFields();
     closeIncomeTypeSuggestions();
     input.focus();
   });
@@ -3446,6 +3466,7 @@ function resetZDialogMode(){
   $("incomeDetailsView")?.classList.add("hidden");
   $("incomeDialogHeaderActions")?.classList.add("hidden");
   $("zForm")?.classList.remove("hidden");
+  syncIncomePaymentFields();
 }
 
 function setZDialogEditMode(report){
@@ -3468,7 +3489,10 @@ function populateZDialogFromReport(report){
   $("zTotal").value = safeReport.total_income_ils == null ? "" : Number(safeReport.total_income_ils || 0).toFixed(2);
   $("zIncomeType").value = normalizeIncomeType(safeReport.income_type);
   $("zProject").value = safeReport.project_id || "";
+  $("zPaymentMethod").value = safeReport.payment_method_id || "";
+  $("zReferenceNumber").value = safeReport.reference_number || "";
   $("zNotes").value = safeReport.notes || "";
+  syncIncomePaymentFields();
 }
 
 function setIncomeDialogMode(mode){
@@ -6419,7 +6443,8 @@ async function loadLookups(){
     ["projects","expenseProject"],
     ["projects","zProject"],
     ["payment_sources","expensePaymentSource"],
-    ["payment_methods","expensePaymentMethod"]
+    ["payment_methods","expensePaymentMethod"],
+    ["payment_methods","zPaymentMethod"]
   ];
 
   for(const [table,id] of lookups){
@@ -7279,16 +7304,28 @@ async function getExpensePackagePdfBlob(expenseRecord, documents){
 
 function getIncomePackageSignature(incomeRecord, documents){
   const recordId = String(incomeRecord?.id || "").trim();
+  const detailsSignature = [
+    String(incomeRecord?.payment_method_id || "").trim(),
+    String(incomeRecord?.reference_number || "").trim()
+  ].join(":");
   const docSignature = (Array.isArray(documents) ? documents : [])
     .map(doc => `${String(doc?.id || "")}:${String(doc?.storage_path || "")}:${String(doc?.document_order || doc?.page_number || "")}`)
     .join("|");
-  return `${recordId}::${docSignature}`;
+  return `${recordId}::${detailsSignature}::${docSignature}`;
 }
 
 async function buildIncomeSummaryPngBytes(incomeRecord, documents){
   const createdAtValue = String(incomeRecord?.created_at || "").trim();
   const createdAtDisplay = createdAtValue ? createdAtValue.slice(0, 16).replace("T", " ") : "-";
   const sourceLabel = incomeRecord?.is_from_z_report === false ? "הכנסה אחרת" : 'דו"ח Z';
+  const paymentMethodName = String(incomeRecord?.payment_methods?.name || "").trim();
+  const referenceNumber = String(incomeRecord?.reference_number || "").trim();
+  const optionalNonZRows = incomeRecord?.is_from_z_report === false
+    ? [
+        ...(paymentMethodName ? [{label:"אמצעי תשלום", value:paymentMethodName}] : []),
+        ...(referenceNumber ? [{label:"מספר אסמכתא", value:referenceNumber}] : [])
+      ]
+    : [];
   const markup = createEntitySummaryMarkup({
     title: "פרטי הכנסה",
     sections: [
@@ -7307,6 +7344,7 @@ async function buildIncomeSummaryPngBytes(incomeRecord, documents){
         rows: [
           {label:"סכום", value: money(incomeRecord?.total_income_ils || 0)},
           {label:"פרויקט", value: expenseDisplayValue(incomeRecord?.projects?.name)},
+          ...optionalNonZRows,
           {label:"הערות", value: expenseDisplayValue(incomeRecord?.notes, "ללא הערות")},
           {label:"דיווח לרו״ח", value: ""},
           {label:"מסמכים מצורפים", value: String(Array.isArray(documents) ? documents.length : 0)}
@@ -8321,7 +8359,7 @@ async function getIncomeRecordForDetails(zReportId){
   if(!safeReportId) return null;
 
   const {data, error} = await sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,project_id,projects(id,name)")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,project_id,payment_method_id,reference_number,projects(id,name),payment_methods(id,name)")
     .eq("user_id", userId)
     .eq("id", safeReportId)
     .maybeSingle();
@@ -8345,6 +8383,16 @@ function renderIncomeDetailsReadOnly(incomeRecord){
   setExpenseDetailsValue("incomeDetailsAmount", money(incomeRecord.total_income_ils || 0));
   setExpenseDetailsValue("incomeDetailsProject", incomeRecord.projects?.name);
   setExpenseDetailsValue("incomeDetailsNotes", incomeRecord.notes, "ללא הערות");
+
+  const paymentMethodName = String(incomeRecord.payment_methods?.name || "").trim();
+  const referenceNumber = String(incomeRecord.reference_number || "").trim();
+  const isNonZIncome = incomeRecord.is_from_z_report === false;
+  const paymentMethodRow = $("incomeDetailsPaymentMethodRow");
+  const referenceNumberRow = $("incomeDetailsReferenceNumberRow");
+  paymentMethodRow?.classList.toggle("hidden", !isNonZIncome || !paymentMethodName);
+  referenceNumberRow?.classList.toggle("hidden", !isNonZIncome || !referenceNumber);
+  if($("incomeDetailsPaymentMethod")) $("incomeDetailsPaymentMethod").textContent = isNonZIncome ? paymentMethodName : "";
+  if($("incomeDetailsReferenceNumber")) $("incomeDetailsReferenceNumber").textContent = isNonZIncome ? referenceNumber : "";
 
   const reportingStatusElement = $("incomeDetailsReportingStatus");
   if(reportingStatusElement) reportingStatusElement.textContent = "";
@@ -8523,6 +8571,8 @@ function startEditingZReport(button){
     total_income_ils: button.dataset.zReportTotal || "",
     income_type: button.dataset.zReportIncomeType || Z_INCOME_TYPE_DEFAULT,
     project_id: button.dataset.zReportProjectId || "",
+    payment_method_id: button.dataset.zReportPaymentMethodId || "",
+    reference_number: button.dataset.zReportReferenceNumber || "",
     notes: button.dataset.zReportNotes || "",
     income_source: button.dataset.zReportIncomeSource || Z_REPORT_INCOME_SOURCE
   });
@@ -8533,6 +8583,8 @@ function startEditingZReport(button){
     total_income_ils: button.dataset.zReportTotal || "",
     income_type: button.dataset.zReportIncomeType || Z_INCOME_TYPE_DEFAULT,
     project_id: button.dataset.zReportProjectId || "",
+    payment_method_id: button.dataset.zReportPaymentMethodId || "",
+    reference_number: button.dataset.zReportReferenceNumber || "",
     notes: button.dataset.zReportNotes || ""
   });
   $("zDialog")?.showModal();
@@ -8540,7 +8592,7 @@ function startEditingZReport(button){
 
 async function loadZReports(){
   let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,projects(id,name),z_report_documents(id)")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
     .eq("user_id",userId));
 
   const {data,error} = await applyIncomeSortToQuery(query)
@@ -8696,7 +8748,10 @@ function openNewIncomeDialog({source = Z_REPORT_INCOME_SOURCE} = {}){
   $("zDate").value = today();
   $("zTime").value = currentTime();
   $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
+  $("zPaymentMethod").value = "";
+  $("zReferenceNumber").value = "";
   $("zNotes").value = "";
+  syncIncomePaymentFields();
 
   if(currentZIncomeSource === NON_Z_INCOME_SOURCE){
     const title = $("zDialogTitle");
@@ -8765,8 +8820,11 @@ $("zForm")?.addEventListener("reset", () => {
   currentZIncomeSource = Z_REPORT_INCOME_SOURCE;
   currentIncomeDialogMode = INCOME_DIALOG_MODES.NEW;
   $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
+  $("zPaymentMethod").value = "";
+  $("zReferenceNumber").value = "";
   $("zTime").value = currentTime();
   $("zNotes").value = "";
+  syncIncomePaymentFields();
 });
 
 $("zDocumentsDialog")?.addEventListener("close", () => {
@@ -10162,6 +10220,8 @@ $("zForm").onsubmit = async event => {
     const reportTime = $("zTime")?.value || null;
     const notesValue = $("zNotes")?.value?.trim() || "";
     const isFromZReport = normalizedIncomeType === Z_INCOME_TYPE_DEFAULT;
+    const paymentMethodId = isFromZReport ? null : ($("zPaymentMethod")?.value || null);
+    const referenceNumber = isFromZReport ? null : ($("zReferenceNumber")?.value?.trim() || null);
 
     if(currentZReportEditId){
       const {error:updateError} = await sb.from("daily_z_reports")
@@ -10172,7 +10232,9 @@ $("zForm").onsubmit = async event => {
           total_income_ils:Number($("zTotal").value || 0),
           income_type: normalizedIncomeType,
           notes: notesValue || null,
-          is_from_z_report: isFromZReport
+          is_from_z_report: isFromZReport,
+          payment_method_id: paymentMethodId,
+          reference_number: referenceNumber
         })
         .eq("user_id", userId)
         .eq("id", currentZReportEditId);
@@ -10194,7 +10256,9 @@ $("zForm").onsubmit = async event => {
           total_income_ils:Number($("zTotal").value || 0),
           income_type: normalizedIncomeType,
           notes: notesValue || null,
-          is_from_z_report: isFromZReport
+          is_from_z_report: isFromZReport,
+          payment_method_id: paymentMethodId,
+          reference_number: referenceNumber
         })
         .select("id")
         .single();

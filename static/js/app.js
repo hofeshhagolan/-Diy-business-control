@@ -576,7 +576,8 @@ function applyExpenseFiltersToQuery(query, filters = expenseFilterState){
   let nextQuery = query;
   const supplierTokens = getSupplierSearchTokens(filters.supplier || "");
   supplierTokens.forEach(token => {
-    nextQuery = nextQuery.ilike("supplier_name_snapshot", `%${escapeIlikeToken(token)}%`);
+    const escapedToken = escapeIlikeToken(token);
+    nextQuery = nextQuery.or(`supplier_name_snapshot.ilike.%${escapedToken}%,suppliers.name.ilike.%${escapedToken}%`);
   });
   if(filters.accountingTypeId) nextQuery = nextQuery.eq("accounting_type_id", filters.accountingTypeId);
   if(filters.paymentSourceId) nextQuery = nextQuery.eq("payment_source_id", filters.paymentSourceId);
@@ -6638,7 +6639,7 @@ async function loadExpenseSupplierSuggestions(){
   if(!sb || !userId) return;
 
   const {data, error} = await sb.from("expenses")
-    .select("supplier_name_snapshot")
+    .select("supplier_name_snapshot,suppliers(name)")
     .eq("user_id", userId)
     .order("supplier_name_snapshot", {ascending:true});
 
@@ -6647,7 +6648,10 @@ async function loadExpenseSupplierSuggestions(){
     return;
   }
 
-  (Array.isArray(data) ? data : []).forEach(row => addExpenseSupplierSuggestion(row?.supplier_name_snapshot));
+  (Array.isArray(data) ? data : []).forEach(row => {
+    addExpenseSupplierSuggestion(row?.supplier_name_snapshot);
+    addExpenseSupplierSuggestion(row?.suppliers?.name);
+  });
   renderExpenseSupplierSuggestionsPanel($("expenseFilterSupplier")?.value || "");
 }
 
@@ -9664,19 +9668,42 @@ $("expenseForm").onsubmit = async event => {
     let expenseId = null;
 
     if(isEditingDetailsMode){
-      const {data:updatedExpense,error:updateError} = await sb.from("expenses")
-        .update(payload)
-        .eq("user_id", userId)
-        .eq("id", currentExpenseEditId)
-        .select("id")
-        .single();
+      const {data:updateResult,error:updateError} = await sb.rpc(
+        "update_expense_atomic",
+        {
+          p_expense_id: currentExpenseEditId,
+          p_expense: {
+            supplier_id: payload.supplier_id,
+            supplier_name_snapshot: payload.supplier_name_snapshot,
+            supplier_registration_snapshot: payload.supplier_registration_snapshot,
+            document_date: payload.document_date,
+            document_number: payload.document_number,
+            description: payload.description,
+            notes: payload.notes,
+            category_id: payload.category_id,
+            accounting_type_id: payload.accounting_type_id,
+            project_id: payload.project_id,
+            payment_source_id: payload.payment_source_id,
+            payment_method_id: payload.payment_method_id,
+            gross_ils: payload.gross_ils,
+            net_ils: payload.net_ils,
+            vat_ils: payload.vat_ils
+          }
+        }
+      );
 
       if(updateError){
         setStatus($("expenseStatus"), updateError.message || "שגיאה בעדכון ההוצאה", "error");
         return;
       }
 
-      expenseId = updatedExpense.id;
+      const updateRow = Array.isArray(updateResult) ? updateResult[0] : updateResult;
+      if(!updateRow?.expense_id){
+        setStatus($("expenseStatus"), "תשובת עדכון ההוצאה אינה תקינה", "error");
+        return;
+      }
+
+      expenseId = updateRow.expense_id;
     } else if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
       const {data:saveResult, error:saveError} = await sb.rpc(
         "save_current_invoice_expense_atomic",

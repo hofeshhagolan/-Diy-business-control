@@ -345,6 +345,16 @@
    - Test with at least one Z income record and one non-Z income record.
    - Confirm Income list, yearly Income total and Profit calculation reconcile.
 
+35. [Data integrity] Add atomic discard/delete protections for pending invoices and expenses.
+   - Status: Done
+   - Result: Added atomic database migration coverage for pending-invoice discard and expense-delete paths to enforce consistent state transitions under concurrent or partial-failure scenarios.
+   - Verification: Repository contains task35_discard_pending_invoice_atomic_migration.sql and task35_expense_delete_atomic_migration.sql.
+
+36. [Company documents] Add company-level document persistence and deletion-policy hardening.
+   - Status: Done
+   - Result: Added company-documents schema/migration support and a follow-up delete-policy fix to align document lifecycle behavior with expected delete constraints.
+   - Verification: Repository contains task36_company_documents_migration.sql and task36b_company_documents_delete_policy_fix_migration.sql.
+
 37. [Company Documents UX] Complete the company-documents module with search, ordering, restore, and information actions.
    - Status: Pending
    - Goal:
@@ -921,7 +931,490 @@
    - Completion rule:
    - Complete after deployment and successful production runtime verification.
 
-56. [VAT Reporting Periods] Prevent accidental changes to already-reported VAT periods.
+56. [AI Business Insights] Implement the AI Business Insights module.
+   - Status: Pending
+   - Goal:
+   - Transform existing business data into practical insights that reduce manual work and support better business decisions without inventing information.
+   - Scope:
+   - Create a dedicated AI Insights screen.
+   - Analyze existing business data from Expenses, Income, Suppliers, Projects, Assets, and Orders and Deliveries when available.
+   - Initial capabilities:
+   - Suggest accounting categories.
+   - Detect duplicate or very similar documents.
+   - Detect missing information.
+   - Identify unusual expenses and business anomalies.
+   - Surface spending trends.
+   - Answer business questions in natural language using only business data.
+   - Example questions:
+   - How much did we spend on building materials this year?
+   - Which month was the most profitable?
+   - Which supplier increased in cost?
+   - What unusual expenses occurred this month?
+   - Business rules:
+   - AI may suggest but never silently modify business records.
+   - All suggested changes require explicit user approval.
+   - Responses must be based only on available business data.
+   - When information is unavailable, clearly state that instead of guessing.
+   - Future preparation:
+   - Prepare the foundation for more advanced forecasting and business recommendations.
+   - Constraints:
+   - Do not fabricate data.
+   - Do not make accounting decisions automatically.
+   - Do not modify records without user confirmation.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Suggestions are generated from existing data.
+   - Duplicate detection identifies known duplicates.
+   - Natural-language questions return results supported by business data.
+   - No business record changes without explicit approval.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+57. [Budgets] Implement the Budgets module for business planning and control.
+   - Status: Pending
+   - Goal:
+   - Provide a practical budgeting module that helps compare planned spending against actual business activity without adding unnecessary financial complexity.
+   - Scope:
+   - Create a dedicated Budgets screen accessible from Finance.
+   - Allow creating annual and monthly budgets.
+   - Budgets may be defined by Project, Accounting category, or Overall business.
+   - Display Planned amount, Actual amount, Remaining budget, Budget utilization (%), and Over-budget indication.
+   - Automatically calculate actual values from existing expenses.
+   - Support filtering by period and project.
+   - Reuse the shared Export, Share and Print infrastructure.
+   - Business rules:
+   - Budgets are management tools and do not modify accounting records.
+   - Actual values are calculated from approved business data.
+   - Budget overruns generate clear visual warnings but do not block business operations.
+   - Future preparation:
+   - Prepare integration with Cash Flow, AI Business Insights and advanced financial reports.
+   - Constraints:
+   - Do not implement approval workflows.
+   - Do not implement budget versioning or forecasting.
+   - Do not modify expense records.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Budgets can be created, edited and deleted.
+   - Planned and actual values are calculated correctly.
+   - Over-budget indicators appear correctly.
+   - Filters and exports work correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+58. [Cash Flow] Implement the Cash Flow module for business liquidity monitoring.
+   - Status: Pending
+   - Goal:
+   - Provide a practical cash-flow view that helps the business understand incoming and outgoing money using existing business data, without replacing accounting software.
+   - Scope:
+   - Create a dedicated Cash Flow screen accessible from Finance.
+   - Display cash-flow summaries by Month, Year, and Project.
+   - Show Total inflows, Total outflows, Net cash flow, Opening balance (manual if required), and Closing balance.
+   - Calculate values from existing Income, Expenses and Owner Loans.
+   - Prepare integration with Banks and Budgets.
+   - Support filtering, Share, Export and Print using the shared infrastructure.
+   - Business rules:
+   - Cash Flow is a management tool only.
+   - Calculations are based on recorded business transactions.
+   - The module never modifies source records.
+   - Future preparation:
+   - Prepare support for future forecasting and scenario analysis.
+   - Constraints:
+   - Do not implement bank reconciliation.
+   - Do not predict future cash flow automatically.
+   - Do not replace accountant reports.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Cash-flow calculations match underlying business data.
+   - Filters produce correct results.
+   - Share, Export and Print operate correctly.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+59. [Government Payments] Implement the Government Payments module.
+   - Status: Pending
+   - Goal:
+   - Provide a dedicated module for managing payments to government authorities while keeping them separate from supplier expenses and routine business transactions.
+   - Scope:
+   - Create a dedicated Government Payments screen within Finance.
+   - Support VAT, Income Tax, National Insurance, and additional authorities when required.
+   - Each payment includes Authority, Reporting period, Due date, Payment date, Amount, Status, Notes, and Supporting documents.
+   - Reuse the shared document infrastructure.
+   - Support Viewer, Share, Export and Print.
+   - Prepare future integration with VAT, Banks and Cash Flow.
+   - Business rules:
+   - Government payments are independent financial records.
+   - They are not supplier expenses.
+   - Completed historical records remain immutable.
+   - Constraints:
+   - Do not implement electronic filing.
+   - Do not connect to government systems.
+   - Do not calculate taxes automatically.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Payments can be created, edited and completed.
+   - Documents open correctly in the shared viewer.
+   - Navigation from Finance works correctly.
+   - Share, Export and Print function correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+60. [Financial Reports] Implement the Financial Reports module.
+   - Status: Pending
+   - Goal:
+   - Provide a centralized reporting module that presents business performance using existing data without duplicating information or replacing the accountant's reports.
+   - Scope:
+   - Create a dedicated Financial Reports screen within Finance.
+   - Initial reports:
+   - Income Summary
+   - Expense Summary
+   - Profit & Loss
+   - VAT Summary
+   - Cash Flow Summary
+   - Budget vs. Actual (after Task 57)
+   - Support filtering by:
+   - Date range
+   - Project
+   - Accounting category (where applicable)
+   - Reuse the shared Viewer, Share, Export and Print infrastructure.
+   - Export reports to PDF, Excel and CSV where appropriate.
+   - Business rules:
+   - Reports are generated from existing approved business data.
+   - Reports are read-only and never modify source records.
+   - Future preparation:
+   - Prepare integration with AI Business Insights and future custom reports.
+   - Constraints:
+   - Do not implement a report designer.
+   - Do not duplicate dashboard functionality.
+   - Preserve accessibility improvements completed under Task 24.
+   - Verification:
+   - Reports display correct values.
+   - Filters affect only the displayed report.
+   - Export, Share and Print work correctly.
+   - Navigation from Finance works correctly.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+61. [Business Engine] Implement transaction-driven business consequences and derived financial state.
+   - Status: Pending
+   - Goal:
+   - Establish the approved core rule that each business action is entered once and all relevant consequences are derived from that source action.
+   - Prevent parallel manual sources of truth for balances and business meaning.
+   - Scope:
+   - Define one canonical transaction/event interpretation layer for existing and future business records.
+   - Derive balances and consequences from recorded transactions instead of storing independently maintained totals where the source transactions already exist.
+   - Initial approved semantics:
+   - An expense funded by `הלוואת בעלים – אדווה` increases the business debt to Adva.
+   - An expense funded by another owner-loan source increases the debt to that owner.
+   - An owner-loan repayment reduces the owner-loan balance and is not an operating expense.
+   - An owner loan is not income.
+   - A fixed-asset purchase can create/link an Asset and feed VAT, liabilities, cash flow and reports from the same originating business action when the relevant modules exist.
+   - Bank, cash, supplier and owner-loan balances must be derived from their underlying movements/events whenever those movements are represented in the system.
+   - Preserve source links so derived views can explain which transactions produced each balance.
+   - Funding-source / payment-method rule:
+   - Funding Source answers: where did the money come from?
+   - Payment Method answers: how was the payment performed?
+   - Keep these as independent dimensions and never collapse them into one field.
+   - Funding Sources remain a simple flat list; do not introduce hierarchical funding-source selectors.
+   - Constraints:
+   - Do not create duplicate balance tables merely for UI convenience.
+   - Do not turn derived balances into manually editable sources of truth.
+   - Do not redesign every financial module in this task; implement the smallest shared semantic foundation needed for current entities and extend it as dependent modules arrive.
+   - Preserve existing transaction history and Task 24 accessibility requirements.
+   - Verification:
+   - The same source transaction cannot require duplicate manual entry to update related balances.
+   - Owner-loan funding and repayments affect owner-loan balances with the approved accounting meaning.
+   - Owner loans are excluded from income and repayments are excluded from operating expenses.
+   - Funding Source and Payment Method remain independently stored and displayed.
+   - Derived totals reconcile to their underlying transactions.
+   - Completion rule:
+   - Complete after migration/data review if required, deployment, reconciliation checks, and successful production runtime verification.
+
+62. [Business Profile & Branding] Implement read-first business profile, uploaded logo, and approved brand-color adaptation.
+   - Status: Pending
+   - Goal:
+   - Make the business identity a reusable system entity for profile presentation, reports, exports and optional visual branding.
+   - Scope:
+   - Create/complete `העסק שלי` as a read-first business profile.
+   - Business details are displayed in view mode by default.
+   - A pencil action enters edit mode.
+   - Save and Cancel appear only while editing.
+   - Allow uploading/replacing the business logo.
+   - The uploaded business logo becomes the business profile image.
+   - The uploaded business logo is the source of truth for report/export requirements that call for the business logo; do not substitute the application icon.
+   - After logo upload, detect candidate brand colors and ask whether to adapt the application colors to the brand.
+   - Apply detected brand colors only after explicit user approval.
+   - Preserve an accessible, readable UI when applying approved brand colors, including contrast requirements from Task 24.
+   - Dependencies / integration:
+   - Task 41 report PDFs and Task 60 Financial Reports must consume the uploaded business logo when available.
+   - Future information/report screens reuse the same business identity rather than storing separate logos.
+   - Constraints:
+   - Do not change application colors automatically.
+   - Do not create per-module logo or branding settings.
+   - Do not sacrifice WCAG/Israel Standard 5568 contrast for brand matching.
+   - Verification:
+   - Profile opens read-first and edit controls appear only in edit mode.
+   - Logo upload/replacement persists and becomes the profile image.
+   - Report/export infrastructure can retrieve the same uploaded logo.
+   - Brand-color proposal is shown after suitable logo upload and requires approval before application.
+   - Declining the proposal leaves the current application colors unchanged.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification, including report-logo integration.
+
+63. [Primary Navigation] Implement the approved bottom navigation and profile Drawer without duplicating module screens.
+   - Status: Pending
+   - Goal:
+   - Provide a stable mobile-first navigation structure around the existing single implementations of business modules.
+   - Scope:
+   - Approved bottom navigation direction:
+   - בית
+   - פיננסים
+   - תמונת מצב
+   - צוות
+   - AL
+   - Do not permanently dedicate separate bottom tabs to both Income and Expenses.
+   - `פיננסים` remains the navigation hub for financial modules and opens their existing single implementations.
+   - The profile button opens a side Drawer.
+   - Planned Drawer destinations:
+   - העסק שלי
+   - AL
+   - פיננסים
+   - דוחות
+   - עובדים
+   - הגדרות
+   - עזרה
+   - יציאה
+   - Show/activate only destinations that have a real implemented screen at the time of integration.
+   - Reuse existing navigation/history behavior and preserve true Back behavior.
+   - Constraints:
+   - Do not create duplicate Income, Expense, Finance, Reports or AL screens for navigation convenience.
+   - Do not activate placeholder destinations that have no real screen.
+   - Keep navigation compact and mobile-first.
+   - Verification:
+   - Every active bottom-nav and Drawer destination opens the existing canonical screen.
+   - Inactive/unimplemented destinations do not route to unrelated screens.
+   - Income and Expenses remain accessible through Finance without permanent duplicate bottom tabs.
+   - Back/history behavior remains correct.
+   - Completion rule:
+   - Complete after deployment and production runtime verification of all active navigation paths.
+
+64. [Business Snapshot & Dashboard Periods] Implement multi-period business overview without creating duplicate report screens.
+   - Status: Pending
+   - Goal:
+   - Turn the home/overview experience into a practical control surface that shows both business performance and items requiring attention.
+   - Scope:
+   - Default overview period is the current year.
+   - Allow switching between Week / Month / Year.
+   - Period changes update relevant metrics consistently in the same overview instead of opening separate report screens.
+   - Use available module data to surface, when implemented and meaningful:
+   - Income
+   - Expenses
+   - Profit / Loss
+   - Bank
+   - Cash
+   - Owner Loans
+   - Suppliers
+   - VAT
+   - Estimated tax
+   - Upcoming payments
+   - `תמונת מצב` is a higher-level business overview, not another CRUD screen and not a duplicate Finance hub.
+   - Attention items may include:
+   - Pending invoices
+   - Missing information
+   - Unbalanced/inconsistent data
+   - Missing business/tax identifiers
+   - Missing documents
+   - Relevant anomalies/problems
+   - Important alerts and urgent tasks when those modules exist.
+   - Cards with a real destination are fully clickable; metrics without a real destination remain visually neutral.
+   - Constraints:
+   - Do not duplicate Financial Reports.
+   - Do not invent data for modules that do not yet exist.
+   - Do not make every metric clickable merely for visual consistency.
+   - Verification:
+   - Current year is the default.
+   - Week/Month/Year switching changes only period-relevant values and reconciles to source data.
+   - No duplicate monthly/yearly management screens are created.
+   - Attention items link only to real actionable destinations.
+   - Completion rule:
+   - Complete after dependent data sources exist, deployment, reconciliation checks, and successful production runtime verification.
+
+65. [Dashboard Personalization] Persist per-user home-card order and restore the approved default order.
+   - Status: Pending
+   - Goal:
+   - Let each user arrange the home control surface without creating a separate dashboard-builder system.
+   - Scope:
+   - Allow drag/reorder of home cards.
+   - Persist card order per user.
+   - Add `שחזר סדר ברירת מחדל`.
+   - New cards are added without destroying the user's existing personalized order.
+   - For an already personalized home, a newly introduced card appears at the start of the card area below the dashboard until the user repositions it.
+   - For a home still using default order, the new card position follows the approved default layout.
+   - Constraints:
+   - Do not build arbitrary dashboard widgets, resizing, hiding rules or a dashboard designer.
+   - Preserve existing card click behavior and quick-action internal controls.
+   - Verification:
+   - Reordered cards survive refresh and re-login for the same user.
+   - One user's order does not alter another user's order.
+   - Restore returns to the current approved default order.
+   - Adding a new card preserves existing personalization according to the approved rule.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification.
+
+66. [AL Interaction Model] Extend AI Business Insights with contextual urgency and an explicit insight lifecycle.
+   - Status: Pending
+   - Goal:
+   - Refine Task 56 so AL works quietly in the background, surfaces only genuinely time-sensitive issues proactively, and gives the user control over every insight.
+   - Scope:
+   - Reuse the Task 56 AI Business Insights screen and business-data grounding rules; do not create a second AI module.
+   - AL accumulates insights in the background and does not initiate chat/conversation on its own.
+   - Proactive alerts outside AL are reserved for items that genuinely require attention today.
+   - All other insights wait inside AL until the user opens it.
+   - Urgency must be contextual rather than a fixed severity rule only.
+   - Each insight/task supports:
+   - בטיפול
+   - טופל
+   - הזכר לי
+   - התעלם
+   - למה?
+   - `למה?` explains why the insight was shown and which business data supports it.
+   - Preserve the future ability for AL to learn work habits without implementing opaque autonomous behavior now.
+   - Business rules:
+   - AL never invents business facts.
+   - AL never silently modifies records.
+   - User decisions on insight state persist.
+   - Reminder behavior must not create duplicate active alerts for the same insight.
+   - Constraints:
+   - Do not build unsolicited conversational popups.
+   - Do not implement autonomous accounting decisions.
+   - Do not implement broad behavioral-learning automation until separately approved.
+   - Verification:
+   - Non-urgent insights remain inside AL without proactive interruption.
+   - A qualifying today-critical insight can surface proactively once with clear context.
+   - All five insight actions persist and behave correctly.
+   - `למה?` cites the underlying business data/condition instead of a generic AI explanation.
+   - Completion rule:
+   - Complete after Task 56 foundation exists, deployment, and successful production runtime verification.
+
+67. [Unified Generate Report] Implement the cross-system `הפק דוח` workflow on useful information screens.
+   - Status: Pending
+   - Goal:
+   - Turn reporting into one reusable business action rather than scattered export buttons, while reusing Task 41 and Task 60 infrastructure.
+   - Scope:
+   - Add `הפק דוח` only on information screens where generating a report has real business value.
+   - Relevant output/actions may include:
+   - צפייה באפליקציה
+   - PDF
+   - Excel
+   - שליחה לרואה החשבון
+   - סיכום AL
+   - Show only formats/actions relevant to the current information type.
+   - Reuse Task 41 Share / Export / Print generation where applicable.
+   - Reuse Task 60 report definitions and filters; do not create duplicate report calculations.
+   - PDF output continues to follow the approved report standard: uploaded business logo, business name, report name, generation date/time, generating user, active filters and page numbering.
+   - Tabular report sharing uses PDF; Excel/CSV remain export-only.
+   - `שליחה לרואה החשבון` uses the generated report/file package appropriate to that screen and records enough outcome state to tell the user whether delivery succeeded or failed.
+   - `סיכום AL` summarizes the current report state/data and must remain grounded in the same visible/filtered data.
+   - Constraints:
+   - Do not add `הפק דוח` mechanically to every screen.
+   - Do not create a second report engine.
+   - Do not expose irrelevant formats.
+   - Do not let AL summary change source records.
+   - Verification:
+   - Each integrated screen offers only relevant report actions.
+   - PDF/Excel output matches the same visible/filtered data used in-app.
+   - Accountant delivery uses the intended generated artifact and reports success/failure clearly.
+   - AL summary is based on the same current report data and does not invent missing values.
+   - Completion rule:
+   - Complete after Task 41/60 reuse is verified, deployment succeeds, and each approved integration passes production runtime verification.
+
+68. [Shared List UX] Standardize mobile-first list management patterns as modules adopt sorting and filtering.
+   - Status: Pending
+   - Goal:
+   - Reuse one learned interaction pattern across management lists without prematurely building a large generic framework.
+   - Scope:
+   - Apply the approved list pattern when a module genuinely needs it:
+   - RTL page title on the right.
+   - Primary action plus compact Sort and Filter controls in the header.
+   - Sort and Filter remain separate actions/dialogs.
+   - Multiple active filters are represented as chips.
+   - One `נקה הכל` clears filters only and does not reset sorting.
+   - Sorting does not create chips.
+   - Distinguish true empty state from zero results caused by active filters.
+   - Do not show result count by default.
+   - Avoid oversized white framing, dead space and unnecessary horizontal scrolling.
+   - First required coverage not already completed by another task:
+   - Expenses: local search, sort and filter using fields that actually exist.
+   - Income: preserve/complete the approved compact Sort/Filter behavior without changing its data model or add-income flow.
+   - Reuse configuration only when a second real screen proves the shared behavior is needed.
+   - Constraints:
+   - Do not build an abstract cross-application query framework in advance.
+   - Do not expose fields that do not exist in the module.
+   - Do not duplicate Task 46 Global Search; local search remains module-scoped.
+   - Verification:
+   - Filters can be combined and represented accurately by chips.
+   - `נקה הכל` leaves the current sort intact.
+   - Filtered-zero and true-empty states are different.
+   - Mobile lists avoid unnecessary horizontal scrolling.
+   - Existing create/edit/navigation flows remain unchanged.
+   - Completion rule:
+   - Complete after approved initial list integrations are deployed and runtime-verified.
+
+69. [App Continuity] Preserve authenticated session and active-screen context across refresh.
+   - Status: Pending
+   - Goal:
+   - Make the application feel stable on mobile refresh instead of appearing to restart or briefly log the user out.
+   - Scope:
+   - Check the authenticated session before displaying the login screen.
+   - Show only a minimal loading/splash state while session state is being resolved.
+   - Prevent login-screen flashing for an already authenticated user.
+   - Remember the active application screen across refresh.
+   - Return to that screen after refresh when the destination remains valid and authorized.
+   - Fall back to Home when the stored destination is invalid/unavailable.
+   - Clear persisted navigation/session UI state on logout.
+   - Constraints:
+   - Do not bypass authentication or authorization checks.
+   - Do not restore stale modal/edit state unless separately approved; restore the stable screen destination only.
+   - Preserve true Back/history behavior from Task 32.
+   - Verification:
+   - Refresh while authenticated does not flash the login screen.
+   - Refresh returns to the valid active screen.
+   - Invalid saved destinations fall back safely to Home.
+   - Logout clears the remembered destination and returns to the authentication flow.
+   - Completion rule:
+   - Complete after deployment and successful production runtime verification on mobile.
+
+70. [Business Backup & Restore] Implement full-business backup and full restore of data, documents and settings.
+   - Status: Pending
+   - Goal:
+   - Give the business a reliable portability/disaster-recovery path without creating a second operational database.
+   - Scope:
+   - Export a complete business backup containing the data needed to reconstruct:
+   - Business records.
+   - Relationships between records.
+   - Stored documents/files and their metadata.
+   - Business settings and user-scoped configuration required for restoration.
+   - Import a compatible backup to restore the business state.
+   - Validate backup version/compatibility before applying restore.
+   - Preserve ownership boundaries and private-document access rules.
+   - Restore relationships deterministically so linked expenses, income, suppliers, projects, assets and documents remain connected.
+   - Provide clear progress, success and failure states.
+   - Safety:
+   - Restore must be designed as an explicit high-impact operation with confirmation and failure-safe behavior.
+   - A failed restore must not leave a silently half-restored business state.
+   - Never expose another user's business data through backup or restore.
+   - Constraints:
+   - Backup is not a parallel editable copy of the business.
+   - Do not add continuous external synchronization or third-party cloud mirroring in this task.
+   - Verification:
+   - A backup can be created for a representative business with records and documents.
+   - Restoring that backup reproduces records, relationships, documents and settings accurately.
+   - Cross-user access remains blocked.
+   - Corrupt/incompatible backups fail safely before destructive changes.
+   - Completion rule:
+   - Complete only after dedicated migration/data-integrity review, deployment, and successful end-to-end backup/restore production verification.
+
+71. [VAT Reporting Periods] Prevent accidental changes to already-reported VAT periods.
    - Status: Pending
    - Goal:
    - Protect the integrity of accounting records by warning the user before creating or modifying financial records that belong to a VAT reporting period already reported to the accountant.
@@ -948,110 +1441,7 @@
    - Completion rule:
    - Complete after deployment and successful production runtime verification.
 
-57. [Budgets] Implement the Budgets module for business planning and control.
-   - Status: Pending
-   - Goal:
-   - Provide a practical budgeting module that helps compare planned spending against actual business activity without adding unnecessary financial complexity.
-   - Scope:
-   - Create a dedicated Budgets screen accessible from Finance.
-   - Allow creating annual and monthly budgets.
-   - Budgets may be defined by: Project, Accounting category, Overall business.
-   - Display: Planned amount, Actual amount, Remaining budget, Budget utilization (%), Over-budget indication.
-   - Automatically calculate actual values from existing expenses.
-   - Support filtering by period and project.
-   - Reuse the shared Export, Share and Print infrastructure.
-   - Business rules: budgets are management tools and do not modify accounting records; actual values are calculated from approved business data; budget overruns generate clear visual warnings but do not block business operations.
-   - Future preparation: prepare integration with Cash Flow, AI Business Insights and advanced financial reports.
-   - Constraints:
-   - Do not implement approval workflows.
-   - Do not implement budget versioning or forecasting.
-   - Do not modify expense records.
-   - Preserve accessibility improvements completed under Task 24.
-   - Verification:
-   - Budgets can be created, edited and deleted.
-   - Planned and actual values are calculated correctly.
-   - Over-budget indicators appear correctly.
-   - Filters and exports work correctly.
-   - Completion rule:
-   - Complete after deployment and successful production runtime verification.
-
-58. [Cash Flow] Implement the Cash Flow module for business liquidity monitoring.
-   - Status: Pending
-   - Goal:
-   - Provide a practical cash-flow view that helps the business understand incoming and outgoing money using existing business data, without replacing accounting software.
-   - Scope:
-   - Create a dedicated Cash Flow screen accessible from Finance.
-   - Display cash-flow summaries by: Month, Year, Project.
-   - Show: Total inflows, Total outflows, Net cash flow, Opening balance (manual if required), Closing balance.
-   - Calculate values from existing Income, Expenses and Owner Loans.
-   - Prepare integration with Banks and Budgets.
-   - Support filtering, Share, Export and Print using the shared infrastructure.
-   - Business rules: Cash Flow is a management tool only; calculations are based on recorded business transactions; the module never modifies source records.
-   - Future preparation: prepare support for future forecasting and scenario analysis.
-   - Constraints:
-   - Do not implement bank reconciliation.
-   - Do not predict future cash flow automatically.
-   - Do not replace accountant reports.
-   - Preserve accessibility improvements completed under Task 24.
-   - Verification:
-   - Cash-flow calculations match underlying business data.
-   - Filters produce correct results.
-   - Share, Export and Print operate correctly.
-   - Navigation from Finance works correctly.
-   - Completion rule:
-   - Complete after deployment and successful production runtime verification.
-
-59. [Government Payments] Implement the Government Payments module.
-   - Status: Pending
-   - Goal:
-   - Provide a dedicated module for managing payments to government authorities while keeping them separate from supplier expenses and routine business transactions.
-   - Scope:
-   - Create a dedicated Government Payments screen within Finance.
-   - Support payment records for: VAT, Income Tax, National Insurance, Additional authorities when required.
-   - Each payment includes: Authority, Reporting period, Due date, Payment date, Amount, Status, Notes, Supporting documents.
-   - Reuse the shared document infrastructure; support Viewer, Share, Export and Print.
-   - Prepare future integration with VAT, Banks and Cash Flow.
-   - Business rules: government payments are independent financial records; they are not supplier expenses; completed historical records remain immutable.
-   - Constraints:
-   - Do not implement electronic filing.
-   - Do not connect to government systems.
-   - Do not calculate taxes automatically.
-   - Preserve accessibility improvements completed under Task 24.
-   - Verification:
-   - Payments can be created, edited and completed.
-   - Documents open correctly in the shared viewer.
-   - Navigation from Finance works correctly.
-   - Share, Export and Print function correctly.
-   - Completion rule:
-   - Complete after deployment and successful production runtime verification.
-
-60. [AI Business Insights] Implement AI-powered business insights.
-   - Status: Pending
-   - Goal:
-   - Provide practical AI-generated business insights that help the owner understand business performance using existing business data, without replacing professional accounting or business judgment.
-   - Scope:
-   - Create a dedicated AI Business Insights screen accessible from Finance.
-   - Generate insights from existing business information including: Income, Expenses, Projects, Budgets, Cash Flow, Supplier activity.
-   - Examples of supported insights: spending trends, income trends, budget overruns, project profitability indicators, supplier purchasing patterns, cash-flow observations.
-   - Display insights in plain language.
-   - Allow refreshing insights on demand.
-   - Support Share, Export and Print using the shared infrastructure.
-   - Business rules: AI insights are advisory only; business records remain the source of truth; insights never modify business data automatically.
-   - Future preparation: prepare support for future predictive analysis, recommendations and advanced decision-support capabilities.
-   - Constraints:
-   - Do not automatically change business records.
-   - Do not generate accounting entries.
-   - Do not replace accountant advice.
-   - Preserve accessibility improvements completed under Task 24.
-   - Verification:
-   - Insights are generated from current business data.
-   - Refresh produces updated insights.
-   - Share, Export and Print function correctly.
-   - Navigation from Finance works correctly.
-   - Completion rule:
-   - Complete after deployment and successful production runtime verification.
-
-61. [Reported Periods] Implement reported-period management and late-entry warnings.
+72. [Reported Periods] Implement reported-period management and late-entry warnings.
    - Status: Pending
    - Goal:
    - Allow the business to manage periods that have already been reported to the accountant and warn before adding new transactions into those periods.
@@ -1087,24 +1477,6 @@
    - Reports and VAT calculations continue using the document date.
    - Completion rule:
    - Complete after deployment and successful production runtime verification.
-
-62. [Future Enhancements & Backlog] Reserved for future features after completion of the core business-management platform.
-   - Status: Deferred
-   - Goal:
-   - Keep a dedicated backlog for ideas and future capabilities without allowing them to expand the current implementation scope.
-   - Scope:
-   - This section intentionally contains no implementation work during the current project phase.
-   - New ideas should be added here only after evaluating whether they are truly necessary.
-   - Items may include future enhancements such as: Advanced automation, External integrations, AI improvements, Advanced analytics, Industry-specific features, Other post-release ideas.
-   - Business rules:
-   - Nothing in this task may be implemented before all planned production tasks are completed and accepted.
-   - Constraints:
-   - Do not move backlog items into active development without explicit approval.
-   - Preserve the project's philosophy of minimal complexity and practical business value.
-   - Verification:
-   - Not applicable during the current implementation phase.
-   - Completion rule:
-   - Remains deferred until after the planned platform is fully completed and production-approved.
 
 # Current-phase completion rule
 

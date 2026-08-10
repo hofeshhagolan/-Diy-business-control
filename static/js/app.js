@@ -3184,8 +3184,10 @@ async function renderSharedPdfDocument(documentMeta, loadToken){
       const outputScale = Math.min(window.devicePixelRatio || 1, 2);
       const viewport = page.getViewport({scale:cssScale * outputScale});
       const canvas = document.createElement("canvas");
+      canvas.dir = "ltr";
       const context = canvas.getContext("2d", {alpha:false});
       if(!context) throw new Error("תצוגת PDF אינה זמינה");
+      context.direction = "ltr";
       canvas.width = Math.ceil(viewport.width);
       canvas.height = Math.ceil(viewport.height);
       canvas.style.width = `${Math.ceil(viewport.width / outputScale)}px`;
@@ -7290,57 +7292,53 @@ function measureReportTextWidth(value, {bold = false} = {}){
 
 function allocateReportColumnWidths(headers, rows, availableWidth){
   const safeHeaders = Array.isArray(headers) ? headers : [];
-  if(!safeHeaders.length) return [];
-
-  const minimumWidth = Math.min(86, availableWidth / safeHeaders.length);
-  const maximumWidth = safeHeaders.length === 1
-    ? availableWidth
-    : Math.min(
-        availableWidth * 0.65,
-        Math.max(280, (availableWidth / safeHeaders.length) * 1.4)
-      );
-  const demands = safeHeaders.map((header, columnIndex) => {
-    const cellWidths = (Array.isArray(rows) ? rows : [])
-      .map(row => measureReportTextWidth(Array.isArray(row) ? row[columnIndex] : ""))
-      .sort((left, right) => left - right);
-    const averageWidth = cellWidths.length
-      ? cellWidths.reduce((sum, width) => sum + width, 0) / cellWidths.length
-      : 0;
-    const percentileWidth = cellWidths.length
-      ? cellWidths[Math.min(cellWidths.length - 1, Math.floor(cellWidths.length * 0.8))]
-      : 0;
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const columnHeaders = ["#", ...safeHeaders];
+  const compactHeaders = new Set(["#", "מסמכים", "חיוב / זיכוי", "סכום", "תאריך", "שעה"]);
+  const cellPadding = 18;
+  const naturalWidths = columnHeaders.map((header, columnIndex) => {
     const headerWidth = measureReportTextWidth(header, {bold:true});
-    return Math.max(headerWidth, (percentileWidth * 0.7) + (averageWidth * 0.3)) + 22;
+    const longestCellWidth = columnIndex === 0
+      ? measureReportTextWidth(String(Math.max(1, safeRows.length)))
+      : safeRows.reduce((longestWidth, row) => Math.max(
+          longestWidth,
+          measureReportTextWidth(Array.isArray(row) ? row[columnIndex - 1] : "")
+        ), 0);
+    return Math.ceil(Math.max(headerWidth, longestCellWidth) + cellPadding);
   });
+  const minimumWidths = columnHeaders.map(header => (
+    Math.ceil(measureReportTextWidth(header, {bold:true}) + cellPadding)
+  ));
+  const flexibleColumns = columnHeaders
+    .map((header, index) => compactHeaders.has(header) ? -1 : index)
+    .filter(index => index >= 0);
+  const widths = [...naturalWidths];
+  const naturalTotal = naturalWidths.reduce((sum, width) => sum + width, 0);
 
-  const widths = new Array(safeHeaders.length).fill(minimumWidth);
-  let remainingWidth = Math.max(0, availableWidth - (minimumWidth * safeHeaders.length));
-  let activeColumns = demands.map((_, index) => index);
-
-  while(remainingWidth > 0.1 && activeColumns.length){
-    const totalDemand = activeColumns.reduce((sum, index) => sum + Math.max(1, demands[index]), 0);
-    let allocatedWidth = 0;
-    const nextActiveColumns = [];
-
-    activeColumns.forEach(index => {
-      const proportionalShare = remainingWidth * (Math.max(1, demands[index]) / totalDemand);
-      const capacity = maximumWidth - widths[index];
-      const addition = Math.min(capacity, proportionalShare);
-      widths[index] += addition;
-      allocatedWidth += addition;
-      if((capacity - addition) > 0.1) nextActiveColumns.push(index);
+  if(naturalTotal <= availableWidth){
+    const recipients = flexibleColumns.length ? flexibleColumns : widths.map((_, index) => index);
+    const extraWidth = availableWidth - naturalTotal;
+    const totalWeight = recipients.reduce((sum, index) => sum + naturalWidths[index], 0);
+    recipients.forEach(index => {
+      widths[index] += extraWidth * (naturalWidths[index] / totalWeight);
     });
+  } else {
+    const compressColumns = indexes => {
+      const overflow = widths.reduce((sum, width) => sum + width, 0) - availableWidth;
+      if(overflow <= 0) return;
+      const reducibleWidth = indexes.reduce(
+        (sum, index) => sum + Math.max(0, widths[index] - minimumWidths[index]),
+        0
+      );
+      if(reducibleWidth <= 0) return;
+      const compressionRatio = Math.min(1, overflow / reducibleWidth);
+      indexes.forEach(index => {
+        widths[index] -= (widths[index] - minimumWidths[index]) * compressionRatio;
+      });
+    };
 
-    if(allocatedWidth <= 0.1) break;
-    remainingWidth -= allocatedWidth;
-    activeColumns = nextActiveColumns;
-  }
-
-  if(remainingWidth > 0.1){
-    const addition = remainingWidth / widths.length;
-    widths.forEach((width, index) => {
-      widths[index] = width + addition;
-    });
+    compressColumns(flexibleColumns);
+    compressColumns(widths.map((_, index) => index));
   }
 
   return widths.map(width => Math.round(width * 100) / 100);
@@ -7348,10 +7346,9 @@ function allocateReportColumnWidths(headers, rows, availableWidth){
 
 function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex, reportMeta}){
   const columnWidths = Array.isArray(reportMeta?.columnWidths) ? reportMeta.columnWidths : [];
-  const columnMarkup = [
-    '<col style="width:56px">',
-    ...columnWidths.map(width => `<col style="width:${Number(width) || 0}px">`)
-  ].join("");
+  const columnMarkup = columnWidths
+    .map(width => `<col style="width:${Number(width) || 0}px">`)
+    .join("");
   const headerCells = (Array.isArray(headers) ? headers : [])
     .map(value => `<th>${escapeHtml(value)}</th>`)
     .join("");
@@ -7463,7 +7460,7 @@ async function createTablePdfBlob({title, headers, rows, filters = [], sortDescr
     ...getCurrentReportIdentity(),
     filters,
     sortDescription,
-    columnWidths: allocateReportColumnWidths(headers, safeRows, 932)
+    columnWidths: allocateReportColumnWidths(headers, safeRows, 988)
   };
 
   for(let pageIndex = 0; pageIndex < totalPages; pageIndex += 1){

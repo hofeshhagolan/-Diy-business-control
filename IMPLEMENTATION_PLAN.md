@@ -528,7 +528,9 @@
    - Complete after production runtime verification.
 
 41. [Shared Information Actions] Implement reusable Viewer / Share / Export / Print infrastructure for information screens.
-   - Status: Pending
+   - Status: Done
+   - Result:
+   - Implemented reusable private/signed-access Viewer, Share, Export, and Print infrastructure across the approved information screens, including PDF.js inline PDF rendering with correct Hebrew/RTL output, same-record document navigation, adaptive non-overlapping report columns with minimal wrapping, and accurate report sort labels.
    - Goal:
    - Create one shared implementation for viewing, sharing, exporting, and printing information across the application.
    - Reuse this infrastructure in Company Documents, Expense Details, Income Details, and future information screens instead of building separate behavior in each module.
@@ -577,6 +579,7 @@
    - Duplicate clicks are blocked during processing.
    - A failed file replacement leaves the previous file intact.
    - Cross-user document access remains blocked.
+   - Production runtime verification passed for the shared actions, document navigation, PDF preview and Hebrew/RTL rendering, adaptive report layout, and report sort labels.
    - Completion rule:
    - Task 41 is complete only after integration into the approved initial modules, deployment, and production runtime verification.
 

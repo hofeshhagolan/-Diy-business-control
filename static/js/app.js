@@ -29,23 +29,19 @@ let shouldResetZFormAfterClose = false;
 let pendingZSuccessToastMessage = "";
 let currentZReportEditId = "";
 let currentZIncomeSource = "z_report";
-let currentZDocuments = [];
-let currentZDocumentIndex = -1;
-let currentZViewerDocument = null;
-let zDocumentsFullscreenOpener = null;
-let zDocumentsDialogOpener = null;
-let currentZViewerContext = "generic";
-let zDocumentsLoadToken = 0;
+let currentSharedViewerDocument = null;
+let sharedViewerOpener = null;
+let sharedViewerLoadToken = 0;
 let companyDocumentRows = [];
 let companyDocumentsSearchTerm = "";
 let isCompanyDocumentsReorderSaving = false;
 let companyDocumentDraggedId = "";
 let currentCompanyDocumentEditTarget = null;
+let companyDocumentEditorOpener = null;
 let toastHideTimer = null;
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
-const zDocumentsSignedUrlCache = new Map();
 const incomeTypeSuggestions = new Map();
 const expenseSupplierSuggestions = new Map();
 const VIEWER_PDF_DEBUG = true;
@@ -154,6 +150,9 @@ let currentIncomePackagePdfCache = {
   signature: "",
   blob: null
 };
+const activeInformationActions = new Set();
+let pendingExportFormats = [];
+let exportFormatDialogOpener = null;
 let expenseRows = [];
 let incomeRows = [];
 let expenseSortState = {...DEFAULT_EXPENSE_SORT_STATE};
@@ -440,14 +439,19 @@ function getCurrentIncomeReportRows(){
 }
 
 async function fetchAllIncomeReportRows(){
-  let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
-    .eq("user_id",userId));
-
-  const {data, error} = await applyIncomeSortToQuery(query);
-  if(error) throw error;
-
-  return getIncomeReportRowsFromSource(data);
+  const pageSize = 1000;
+  const rows = [];
+  for(let from = 0; ; from += pageSize){
+    const query = applyIncomeSortToQuery(applyIncomeFiltersToQuery(sb.from("daily_z_reports")
+      .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
+      .eq("user_id",userId)));
+    const {data, error} = await query.range(from, from + pageSize - 1);
+    if(error) throw error;
+    const pageRows = Array.isArray(data) ? data : [];
+    rows.push(...pageRows);
+    if(pageRows.length < pageSize) break;
+  }
+  return getIncomeReportRowsFromSource(rows);
 }
 
 function normalizeExpenseReportRow(row){
@@ -637,25 +641,32 @@ function applyExpenseSortToQuery(query, sortState = expenseSortState){
 }
 
 async function fetchAllExpensesReportRows(){
-  const {data, error} = await applyExpenseSortToQuery(applyExpenseFiltersToQuery(sb.from("expenses")
-    .select(`
-      id,
-      document_date,
-      gross_ils,
-      net_ils,
-      vat_ils,
-      supplier_name_snapshot,
-      suppliers(name),
-      accounting_type_id,
-      accounting_types(name),
-      payment_source_id,
-      payment_sources(name),
-      expense_documents(id,storage_path,document_type,page_number)
-    `)
-    .eq("user_id",userId)));
-
-  if(error) throw error;
-  return getExpenseReportRowsFromSource(data);
+  const pageSize = 1000;
+  const rows = [];
+  for(let from = 0; ; from += pageSize){
+    const query = applyExpenseSortToQuery(applyExpenseFiltersToQuery(sb.from("expenses")
+      .select(`
+        id,
+        document_date,
+        gross_ils,
+        net_ils,
+        vat_ils,
+        supplier_name_snapshot,
+        suppliers(name),
+        accounting_type_id,
+        accounting_types(name),
+        payment_source_id,
+        payment_sources(name),
+        expense_documents(id,storage_path,document_type,page_number)
+      `)
+      .eq("user_id",userId)));
+    const {data, error} = await query.range(from, from + pageSize - 1);
+    if(error) throw error;
+    const pageRows = Array.isArray(data) ? data : [];
+    rows.push(...pageRows);
+    if(pageRows.length < pageSize) break;
+  }
+  return getExpenseReportRowsFromSource(rows);
 }
 
 function collectHomeOverviewInfoReport(){
@@ -672,7 +683,9 @@ function collectHomeOverviewInfoReport(){
     title: "תמונת מצב",
     filenameBase: `home-overview-${today()}`,
     headers: ["מדד", "ערך"],
-    rows
+    rows,
+    filters: [],
+    sortDescription: "סדר המסך"
   };
 }
 
@@ -682,6 +695,8 @@ async function collectIncomeInfoReport(){
     title: "דוח הכנסות",
     filenameBase: `income-report-${today()}`,
     headers: ["תאריך", "שעה", "סכום", "סוג הכנסה", "פרויקט", "מקור", "מסמכים"],
+    filters: getActiveIncomeReportFilters(),
+    sortDescription: getReportSortDescription(getIncomeSortDefinition(incomeSortState.field), incomeSortState),
     rows: rows.map(row => [
       row.reportDate || "",
       row.reportTime || "",
@@ -700,6 +715,8 @@ async function collectExpensesInfoReport(){
     title: "דוח הוצאות",
     filenameBase: `expenses-report-${today()}`,
     headers: ["תאריך", "סכום", "חיוב / זיכוי", "ספק", "סוג חשבונאי", "מקור תשלום", "מסמכים"],
+    filters: getActiveExpenseReportFilters(),
+    sortDescription: getReportSortDescription(getExpenseSortDefinition(expenseSortState.field), expenseSortState),
     rows: rows.map(row => [
       row.documentDate || "",
       moneyAbs(row.grossValue),
@@ -789,6 +806,39 @@ function getExpenseFilterSummaryText(key, value){
     default:
       return value;
   }
+}
+
+function getActiveIncomeReportFilters(){
+  const labels = {
+    source: "מקור",
+    projectId: "פרויקט",
+    incomeType: "סוג הכנסה",
+    entryDateFrom: "תאריך הזנה מ",
+    entryDateTo: "תאריך הזנה עד",
+    documentDateFrom: "תאריך מסמך מ",
+    documentDateTo: "תאריך מסמך עד"
+  };
+  return Object.entries(incomeFilterState)
+    .filter(([, value]) => Boolean(String(value || "").trim()))
+    .map(([key, value]) => `${labels[key] || key}: ${getIncomeFilterSummaryText(key, value)}`);
+}
+
+function getActiveExpenseReportFilters(){
+  const labels = {
+    supplier: "ספק",
+    accountingTypeId: "סוג חשבונאי",
+    paymentSourceId: "מקור תשלום",
+    documentDateFrom: "תאריך מסמך מ",
+    documentDateTo: "תאריך מסמך עד"
+  };
+  return Object.entries(expenseFilterState)
+    .filter(([, value]) => Boolean(String(value || "").trim()))
+    .map(([key, value]) => `${labels[key] || key}: ${getExpenseFilterSummaryText(key, value)}`);
+}
+
+function getReportSortDescription(definition, state){
+  const direction = state?.direction === "asc" ? "עולה" : "יורד";
+  return `${definition?.label || "ברירת מחדל"} (${direction})`;
 }
 
 function syncIncomeHeaderActions(){
@@ -2294,10 +2344,6 @@ function getLocalFileObjectUrl(file){
   return localFileObjectUrls.get(file) || null;
 }
 
-function clearZSignedUrlCache(){
-  zDocumentsSignedUrlCache.clear();
-}
-
 function getDefaultCompanyDocumentDefinition(documentKey){
   return DEFAULT_COMPANY_DOCUMENTS.find(item => item.key === documentKey) || null;
 }
@@ -2802,7 +2848,7 @@ function renderCompanyDocumentsManageList(){
       openCompanyDocumentEditor({
         documentId: button.dataset.companyDocumentEditId || "",
         documentKey: button.dataset.companyDocumentEditKey || ""
-      });
+      }, button);
     });
   });
 
@@ -2876,7 +2922,7 @@ function renderCompanyDocuments(){
       openCompanyDocumentEditor({
         documentId: button.dataset.companyDocumentEditId || "",
         documentKey: button.dataset.companyDocumentEditKey || ""
-      });
+      }, button);
     });
   });
 
@@ -3046,32 +3092,153 @@ function attachViewerFrameDebug(frame, {storagePath, signedUrl, mimeType, fullsc
   });
 }
 
-async function openExistingDocumentsViewer({
-  documents,
-  dialogTitle = "מסמך",
-  fullscreenTitle = "מסמך במסך מלא",
-  emptyMessage = "אין מסמך להצגה.",
-  statusElement = null,
-  initialIndex = 0,
-  opener = null,
-  viewerContext = "generic"
-} = {}){
-  if(statusElement) setStatus(statusElement, "", "");
-  const safeDocuments = (Array.isArray(documents) ? documents : []).filter(documentMeta => String(documentMeta?.storage_path || "").trim());
-  if(!safeDocuments.length){
-    if(statusElement) setStatus(statusElement, emptyMessage, "error");
+function resolveStoredDocumentMimeType(documentMeta){
+  const declaredMimeType = String(documentMeta?.mime_type || "").trim().toLowerCase();
+  const filename = String(documentMeta?.original_filename || "").trim();
+  if(declaredMimeType.startsWith("image/") || declaredMimeType === "application/pdf") return declaredMimeType;
+  if(/\.pdf$/i.test(filename)) return "application/pdf";
+  if(/\.(png|jpe?g|webp|gif|heic|heif)$/i.test(filename)) return declaredMimeType || "image/jpeg";
+  return declaredMimeType;
+}
+
+function renderSharedViewerState(message, isError = false){
+  const panel = $("sharedDocumentViewerPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  const text = document.createElement("p");
+  text.className = isError ? "review-document-state error" : "review-document-state";
+  text.textContent = message;
+  panel.appendChild(text);
+}
+
+function renderSharedViewerDocument(documentMeta){
+  const panel = $("sharedDocumentViewerPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  const mimeType = resolveStoredDocumentMimeType(documentMeta);
+
+  if(mimeType.startsWith("image/")){
+    const image = document.createElement("img");
+    image.src = documentMeta.signedUrl;
+    image.alt = documentMeta.title || "מסמך";
+    panel.appendChild(image);
+    return;
+  }
+
+  if(mimeType === "application/pdf"){
+    const frame = document.createElement("iframe");
+    frame.src = `${documentMeta.signedUrl}#page=1&view=FitH`;
+    frame.title = documentMeta.title || "מסמך PDF";
+    frame.loading = "lazy";
+    attachViewerFrameDebug(frame, {
+      storagePath: documentMeta.storage_path,
+      signedUrl: documentMeta.signedUrl,
+      mimeType
+    });
+    panel.appendChild(frame);
+    return;
+  }
+
+  renderSharedViewerState("סוג הקובץ אינו נתמך", true);
+}
+
+async function openSharedDocumentViewer({documentMeta, title = "מסמך", statusElement = null, opener = null} = {}){
+  const storagePath = String(documentMeta?.storage_path || "").trim();
+  if(!storagePath){
+    if(statusElement) setStatus(statusElement, "לא נמצא קובץ", "error");
+    else showToast("לא נמצא קובץ", "error");
     return false;
   }
 
-  if($("zDocumentsDialogTitle")) $("zDocumentsDialogTitle").textContent = dialogTitle;
-  if($("zDocumentsFullscreenTitle")) $("zDocumentsFullscreenTitle").textContent = fullscreenTitle;
-  zDocumentsDialogOpener = opener;
-  currentZViewerContext = viewerContext;
-  setZViewerDocuments(safeDocuments, initialIndex);
-  renderZViewerState({message: "טוען מסמך..."});
-  $("zDocumentsDialog")?.showModal();
-  await renderCurrentZDocument();
-  return true;
+  const mimeType = resolveStoredDocumentMimeType(documentMeta);
+  if(!mimeType.startsWith("image/") && mimeType !== "application/pdf"){
+    if(statusElement) setStatus(statusElement, "סוג הקובץ אינו נתמך", "error");
+    else showToast("סוג הקובץ אינו נתמך", "error");
+    return false;
+  }
+
+  if(statusElement) setStatus(statusElement, "", "");
+  const dialog = $("sharedDocumentViewerDialog");
+  if(!dialog) return false;
+  const loadToken = ++sharedViewerLoadToken;
+  sharedViewerOpener = opener instanceof HTMLElement ? opener : null;
+  currentSharedViewerDocument = null;
+  if($("sharedDocumentViewerTitle")) $("sharedDocumentViewerTitle").textContent = title;
+  renderSharedViewerState("טוען מסמך...");
+  dialog.showModal();
+
+  try {
+    const signedUrl = await createSignedUrlForStoragePath(storagePath, 300);
+    if(loadToken !== sharedViewerLoadToken) return false;
+    currentSharedViewerDocument = {
+      ...documentMeta,
+      storage_path: storagePath,
+      mime_type: mimeType,
+      original_filename: String(documentMeta?.original_filename || "document").trim() || "document",
+      title,
+      signedUrl
+    };
+    renderSharedViewerDocument(currentSharedViewerDocument);
+    return true;
+  } catch(error){
+    if(loadToken !== sharedViewerLoadToken) return false;
+    console.error(error);
+    renderSharedViewerState(getFriendlyViewerErrorMessage(), true);
+    return false;
+  }
+}
+
+function closeSharedDocumentViewer({restoreFocus = true} = {}){
+  sharedViewerLoadToken += 1;
+  currentSharedViewerDocument = null;
+  const dialog = $("sharedDocumentViewerDialog");
+  if(dialog?.open) dialog.close();
+  if(restoreFocus && sharedViewerOpener && !sharedViewerOpener.disabled) sharedViewerOpener.focus();
+  sharedViewerOpener = null;
+}
+
+async function runSharedViewerDocumentAction(actionType){
+  const documentMeta = currentSharedViewerDocument;
+  if(!documentMeta?.storage_path){
+    showToast("לא נמצא קובץ", "error");
+    return;
+  }
+
+  const controls = [
+    $("sharedViewerShareAction"),
+    $("sharedViewerExportAction"),
+    $("sharedViewerPrintAction"),
+    $("sharedViewerActionsButton")
+  ];
+  return runSharedInformationAction({
+    actionKey: `viewer:${documentMeta.storage_path}`,
+    controls,
+    statusElement: $("sharedDocumentViewerStatus"),
+    loadingMessage: "מכינה את המסמך...",
+    operation: async () => {
+      const signedUrl = await createSignedUrlForStoragePath(documentMeta.storage_path, 300);
+      const blob = await fetchBlobFromSignedUrl(signedUrl);
+      const filename = documentMeta.original_filename || "document";
+      if(actionType === "share"){
+        const result = await shareBlobFile({blob, filename, title:documentMeta.title || "מסמך"});
+        setStatus(
+          $("sharedDocumentViewerStatus"),
+          result?.shared ? "השיתוף הושלם" : "הקובץ הורד למכשיר",
+          "ok"
+        );
+        return;
+      }
+      if(actionType === "export"){
+        downloadBlob(blob, filename);
+        setStatus($("sharedDocumentViewerStatus"), "הקובץ הורד", "ok");
+        return;
+      }
+      if(actionType === "print"){
+        openPrintWindowWithBlob(blob, documentMeta.title || "מסמך");
+        setStatus($("sharedDocumentViewerStatus"), "נפתח חלון הדפסה", "ok");
+      }
+    }
+  });
 }
 
 async function loadCompanyDocuments(){
@@ -3117,7 +3284,7 @@ function getCompanyDocumentReplacementTarget({documentId = "", documentKey = ""}
   };
 }
 
-function openCompanyDocumentEditor(target){
+function openCompanyDocumentEditor(target, opener = null){
   currentCompanyDocumentEditTarget = getCompanyDocumentReplacementTarget(target);
   if(!currentCompanyDocumentEditTarget){
     showToast("מסמך החברה לא נמצא", "error");
@@ -3129,6 +3296,7 @@ function openCompanyDocumentEditor(target){
   const title = $("companyDocumentEditorTitle");
   const dialog = $("companyDocumentEditorDialog");
   if(!nameField || !currentFile || !dialog) return;
+  companyDocumentEditorOpener = opener instanceof HTMLElement ? opener : null;
 
   nameField.value = currentCompanyDocumentEditTarget.display_name || "";
   nameField.disabled = false;
@@ -3164,6 +3332,13 @@ async function saveCompanyDocumentEditorChanges(event){
 
   const target = currentCompanyDocumentEditTarget;
   if(!target) return;
+  const actionKey = "company-document-editor-save";
+  if(activeInformationActions.has(actionKey)) return;
+  const formControls = Array.from($("companyDocumentEditorForm")?.querySelectorAll("button, input") || []);
+  activeInformationActions.add(actionKey);
+  setInformationActionBusy(formControls, true);
+
+  try {
 
   const nameField = $("companyDocumentEditorName");
   const fileInput = $("companyDocumentEditorFileInput");
@@ -3207,7 +3382,8 @@ async function saveCompanyDocumentEditorChanges(event){
 
     if(updateError){
       if(uploadedStoragePath){
-        await cleanupUploadedZReportFiles([uploadedStoragePath]);
+        const cleanupError = await cleanupUploadedZReportFiles([uploadedStoragePath]);
+        if(cleanupError) enqueueCompanyDocumentStorageCleanupPath(uploadedStoragePath);
       }
       setCompanyDocumentEditorStatus(updateError.message || "שגיאה בעדכון מסמך החברה", "error");
       return;
@@ -3227,7 +3403,8 @@ async function saveCompanyDocumentEditorChanges(event){
 
     if(insertError){
       if(uploadedStoragePath){
-        await cleanupUploadedZReportFiles([uploadedStoragePath]);
+        const cleanupError = await cleanupUploadedZReportFiles([uploadedStoragePath]);
+        if(cleanupError) enqueueCompanyDocumentStorageCleanupPath(uploadedStoragePath);
       }
       setCompanyDocumentEditorStatus(insertError.message || "שגיאה בשמירת מסמך החברה", "error");
       return;
@@ -3235,12 +3412,18 @@ async function saveCompanyDocumentEditorChanges(event){
   }
 
   if(uploadedStoragePath && plan.previousStoragePath && plan.previousStoragePath !== uploadedStoragePath){
-    await cleanupUploadedZReportFiles([plan.previousStoragePath]);
+    const cleanupError = await cleanupUploadedZReportFiles([plan.previousStoragePath]);
+    if(cleanupError) enqueueCompanyDocumentStorageCleanupPath(plan.previousStoragePath);
   }
 
   $("companyDocumentEditorDialog")?.close();
   await loadCompanyDocuments();
   showToast(plan.hasReplacementFile ? "מסמך החברה עודכן" : "שם המסמך עודכן", "ok");
+  } finally {
+    activeInformationActions.delete(actionKey);
+    setInformationActionBusy(formControls, false);
+    updateCompanyDocumentsCleanupRetryState();
+  }
 }
 
 async function openCompanyDocument(documentId){
@@ -3250,12 +3433,11 @@ async function openCompanyDocument(documentId){
     return;
   }
 
-  await openExistingDocumentsViewer({
-    documents: [row],
-    dialogTitle: row.display_name || "מסמך חברה",
-    fullscreenTitle: `${row.display_name || "מסמך חברה"} במסך מלא`,
-    emptyMessage: "לא נמצא קובץ",
-    statusElement: $("companyDocumentsStatus")
+  await openSharedDocumentViewer({
+    documentMeta: row,
+    title: row.display_name || "מסמך חברה",
+    statusElement: $("companyDocumentsStatus"),
+    opener: document.querySelector(`[data-company-document-open-id="${String(documentId || "").replace(/"/g, '\\"')}"]`)
   });
 }
 
@@ -6661,16 +6843,118 @@ async function shareBlobFile({blob, filename, title = "", text = ""}){
 
   if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
     await navigator.share({title, text, files:[file]});
-    return;
-  }
-
-  if(navigator.share){
-    await navigator.share({title, text, url: location.href});
-    return;
+    return {shared:true, downloaded:false};
   }
 
   downloadBlob(blob, safeName);
   showToast("שיתוף לא נתמך במכשיר זה. הקובץ הורד למכשיר.", "warning");
+  return {shared:false, downloaded:true};
+}
+
+function setInformationActionBusy(elements, isBusy){
+  const controls = (Array.isArray(elements) ? elements : [elements])
+    .filter(element => element instanceof HTMLElement);
+
+  controls.forEach(element => {
+    if(isBusy){
+      element.dataset.informationActionWasDisabled = element.disabled ? "1" : "0";
+      element.disabled = true;
+      element.setAttribute("aria-busy", "true");
+      return;
+    }
+
+    if(element.dataset.informationActionWasDisabled !== "1") element.disabled = false;
+    delete element.dataset.informationActionWasDisabled;
+    element.removeAttribute("aria-busy");
+  });
+}
+
+async function runSharedInformationAction({
+  actionKey,
+  controls = [],
+  statusElement = null,
+  loadingMessage = "מעבדת...",
+  successMessage = "",
+  operation
+} = {}){
+  const safeActionKey = String(actionKey || "").trim();
+  if(!safeActionKey || typeof operation !== "function" || activeInformationActions.has(safeActionKey)) return null;
+
+  activeInformationActions.add(safeActionKey);
+  setInformationActionBusy(controls, true);
+  if(statusElement) setStatus(statusElement, loadingMessage, "");
+  else showToast(loadingMessage, "warning");
+
+  try {
+    const result = await operation();
+    if(successMessage){
+      if(statusElement) setStatus(statusElement, successMessage, "ok");
+      else showToast(successMessage, "ok");
+    }
+    return result;
+  } catch(error){
+    if(error?.name === "AbortError"){
+      if(statusElement) setStatus(statusElement, "", "");
+      else showToast("השיתוף בוטל", "warning");
+      return {cancelled:true};
+    }
+    console.error(error);
+    const message = error?.message || "שגיאה בביצוע הפעולה";
+    if(statusElement) setStatus(statusElement, message, "error");
+    else showToast(message, "error");
+    return null;
+  } finally {
+    activeInformationActions.delete(safeActionKey);
+    setInformationActionBusy(controls, false);
+  }
+}
+
+function openExportFormatDialog({title = "ייצוא", formats = [], opener = null} = {}){
+  const dialog = $("exportFormatDialog");
+  const heading = $("exportFormatDialogTitle");
+  const list = $("exportFormatList");
+  const safeFormats = (Array.isArray(formats) ? formats : [])
+    .filter(format => String(format?.id || "").trim() && typeof format?.run === "function");
+  if(!dialog || !heading || !list || !safeFormats.length) return false;
+
+  pendingExportFormats = safeFormats;
+  exportFormatDialogOpener = opener instanceof HTMLElement ? opener : null;
+  heading.textContent = title;
+  list.innerHTML = safeFormats.map((format, index) => `
+    <button type="button" class="secondary" data-export-format-index="${index}">
+      ${escapeHtml(format.label || format.id)}
+    </button>
+  `).join("");
+  dialog.showModal();
+  list.querySelector("button")?.focus();
+  return true;
+}
+
+function closeExportFormatDialog({restoreFocus = true} = {}){
+  const dialog = $("exportFormatDialog");
+  if(dialog?.open) dialog.close();
+  pendingExportFormats = [];
+  if(restoreFocus && exportFormatDialogOpener && !exportFormatDialogOpener.disabled){
+    exportFormatDialogOpener.focus();
+  }
+  exportFormatDialogOpener = null;
+}
+
+function getReportExportFormats(menu){
+  const collectorName = String(menu?.dataset?.infoActionsCollector || "").trim();
+  const formats = [{
+    id: "pdf",
+    label: "PDF",
+    run: () => runInformationScreenAction({menu, actionType:"export_pdf"})
+  }];
+  if(collectorName === "collectIncomeInfoReport" || collectorName === "collectExpensesInfoReport"){
+    formats.push({
+      id: "csv",
+      label: "CSV",
+      run: () => runInformationScreenAction({menu, actionType:"export_csv"})
+    });
+  }
+  return formats;
 }
 
 function printInHiddenFrame(sourceUrl, title = "מסמך", revokeAfterPrint = false){
@@ -6721,14 +7005,6 @@ function printInHiddenFrame(sourceUrl, title = "מסמך", revokeAfterPrint = fa
 
 function openPrintWindowWithBlob(blob, title = "מסמך"){
   const objectUrl = URL.createObjectURL(blob);
-  printInHiddenFrame(objectUrl, title, true);
-}
-
-function openPrintWindowWithHtml(html, title = "מסמך"){
-  const htmlBlob = new Blob([
-    `<!doctype html><html lang="he"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,sans-serif;margin:16px;color:#172033}h1{margin:0 0 10px;color:#102c4e;font-size:1.3rem}.meta{margin:0 0 14px;color:#667085;font-size:.9rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:.9rem}th{background:#eef3f8;color:#102c4e}tbody tr:nth-child(even){background:#f9fbfe}@page{size:auto;margin:12mm}</style></head><body>${html}</body></html>`
-  ], {type:"text/html;charset=utf-8"});
-  const objectUrl = URL.createObjectURL(htmlBlob);
   printInHiddenFrame(objectUrl, title, true);
 }
 
@@ -6835,30 +7111,28 @@ function createCsvBlob(headers, rows){
   return new Blob(["\uFEFF", `${lines.join("\n")}\n`], {type: "text/csv;charset=utf-8"});
 }
 
-function createReportHtmlTable({title, headers, rows}){
-  const headerCells = (Array.isArray(headers) ? headers : [])
-    .map(value => `<th scope="col">${escapeHtml(value)}</th>`)
-    .join("");
-  const bodyRows = (Array.isArray(rows) ? rows : [])
-    .map(cells => `<tr>${(Array.isArray(cells) ? cells : []).map(value => {
-      const normalizedValue = String(value || "").trim();
-      const cellValue = normalizedValue === "זיכוי"
-        ? '<span style="color:#b42318;font-weight:800;">זיכוי</span>'
-        : escapeHtml(value);
-      return `<td>${cellValue}</td>`;
-    }).join("")}</tr>`)
-    .join("");
-  return `
-    <h1>${escapeHtml(title || "דוח")}</h1>
-    <p class="meta">עודכן בתאריך ${escapeHtml(today())}</p>
-    <table>
-      <thead><tr>${headerCells}</tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
-  `;
+function getCurrentReportIdentity(){
+  const userMetadata = session?.user?.user_metadata || {};
+  const generatedBy = String(
+    userMetadata.display_name
+    || userMetadata.full_name
+    || userMetadata.name
+    || session?.user?.email
+    || ""
+  ).trim();
+
+  return {
+    businessName: String(business?.business_name || "").trim() || "העסק שלי",
+    generatedBy: generatedBy || "משתמש מחובר",
+    generatedAt: new Intl.DateTimeFormat("he-IL", {
+      dateStyle: "short",
+      timeStyle: "short"
+    }).format(new Date()),
+    logoUrl: String(business?.report_logo_url || business?.logo_url || "").trim()
+  };
 }
 
-function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex}){
+function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex, reportMeta}){
   const headerCells = (Array.isArray(headers) ? headers : [])
     .map(value => `<th>${escapeHtml(value)}</th>`)
     .join("");
@@ -6877,16 +7151,29 @@ function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, r
       return `<tr><td class="idx">${escapeHtml(indexLabel)}</td>${valueCells}</tr>`;
     })
     .join("");
+  const filters = Array.isArray(reportMeta?.filters) ? reportMeta.filters.filter(Boolean) : [];
+  const filterText = filters.length ? filters.join(" | ") : "ללא מסננים פעילים";
+  const logoMarkup = reportMeta?.logoUrl
+    ? `<img src="${escapeHtml(reportMeta.logoUrl)}" alt="" style="width:64px;height:64px;object-fit:contain;flex:0 0 auto;">`
+    : "";
 
   return `
     <div dir="rtl" lang="he" style="width:1040px;background:#fff;color:#172033;font-family:Arial,'Noto Sans Hebrew','Rubik',sans-serif;padding:24px 26px;">
-      <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:12px;">
-        <div>
-          <h1 style="margin:0;color:#102c4e;font-size:28px;line-height:1.2;">${escapeHtml(title || "דוח")}</h1>
-          <p style="margin:6px 0 0;color:#667085;font-size:14px;">עודכן בתאריך ${escapeHtml(today())}</p>
+      <header style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px;">
+        <div style="display:flex;align-items:flex-start;gap:14px;min-width:0;">
+          ${logoMarkup}
+          <div>
+            <p style="margin:0 0 4px;color:#475467;font-size:15px;font-weight:700;">${escapeHtml(reportMeta?.businessName || "העסק שלי")}</p>
+            <h1 style="margin:0;color:#102c4e;font-size:28px;line-height:1.2;">${escapeHtml(title || "דוח")}</h1>
+            <p style="margin:6px 0 0;color:#667085;font-size:13px;">הופק ${escapeHtml(reportMeta?.generatedAt || "")} · על ידי ${escapeHtml(reportMeta?.generatedBy || "")}</p>
+          </div>
         </div>
         <p style="margin:0;color:#667085;font-size:14px;">עמוד ${escapeHtml(pageNumber)} מתוך ${escapeHtml(totalPages)}</p>
       </header>
+      <div style="margin:0 0 12px;padding:8px 10px;background:#f5f7fa;border:1px solid #e4e7ec;font-size:12px;line-height:1.5;color:#475467;">
+        <strong>מסננים:</strong> ${escapeHtml(filterText)}<br>
+        <strong>מיון:</strong> ${escapeHtml(reportMeta?.sortDescription || "סדר המסך")}
+      </div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;direction:rtl;">
         <thead>
           <tr>
@@ -6908,7 +7195,7 @@ function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, r
   `;
 }
 
-async function renderReportPageToPngBytes({title, headers, rows, pageNumber, totalPages, rowStartIndex}){
+async function renderReportPageToPngBytes({title, headers, rows, pageNumber, totalPages, rowStartIndex, reportMeta}){
   const html2canvas = await ensureHtml2CanvasLib();
   const host = document.createElement("div");
   host.style.position = "fixed";
@@ -6916,7 +7203,7 @@ async function renderReportPageToPngBytes({title, headers, rows, pageNumber, tot
   host.style.top = "0";
   host.style.pointerEvents = "none";
   host.style.opacity = "0";
-  host.innerHTML = createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex});
+  host.innerHTML = createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex, reportMeta});
   document.body.appendChild(host);
 
   try {
@@ -6943,7 +7230,7 @@ async function renderReportPageToPngBytes({title, headers, rows, pageNumber, tot
   }
 }
 
-async function createTablePdfBlob({title, headers, rows}){
+async function createTablePdfBlob({title, headers, rows, filters = [], sortDescription = ""}){
   const {PDFDocument} = await ensurePdfLib();
   const pdfDoc = await PDFDocument.create();
   const pageWidth = 595.28;
@@ -6952,6 +7239,11 @@ async function createTablePdfBlob({title, headers, rows}){
   const rowsPerPage = 26;
   const safeRows = Array.isArray(rows) ? rows : [];
   const totalPages = Math.max(1, Math.ceil(safeRows.length / rowsPerPage));
+  const reportMeta = {
+    ...getCurrentReportIdentity(),
+    filters,
+    sortDescription
+  };
 
   for(let pageIndex = 0; pageIndex < totalPages; pageIndex += 1){
     const rowStartIndex = pageIndex * rowsPerPage;
@@ -6963,7 +7255,8 @@ async function createTablePdfBlob({title, headers, rows}){
       rows: chunk,
       pageNumber: pageIndex + 1,
       totalPages,
-      rowStartIndex
+      rowStartIndex,
+      reportMeta
     });
     const image = await pdfDoc.embedPng(pagePngBytes);
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
@@ -6999,7 +7292,13 @@ async function runInformationScreenAction({menu, actionType}){
   const collector = collectors[collectorName];
   if(typeof collector !== "function") return;
 
-  try {
+  const menuControls = Array.from(menu.querySelectorAll("button"));
+  const ownerButton = document.querySelector(`[data-action-menu-button="${String(menu.id || "")}"]`);
+  return runSharedInformationAction({
+    actionKey: `report:${collectorName}`,
+    controls: [...menuControls, ownerButton],
+    loadingMessage: "מכינה את הדוח...",
+    operation: async () => {
     const payload = await collector();
     const rows = Array.isArray(payload?.rows) ? payload.rows : [];
     const headers = Array.isArray(payload?.headers) ? payload.headers : [];
@@ -7012,27 +7311,27 @@ async function runInformationScreenAction({menu, actionType}){
     }
 
     if(actionType === "share"){
-      const pdfBlob = await createTablePdfBlob({title, headers, rows});
-      await shareBlobFile({
+      const pdfBlob = await createTablePdfBlob({...payload, title, headers, rows});
+      const shareResult = await shareBlobFile({
         blob: pdfBlob,
         filename: `${filenameBase}.pdf`,
         title,
         text: `שיתוף ${title}`
       });
-      showToast("השיתוף הושלם", "ok");
+      if(shareResult?.shared) showToast("השיתוף הושלם", "ok");
       return;
     }
 
     if(actionType === "export_pdf"){
-      const pdfBlob = await createTablePdfBlob({title, headers, rows});
+      const pdfBlob = await createTablePdfBlob({...payload, title, headers, rows});
       downloadBlob(pdfBlob, `${filenameBase}.pdf`);
       showToast("קובץ PDF הורד", "ok");
       return;
     }
 
     if(actionType === "print"){
-      const html = createReportHtmlTable({title, headers, rows});
-      openPrintWindowWithHtml(html, title);
+      const pdfBlob = await createTablePdfBlob({...payload, title, headers, rows});
+      openPrintWindowWithBlob(pdfBlob, title);
       showToast("נפתח חלון הדפסה", "ok");
       return;
     }
@@ -7042,10 +7341,8 @@ async function runInformationScreenAction({menu, actionType}){
       downloadBlob(csvBlob, `${filenameBase}.csv`);
       showToast("קובץ CSV הורד", "ok");
     }
-  } catch(error){
-    console.error(error);
-    showToast(error?.message || "שגיאה בביצוע פעולת מידע", "error");
-  }
+    }
+  });
 }
 
 async function createSignedUrlForStoragePath(storagePath, ttlSeconds = 300){
@@ -7501,15 +7798,12 @@ function renderExpenseDetailsDocuments(documents){
   list.querySelectorAll(".expense-linked-document-button").forEach(button => {
     button.addEventListener("click", () => {
       const requestedIndex = Number(button.dataset.expenseDocumentIndex || 0);
-      void openExistingDocumentsViewer({
-        documents: currentExpenseDetailsDocuments,
-        dialogTitle: "מסמכי הוצאה",
-        fullscreenTitle: "מסמך הוצאה במסך מלא",
-        emptyMessage: "אין מסמכים מצורפים",
+      const documentMeta = currentExpenseDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
+      void openSharedDocumentViewer({
+        documentMeta,
+        title: documentMeta?.original_filename || "מסמך הוצאה",
         statusElement: $("expenseStatus"),
-        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
-        opener: button,
-        viewerContext: "expense"
+        opener: button
       });
     });
   });
@@ -7579,15 +7873,12 @@ function renderExpenseDocumentEditList(){
   list.querySelectorAll("[data-expense-edit-open-index]").forEach(button => {
     button.addEventListener("click", () => {
       const requestedIndex = Number(button.dataset.expenseEditOpenIndex || 0);
-      void openExistingDocumentsViewer({
-        documents: currentExpenseDetailsDocuments,
-        dialogTitle: "מסמכי הוצאה",
-        fullscreenTitle: "מסמך הוצאה במסך מלא",
-        emptyMessage: "אין מסמכים מצורפים",
+      const documentMeta = currentExpenseDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
+      void openSharedDocumentViewer({
+        documentMeta,
+        title: documentMeta?.original_filename || "מסמך הוצאה",
         statusElement: $("expenseStatus"),
-        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
-        opener: button,
-        viewerContext: "expense"
+        opener: button
       });
     });
   });
@@ -7904,28 +8195,8 @@ function renderExpensesList(){
 }
 
 async function openExpenseDocument(expenseId){
-  const {data,error} = await sb.from("expense_documents")
-    .select("storage_path,document_type,page_number,original_filename,mime_type")
-    .eq("user_id",userId)
-    .eq("expense_id",expenseId)
-    .order("page_number");
-
-  if(error || !(data || []).length){
-    showToast("לא נמצא צילום לחשבונית", "error");
-    return;
-  }
-
-  const chosenIndex = Math.max(0, data.findIndex(x => x.document_type === "pdf"));
-  await openExistingDocumentsViewer({
-    documents: data,
-    dialogTitle: "מסמכי הוצאה",
-    fullscreenTitle: "מסמך הוצאה במסך מלא",
-    emptyMessage: "לא נמצא צילום לחשבונית",
-    statusElement: $("expenseStatus"),
-    initialIndex: chosenIndex >= 0 ? chosenIndex : 0,
-    opener: document.querySelector(`.eye-expense[data-expense="${String(expenseId || "").trim().replace(/"/g, '\\"')}"]`) || null,
-    viewerContext: "expense"
-  });
+  const opener = document.querySelector(`.eye-expense[data-expense="${String(expenseId || "").trim().replace(/"/g, '\\"')}"]`) || null;
+  await openExpenseDetailsDialog(expenseId, opener);
 }
 
 function getExpensePackageFilename(expenseRecord){
@@ -7937,21 +8208,30 @@ function getExpensePackageFilename(expenseRecord){
 
 async function runExpenseEntityAction(actionType){
   if(!currentExpenseDetailsRecord) return;
-
-  try {
-    setStatus($("expenseStatus"), "מכינה קובץ PDF של ההוצאה...", "");
+  const controls = [
+    $("expenseDetailsShareMenuButton"),
+    $("expenseDetailsShareAction"),
+    $("expenseDetailsExportPdfAction"),
+    $("expenseDetailsPrintAction")
+  ];
+  return runSharedInformationAction({
+    actionKey: `expense:${currentExpenseDetailsRecord.id}`,
+    controls,
+    statusElement: $("expenseStatus"),
+    loadingMessage: "מכינה קובץ PDF של ההוצאה...",
+    operation: async () => {
     const documents = Array.isArray(currentExpenseDetailsDocuments) ? currentExpenseDetailsDocuments : [];
     const pdfBlob = await getExpensePackagePdfBlob(currentExpenseDetailsRecord, documents);
     const filename = getExpensePackageFilename(currentExpenseDetailsRecord);
 
     if(actionType === "share"){
-      await shareBlobFile({
+      const result = await shareBlobFile({
         blob: pdfBlob,
         filename,
         title: "פרטי הוצאה",
         text: "שיתוף קובץ הוצאה"
       });
-      setStatus($("expenseStatus"), "השיתוף הושלם", "ok");
+      setStatus($("expenseStatus"), result?.shared ? "השיתוף הושלם" : "קובץ ההוצאה הורד", "ok");
       return;
     }
 
@@ -7966,17 +8246,24 @@ async function runExpenseEntityAction(actionType){
       setStatus($("expenseStatus"), "נפתח חלון הדפסה", "ok");
       return;
     }
-  } catch(error){
-    console.error(error);
-    setStatus($("expenseStatus"), error?.message || "שגיאה בפעולת הוצאה", "error");
-  }
+    }
+  });
 }
 
 async function runIncomeEntityAction(actionType){
   if(!currentIncomeDetailsRecord) return;
-
-  try {
-    setStatus($("zStatus"), "מכינה קובץ PDF של ההכנסה...", "");
+  const controls = [
+    $("incomeDetailsShareMenuButton"),
+    $("incomeDetailsShareAction"),
+    $("incomeDetailsExportPdfAction"),
+    $("incomeDetailsPrintAction")
+  ];
+  return runSharedInformationAction({
+    actionKey: `income:${currentIncomeDetailsRecord.id}`,
+    controls,
+    statusElement: $("zStatus"),
+    loadingMessage: "מכינה קובץ PDF של ההכנסה...",
+    operation: async () => {
     const documents = Array.isArray(currentIncomeDetailsDocuments) ? currentIncomeDetailsDocuments : [];
     const pdfBlob = await getIncomePackagePdfBlob(currentIncomeDetailsRecord, documents);
     const incomeType = normalizeIncomeType(currentIncomeDetailsRecord.income_type).replace(/\s+/g, "-");
@@ -7985,13 +8272,13 @@ async function runIncomeEntityAction(actionType){
     const filename = `income-${incomeType}-${reportDate}-${incomeId}.pdf`;
 
     if(actionType === "share"){
-      await shareBlobFile({
+      const result = await shareBlobFile({
         blob: pdfBlob,
         filename,
         title: "פרטי הכנסה",
         text: "שיתוף קובץ הכנסה"
       });
-      setStatus($("zStatus"), "השיתוף הושלם", "ok");
+      setStatus($("zStatus"), result?.shared ? "השיתוף הושלם" : "קובץ ההכנסה הורד", "ok");
       return;
     }
 
@@ -8006,330 +8293,16 @@ async function runIncomeEntityAction(actionType){
       setStatus($("zStatus"), "נפתח חלון הדפסה", "ok");
       return;
     }
-  } catch(error){
-    console.error(error);
-    setStatus($("zStatus"), error?.message || "שגיאה בפעולת הכנסה", "error");
-  }
-}
-
-async function runCurrentViewerDocumentAction(actionType){
-  if(!currentZViewerDocument?.storage_path) return;
-
-  try {
-    const signedUrl = currentZViewerDocument.signedUrl
-      || await createSignedUrlForStoragePath(currentZViewerDocument.storage_path, 300);
-    const blob = await fetchBlobFromSignedUrl(signedUrl);
-    const fallbackName = `document-${currentZDocumentIndex + 1}`;
-    const filename = String(currentZViewerDocument?.original_filename || fallbackName).trim() || fallbackName;
-
-    if(actionType === "share"){
-      await shareBlobFile({
-        blob,
-        filename,
-        title: "שיתוף מסמך",
-        text: "שיתוף מסמך מצורף"
-      });
-      return;
     }
-
-    if(actionType === "export"){
-      downloadBlob(blob, filename);
-      return;
-    }
-
-    if(actionType === "print"){
-      openPrintWindowWithBlob(blob, "הדפסת מסמך");
-    }
-  } catch(error){
-    console.error(error);
-    const targetStatus = currentZViewerContext === "expense" ? $("expenseStatus") : $("zStatus");
-    setStatus(targetStatus, error?.message || "שגיאה בפעולת המסמך", "error");
-  }
-}
-
-function setZViewerDocuments(documents, startIndex = 0){
-  currentZDocuments = Array.isArray(documents) ? documents : [];
-  const normalizedIndex = Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
-  currentZDocumentIndex = currentZDocuments.length
-    ? Math.min(normalizedIndex, currentZDocuments.length - 1)
-    : -1;
-  currentZViewerDocument = null;
-  updateZViewerNavigation();
-}
-
-function updateZViewerNavigation(){
-  const total = currentZDocuments.length;
-  const hasDocs = total > 0;
-  const index = hasDocs ? Math.min(Math.max(0, currentZDocumentIndex), total - 1) : -1;
-
-  const prev = $("zDocumentsPrev");
-  const next = $("zDocumentsNext");
-  const pos = $("zDocumentsPosition");
-  const openFullscreen = $("zDocumentsFullscreenOpen");
-  const shareMenuButton = $("zDocumentsShareMenuButton");
-  const fullscreenNav = $("zDocumentsFullscreenPageNav");
-  const fullscreenPrev = $("zDocumentsFullscreenPrev");
-  const fullscreenNext = $("zDocumentsFullscreenNext");
-
-  if(prev) prev.disabled = !hasDocs || index <= 0;
-  if(next) next.disabled = !hasDocs || index >= total - 1;
-  if(pos) pos.textContent = hasDocs ? `מסמך ${index + 1} מתוך ${total}` : "";
-
-  const canOpenFullscreen = Boolean(currentZViewerDocument?.signedUrl && currentZViewerDocument?.mime_type);
-  if(openFullscreen){
-    openFullscreen.classList.toggle("hidden", !canOpenFullscreen);
-    openFullscreen.disabled = !canOpenFullscreen;
-  }
-  if(shareMenuButton){
-    shareMenuButton.disabled = !canOpenFullscreen;
-  }
-
-  const hasMulti = total > 1;
-  if(fullscreenNav) fullscreenNav.classList.toggle("hidden", !hasMulti);
-  if(fullscreenPrev) fullscreenPrev.disabled = !hasMulti || index <= 0;
-  if(fullscreenNext) fullscreenNext.disabled = !hasMulti || index >= total - 1;
-}
-
-function renderZViewerState({message = "", isError = false} = {}){
-  const panel = $("zDocumentsViewerPanel");
-  if(!panel) return;
-  panel.innerHTML = "";
-  const text = document.createElement("p");
-  text.className = isError ? "review-document-state error" : "review-document-state";
-  text.textContent = message || "אין מסמך להצגה.";
-  panel.appendChild(text);
-}
-
-function renderZViewerFile({signedUrl, mimeType}){
-  const panel = $("zDocumentsViewerPanel");
-  if(!panel) return;
-  panel.innerHTML = "";
-
-  if(String(mimeType || "").toLowerCase().startsWith("image/")){
-    const image = document.createElement("img");
-    image.src = signedUrl;
-    image.alt = "מסמך הכנסה";
-    image.title = "פתחי במסך מלא";
-    image.style.cursor = "pointer";
-    image.tabIndex = 0;
-    image.addEventListener("click", () => {
-      zDocumentsFullscreenOpener = image;
-      openZDocumentsFullscreen();
-    });
-    image.addEventListener("keydown", event => {
-      if(event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      zDocumentsFullscreenOpener = image;
-      openZDocumentsFullscreen();
-    });
-    panel.appendChild(image);
-    return;
-  }
-
-  const frame = document.createElement("iframe");
-  frame.src = `${signedUrl}#page=1&view=FitH`;
-  frame.title = "מסמך הכנסה";
-  frame.loading = "lazy";
-  attachViewerFrameDebug(frame, {
-    storagePath: currentZViewerDocument?.storage_path || "",
-    signedUrl,
-    mimeType,
-    fullscreen: false
   });
-  panel.appendChild(frame);
-}
-
-function renderZFullscreenContent(){
-  const content = $("zDocumentsFullscreenContent");
-  if(!content) return;
-  content.innerHTML = "";
-
-  if(!currentZViewerDocument?.signedUrl || !currentZViewerDocument?.mime_type){
-    const text = document.createElement("p");
-    text.className = "review-document-state";
-    text.textContent = "אין מסמך להצגה.";
-    content.appendChild(text);
-    return;
-  }
-
-  if(String(currentZViewerDocument.mime_type || "").toLowerCase().startsWith("image/")){
-    const image = document.createElement("img");
-    image.src = currentZViewerDocument.signedUrl;
-    image.alt = "מסמך הכנסה במסך מלא";
-    image.style.maxWidth = "100%";
-    image.style.maxHeight = "100%";
-    image.style.objectFit = "contain";
-    image.style.background = "#fff";
-    content.appendChild(image);
-    return;
-  }
-
-  const frame = document.createElement("iframe");
-  frame.src = `${currentZViewerDocument.signedUrl}#page=1&view=FitH`;
-  frame.title = "מסמך הכנסה במסך מלא";
-  frame.loading = "lazy";
-  attachViewerFrameDebug(frame, {
-    storagePath: currentZViewerDocument?.storage_path || "",
-    signedUrl: currentZViewerDocument?.signedUrl || "",
-    mimeType: currentZViewerDocument?.mime_type || "",
-    fullscreen: true
-  });
-  content.appendChild(frame);
-}
-
-async function openZDocumentsFullscreen(){
-  if(!currentZViewerDocument?.mime_type || !currentZViewerDocument?.storage_path) return;
-  const dialog = $("zDocumentsFullscreenDialog");
-  if(!dialog) return;
-
-  try {
-    const freshSignedUrl = await getSignedUrlForZDocument(currentZViewerDocument.storage_path, {forceRefresh: true});
-    logViewerPdfDebug("fullscreen-fresh-url", {
-      storagePath: currentZViewerDocument.storage_path,
-      signedUrl: freshSignedUrl,
-      mimeType: currentZViewerDocument?.mime_type || ""
-    });
-    currentZViewerDocument = {
-      ...currentZViewerDocument,
-      signedUrl: freshSignedUrl
-    };
-
-    renderZFullscreenContent();
-    updateZViewerNavigation();
-    dialog.showModal();
-    $("zDocumentsFullscreenClose")?.focus();
-  } catch(error){
-    console.error("document_fullscreen_open_failed", {
-      storagePath: currentZViewerDocument.storage_path,
-      error
-    });
-    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
-  }
-}
-
-function closeZDocumentsFullscreen({restoreFocus = true} = {}){
-  const dialog = $("zDocumentsFullscreenDialog");
-  if(dialog?.open) dialog.close();
-
-  if(
-    restoreFocus
-    && zDocumentsFullscreenOpener
-    && !zDocumentsFullscreenOpener.disabled
-    && !zDocumentsFullscreenOpener.classList.contains("hidden")
-  ){
-    zDocumentsFullscreenOpener.focus();
-  }
-  zDocumentsFullscreenOpener = null;
-}
-
-async function getSignedUrlForZDocument(storagePath, {forceRefresh = false} = {}){
-  const now = Date.now();
-  const cached = forceRefresh ? null : zDocumentsSignedUrlCache.get(storagePath);
-  if(cached && cached.expiresAt > (now + 2000)){
-    return cached.signedUrl;
-  }
-
-  const {data:signed, error} = await sb.storage
-    .from("invoice-documents")
-    .createSignedUrl(storagePath, 300);
-
-  if(error || !signed?.signedUrl){
-    throw new Error(error?.message || "שגיאה בטעינת מסמך דו״ח Z");
-  }
-
-  zDocumentsSignedUrlCache.set(storagePath, {
-    signedUrl: signed.signedUrl,
-    expiresAt: now + 55000
-  });
-
-  return signed.signedUrl;
-}
-
-async function renderCurrentZDocument(){
-  if(!currentZDocuments.length || currentZDocumentIndex < 0){
-    renderZViewerState({message: "אין מסמכים להצגה."});
-    updateZViewerNavigation();
-    return;
-  }
-
-  const documentMeta = currentZDocuments[currentZDocumentIndex];
-  if(!documentMeta?.storage_path){
-    renderZViewerState({message: "מסמך לא תקין.", isError: true});
-    updateZViewerNavigation();
-    return;
-  }
-
-  const loadToken = ++zDocumentsLoadToken;
-  renderZViewerState({message: "טוען מסמך..."});
-
-  try {
-    const isPdfDocument = String(documentMeta.mime_type || "").toLowerCase() === "application/pdf";
-    const signedUrl = await getSignedUrlForZDocument(documentMeta.storage_path, {forceRefresh: isPdfDocument});
-    if(loadToken !== zDocumentsLoadToken) return;
-
-    logViewerPdfDebug("render-request", {
-      storagePath: documentMeta.storage_path,
-      signedUrl,
-      mimeType: documentMeta.mime_type || "",
-      isPdfDocument,
-      userAgent: navigator.userAgent,
-      viewport: {width: window.innerWidth, height: window.innerHeight}
-    });
-
-    if(isPdfDocument){
-      void inspectViewerPdfResponse(signedUrl, documentMeta.storage_path);
-    }
-
-    currentZViewerDocument = {
-      ...documentMeta,
-      signedUrl
-    };
-
-    renderZViewerFile({signedUrl, mimeType: documentMeta.mime_type});
-    updateZViewerNavigation();
-
-    if($("zDocumentsFullscreenDialog")?.open){
-      renderZFullscreenContent();
-    }
-  } catch(error){
-    if(loadToken !== zDocumentsLoadToken) return;
-    console.error("document_viewer_load_failed", {
-      storagePath: documentMeta.storage_path,
-      error
-    });
-    currentZViewerDocument = null;
-    renderZViewerState({message: getFriendlyViewerErrorMessage(), isError: true});
-    updateZViewerNavigation();
-  }
 }
 
 async function openZReportDocuments(zReportId, incomeType = ""){
   const safeReportId = String(zReportId || "").trim();
   if(!safeReportId) return;
-
-  const label = String(incomeType || "").trim() || "הכנסה";
-  if($("zDocumentsDialogTitle")) $("zDocumentsDialogTitle").textContent = `מסמכי ${label}`;
-  if($("zDocumentsFullscreenTitle")) $("zDocumentsFullscreenTitle").textContent = `מסמך ${label} במסך מלא`;
-
-  const {data, error} = await sb.from("z_report_documents")
-    .select("id,storage_path,original_filename,mime_type,document_order")
-    .eq("user_id", userId)
-    .eq("z_report_id", safeReportId)
-    .order("document_order", {ascending: true});
-
-  if(error){
-    setStatus($("zStatus"), error.message || "שגיאה בטעינת מסמכי הכנסה", "error");
-    return;
-  }
-
-  const documents = Array.isArray(data) ? data : [];
-  await openExistingDocumentsViewer({
-    documents,
-    dialogTitle: `מסמכי ${label}`,
-    fullscreenTitle: `מסמך ${label} במסך מלא`,
-    emptyMessage: "אין מסמכים מצורפים להכנסה זו.",
-    statusElement: $("zStatus")
-  });
+  const escapedId = safeReportId.replace(/"/g, '\\"');
+  const opener = document.querySelector(`.doc-indicator[data-z-report-id="${escapedId}"]`) || null;
+  await openIncomeDetailsDialog(safeReportId, opener);
 }
 
 function readIncomePermissions(incomeRecord){
@@ -8434,15 +8407,12 @@ function renderIncomeDetailsDocuments(documents){
   list.querySelectorAll(".expense-linked-document-button").forEach(button => {
     button.addEventListener("click", () => {
       const requestedIndex = Number(button.dataset.incomeDocumentIndex || 0);
-      void openExistingDocumentsViewer({
-        documents: currentIncomeDetailsDocuments,
-        dialogTitle: "מסמכי הכנסה",
-        fullscreenTitle: "מסמך הכנסה במסך מלא",
-        emptyMessage: "אין מסמכים מצורפים להכנסה זו.",
+      const documentMeta = currentIncomeDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
+      void openSharedDocumentViewer({
+        documentMeta,
+        title: documentMeta?.original_filename || "מסמך הכנסה",
         statusElement: $("zStatus"),
-        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
-        opener: button,
-        viewerContext: "income"
+        opener: button
       });
     });
   });
@@ -8494,29 +8464,6 @@ async function confirmAndDeleteCurrentIncome(){
   if(!currentIncomeDetailsRecord || !currentIncomePermissions.canDelete) return;
   await deleteZReport(currentIncomeDetailsRecord.id);
   $("zDialog")?.close();
-}
-
-function navigateZDocumentsByOffset(offset){
-  if(!Number.isInteger(offset) || !offset || !currentZDocuments.length) return;
-
-  const target = currentZDocumentIndex + offset;
-  if(target < 0 || target >= currentZDocuments.length) return;
-
-  currentZDocumentIndex = target;
-  void renderCurrentZDocument();
-}
-
-function resetZDocumentsViewerState(){
-  zDocumentsLoadToken += 1;
-  currentZDocuments = [];
-  currentZDocumentIndex = -1;
-  currentZViewerDocument = null;
-  zDocumentsDialogOpener = null;
-  currentZViewerContext = "generic";
-  closeZDocumentsFullscreen({restoreFocus: false});
-  renderZViewerState({message: "אין מסמך להצגה."});
-  updateZViewerNavigation();
-  clearZSignedUrlCache();
 }
 
 async function deleteZReport(zReportId){
@@ -8827,47 +8774,6 @@ $("zForm")?.addEventListener("reset", () => {
   syncIncomePaymentFields();
 });
 
-$("zDocumentsDialog")?.addEventListener("close", () => {
-  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-  if(
-    zDocumentsDialogOpener
-    && typeof zDocumentsDialogOpener.focus === "function"
-    && !zDocumentsDialogOpener.disabled
-    && !zDocumentsDialogOpener.classList.contains("hidden")
-  ){
-    zDocumentsDialogOpener.focus();
-  }
-  zDocumentsDialogOpener = null;
-  currentZViewerContext = "generic";
-  resetZDocumentsViewerState();
-});
-
-$("zDocumentsFullscreenDialog")?.addEventListener("close", () => {
-  if(
-    zDocumentsFullscreenOpener
-    && !zDocumentsFullscreenOpener.disabled
-    && !zDocumentsFullscreenOpener.classList.contains("hidden")
-  ){
-    zDocumentsFullscreenOpener.focus();
-  }
-  zDocumentsFullscreenOpener = null;
-});
-
-$("zDocumentsFullscreenDialog")?.addEventListener("cancel", event => {
-  event.preventDefault();
-  closeZDocumentsFullscreen();
-});
-
-$("zDocumentsPrev")?.addEventListener("click", () => navigateZDocumentsByOffset(-1));
-$("zDocumentsNext")?.addEventListener("click", () => navigateZDocumentsByOffset(1));
-$("zDocumentsFullscreenOpen")?.addEventListener("click", () => {
-  zDocumentsFullscreenOpener = $("zDocumentsFullscreenOpen") || null;
-  openZDocumentsFullscreen();
-});
-$("zDocumentsFullscreenClose")?.addEventListener("click", () => closeZDocumentsFullscreen());
-$("zDocumentsFullscreenPrev")?.addEventListener("click", () => navigateZDocumentsByOffset(-1));
-$("zDocumentsFullscreenNext")?.addEventListener("click", () => navigateZDocumentsByOffset(1));
-
 $("companyDocumentsManageButton")?.addEventListener("click", () => {
   setCompanyDocumentsManageStatus("", "");
   renderCompanyDocumentsManageList();
@@ -8897,6 +8803,13 @@ $("companyDocumentsManageForm")?.addEventListener("submit", event => {
 
 $("companyDocumentEditorForm")?.addEventListener("submit", event => {
   void saveCompanyDocumentEditorChanges(event);
+});
+
+$("companyDocumentEditorDialog")?.addEventListener("close", () => {
+  if(companyDocumentEditorOpener?.isConnected && !companyDocumentEditorOpener.disabled){
+    companyDocumentEditorOpener.focus();
+  }
+  companyDocumentEditorOpener = null;
 });
 
 $("companyDocumentsBrowseButton")?.addEventListener("click", event => {
@@ -9758,7 +9671,11 @@ $("expenseDetailsShareAction")?.addEventListener("click", () => {
 
 $("expenseDetailsExportPdfAction")?.addEventListener("click", () => {
   hideActionMenu("expenseDetailsShareMenu", "expenseDetailsShareMenuButton");
-  void runExpenseEntityAction("export");
+  openExportFormatDialog({
+    title: "ייצוא פרטי הוצאה",
+    formats: [{id:"pdf", label:"PDF", run:() => runExpenseEntityAction("export")}],
+    opener: $("expenseDetailsShareMenuButton")
+  });
 });
 
 $("expenseDetailsPrintAction")?.addEventListener("click", () => {
@@ -9773,27 +9690,16 @@ $("incomeDetailsShareAction")?.addEventListener("click", () => {
 
 $("incomeDetailsExportPdfAction")?.addEventListener("click", () => {
   hideActionMenu("incomeDetailsShareMenu", "incomeDetailsShareMenuButton");
-  void runIncomeEntityAction("export");
+  openExportFormatDialog({
+    title: "ייצוא פרטי הכנסה",
+    formats: [{id:"pdf", label:"PDF", run:() => runIncomeEntityAction("export")}],
+    opener: $("incomeDetailsShareMenuButton")
+  });
 });
 
 $("incomeDetailsPrintAction")?.addEventListener("click", () => {
   hideActionMenu("incomeDetailsShareMenu", "incomeDetailsShareMenuButton");
   void runIncomeEntityAction("print");
-});
-
-$("zDocumentsShareAction")?.addEventListener("click", () => {
-  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-  void runCurrentViewerDocumentAction("share");
-});
-
-$("zDocumentsExportAction")?.addEventListener("click", () => {
-  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-  void runCurrentViewerDocumentAction("export");
-});
-
-$("zDocumentsPrintAction")?.addEventListener("click", () => {
-  hideActionMenu("zDocumentsShareMenu", "zDocumentsShareMenuButton");
-  void runCurrentViewerDocumentAction("print");
 });
 
 document.querySelectorAll("[data-info-actions-menu]").forEach(menu => {
@@ -9807,9 +9713,58 @@ document.querySelectorAll("[data-info-actions-menu]").forEach(menu => {
       menu.classList.add("hidden");
       if(ownerButton) ownerButton.setAttribute("aria-expanded", "false");
 
+      if(actionType === "export"){
+        openExportFormatDialog({
+          title: "בחירת פורמט ייצוא",
+          formats: getReportExportFormats(menu),
+          opener: ownerButton
+        });
+        return;
+      }
+
       void runInformationScreenAction({menu, actionType});
     });
   });
+});
+
+$("exportFormatList")?.addEventListener("click", event => {
+  const button = event.target instanceof Element ? event.target.closest("[data-export-format-index]") : null;
+  if(!(button instanceof HTMLButtonElement)) return;
+  const format = pendingExportFormats[Number(button.dataset.exportFormatIndex)];
+  if(!format) return;
+  closeExportFormatDialog();
+  void format.run();
+});
+
+$("exportFormatDialogClose")?.addEventListener("click", () => closeExportFormatDialog());
+$("exportFormatDialog")?.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeExportFormatDialog();
+});
+
+$("sharedViewerShareAction")?.addEventListener("click", () => {
+  hideActionMenu("sharedViewerActionsMenu", "sharedViewerActionsButton");
+  void runSharedViewerDocumentAction("share");
+});
+
+$("sharedViewerExportAction")?.addEventListener("click", () => {
+  hideActionMenu("sharedViewerActionsMenu", "sharedViewerActionsButton");
+  openExportFormatDialog({
+    title: "ייצוא מסמך",
+    formats: [{id:"original", label:"הקובץ המקורי", run:() => runSharedViewerDocumentAction("export")}],
+    opener: $("sharedViewerActionsButton")
+  });
+});
+
+$("sharedViewerPrintAction")?.addEventListener("click", () => {
+  hideActionMenu("sharedViewerActionsMenu", "sharedViewerActionsButton");
+  void runSharedViewerDocumentAction("print");
+});
+
+$("sharedDocumentViewerClose")?.addEventListener("click", () => closeSharedDocumentViewer());
+$("sharedDocumentViewerDialog")?.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeSharedDocumentViewer();
 });
 
 document.addEventListener("click", event => {

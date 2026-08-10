@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260808-2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260810-1">
 </head>
 <body>
 
@@ -92,7 +92,7 @@
             data-info-actions-purpose="summary"
             data-info-actions-collector="collectHomeOverviewInfoReport">
             <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-            <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+            <button type="button" role="menuitem" data-info-action="export">ייצא</button>
             <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
           </div>
         </div>
@@ -166,9 +166,8 @@
               data-info-actions-purpose="report"
               data-info-actions-collector="collectExpensesInfoReport">
               <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-              <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+              <button type="button" role="menuitem" data-info-action="export">ייצא</button>
               <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
-              <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
             </div>
           </div>
         </div>
@@ -213,9 +212,8 @@
               data-info-actions-purpose="report"
               data-info-actions-collector="collectIncomeInfoReport">
               <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-              <button type="button" role="menuitem" data-info-action="export_pdf">ייצוא PDF</button>
+              <button type="button" role="menuitem" data-info-action="export">ייצא</button>
               <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
-              <button type="button" role="menuitem" data-info-action="export_csv">Excel / CSV</button>
             </div>
           </div>
         </div>
@@ -319,7 +317,7 @@
       </button>
       <div id="expenseDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הוצאה">
         <button id="expenseDetailsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="expenseDetailsExportPdfAction" type="button" role="menuitem">ייצוא PDF</button>
+        <button id="expenseDetailsExportPdfAction" type="button" role="menuitem">ייצא</button>
         <button id="expenseDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
@@ -530,7 +528,7 @@
       <button id="incomeDetailsShareMenuButton" class="row-action" type="button" data-action-menu-button="incomeDetailsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="incomeDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">⋮</button>
       <div id="incomeDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הכנסה">
         <button id="incomeDetailsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="incomeDetailsExportPdfAction" type="button" role="menuitem">ייצוא PDF</button>
+        <button id="incomeDetailsExportPdfAction" type="button" role="menuitem">ייצא</button>
         <button id="incomeDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
@@ -746,46 +744,34 @@
 
 <datalist id="incomeTypeSuggestionsList"></datalist>
 
-<dialog id="zDocumentsDialog" aria-labelledby="zDocumentsDialogTitle">
+<dialog id="sharedDocumentViewerDialog" class="shared-document-viewer" aria-labelledby="sharedDocumentViewerTitle">
   <div class="modal-head">
-    <strong id="zDocumentsDialogTitle">מסמכי דו״ח Z</strong>
+    <strong id="sharedDocumentViewerTitle">מסמך</strong>
     <div class="modal-head-actions action-menu-anchor">
-      <button data-close type="button" aria-label="סגירת חלון מסמכי דו״ח Z">✕</button>
-      <button id="zDocumentsShareMenuButton" type="button" class="viewer-overflow-button" data-action-menu-button="zDocumentsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="zDocumentsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה">⋮</button>
-      <div id="zDocumentsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
-        <button id="zDocumentsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="zDocumentsExportAction" type="button" role="menuitem">ייצוא PDF</button>
-        <button id="zDocumentsPrintAction" type="button" role="menuitem">הדפסה</button>
+      <button id="sharedDocumentViewerClose" type="button" aria-label="סגירת תצוגת מסמך">✕</button>
+      <button id="sharedViewerActionsButton" type="button" class="viewer-overflow-button" data-action-menu-button="sharedViewerActionsMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="sharedViewerActionsMenu" aria-label="פעולות שיתוף, ייצוא והדפסה">⋮</button>
+      <div id="sharedViewerActionsMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
+        <button id="sharedViewerShareAction" type="button" role="menuitem">שיתוף</button>
+        <button id="sharedViewerExportAction" type="button" role="menuitem">ייצא</button>
+        <button id="sharedViewerPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
   </div>
-  <div class="modal-body">
-    <section class="review-document-wrap" aria-label="תצוגת מסמכי דו״ח Z">
-      <div id="zDocumentsViewerPanel" class="review-document-panel">
-        <p class="review-document-state">אין מסמך להצגה.</p>
-      </div>
-    </section>
-    <div class="review-item-nav" aria-label="ניווט מסמכי דו״ח Z">
-      <button id="zDocumentsPrev" type="button" class="review-item-nav-arrow" aria-label="מסמך קודם" title="מסמך קודם">→</button>
-      <p id="zDocumentsPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
-      <button id="zDocumentsNext" type="button" class="review-item-nav-arrow" aria-label="מסמך הבא" title="מסמך הבא">←</button>
+  <div class="modal-body shared-document-viewer-body">
+    <div id="sharedDocumentViewerPanel" class="review-document-panel shared-document-viewer-panel">
+      <p class="review-document-state">אין מסמך להצגה.</p>
     </div>
+    <div id="sharedDocumentViewerStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
 </dialog>
 
-<dialog id="zDocumentsFullscreenDialog" aria-labelledby="zDocumentsFullscreenTitle">
+<dialog id="exportFormatDialog" aria-labelledby="exportFormatDialogTitle">
   <div class="modal-head">
-    <strong id="zDocumentsFullscreenTitle">מסמך דו״ח Z במסך מלא</strong>
-    <button id="zDocumentsFullscreenClose" type="button" aria-label="סגירת תצוגת מסך מלא">✕</button>
+    <strong id="exportFormatDialogTitle">ייצוא</strong>
+    <button id="exportFormatDialogClose" type="button" aria-label="סגירת בחירת פורמט ייצוא">✕</button>
   </div>
-  <div class="modal-body review-fullscreen-body">
-    <div id="zDocumentsFullscreenPageNav" class="review-fullscreen-page-nav hidden" aria-label="ניווט מסמכים במסך מלא">
-      <button id="zDocumentsFullscreenPrev" type="button" class="review-fullscreen-page-arrow review-fullscreen-page-arrow-prev" aria-label="המסמך הקודם" title="המסמך הקודם">‹</button>
-      <button id="zDocumentsFullscreenNext" type="button" class="review-fullscreen-page-arrow review-fullscreen-page-arrow-next" aria-label="המסמך הבא" title="המסמך הבא">›</button>
-    </div>
-    <div id="zDocumentsFullscreenContent" class="review-fullscreen-content">
-      <p class="review-document-state">אין מסמך להצגה.</p>
-    </div>
+  <div class="modal-body">
+    <div id="exportFormatList" class="export-format-list" aria-label="פורמטים זמינים"></div>
   </div>
 </dialog>
 
@@ -876,6 +862,6 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260808-2"></script>
+<script src="/static/js/app.js?v=20260810-1"></script>
 </body>
 </html>

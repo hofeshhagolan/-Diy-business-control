@@ -138,6 +138,7 @@ let expenseDocumentEditDeletedIds = new Set();
 let expenseDocumentEditAddedFiles = [];
 let pendingExpenseDocumentReplacementId = "";
 let pdfLibLoadPromise = null;
+let pdfJsLoadPromise = null;
 let html2CanvasLoadPromise = null;
 let currentExpensePackagePdfCache = {
   expenseId: "",
@@ -3114,7 +3115,92 @@ function renderSharedViewerState(message, isError = false){
   panel.appendChild(text);
 }
 
-function renderSharedViewerDocument(documentMeta){
+async function ensurePdfJs(){
+  if(window.pdfjsLib) return window.pdfjsLib;
+  if(pdfJsLoadPromise) return pdfJsLoadPromise;
+
+  pdfJsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.async = true;
+    script.onload = () => {
+      if(!window.pdfjsLib){
+        reject(new Error("טעינת תצוגת PDF נכשלה"));
+        return;
+      }
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("טעינת תצוגת PDF נכשלה"));
+    document.head.appendChild(script);
+  });
+
+  return pdfJsLoadPromise;
+}
+
+function renderSharedPdfFallback(documentMeta){
+  const panel = $("sharedDocumentViewerPanel");
+  if(!panel) return;
+  panel.innerHTML = "";
+  const fallback = document.createElement("div");
+  fallback.className = "shared-document-pdf-fallback";
+  const filename = document.createElement("strong");
+  filename.textContent = documentMeta.original_filename || "מסמך PDF";
+  const openLink = document.createElement("a");
+  openLink.className = "secondary";
+  openLink.href = documentMeta.signedUrl;
+  openLink.target = "_blank";
+  openLink.rel = "noopener";
+  openLink.textContent = "פתיחה";
+  fallback.append(filename, openLink);
+  panel.appendChild(fallback);
+}
+
+async function renderSharedPdfDocument(documentMeta, loadToken){
+  const panel = $("sharedDocumentViewerPanel");
+  if(!panel || !(documentMeta.previewBlob instanceof Blob)) return false;
+  const pdfjsLib = await ensurePdfJs();
+  if(loadToken !== sharedViewerLoadToken) return false;
+  const bytes = new Uint8Array(await documentMeta.previewBlob.arrayBuffer());
+  const loadingTask = pdfjsLib.getDocument({data:bytes});
+  const pdfDocument = await loadingTask.promise;
+  if(loadToken !== sharedViewerLoadToken){
+    await pdfDocument.destroy();
+    return false;
+  }
+
+  panel.innerHTML = "";
+  const pages = document.createElement("div");
+  pages.className = "shared-document-pdf-pages";
+  panel.appendChild(pages);
+
+  try {
+    for(let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1){
+      if(loadToken !== sharedViewerLoadToken) return false;
+      const page = await pdfDocument.getPage(pageNumber);
+      const baseViewport = page.getViewport({scale:1});
+      const availableWidth = Math.max(280, panel.clientWidth - 24);
+      const cssScale = Math.min(2, availableWidth / baseViewport.width);
+      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+      const viewport = page.getViewport({scale:cssScale * outputScale});
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d", {alpha:false});
+      if(!context) throw new Error("תצוגת PDF אינה זמינה");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      canvas.style.width = `${Math.ceil(viewport.width / outputScale)}px`;
+      canvas.style.height = `${Math.ceil(viewport.height / outputScale)}px`;
+      canvas.setAttribute("aria-label", `עמוד ${pageNumber} מתוך ${pdfDocument.numPages}`);
+      pages.appendChild(canvas);
+      await page.render({canvasContext:context, viewport}).promise;
+    }
+    return true;
+  } finally {
+    await pdfDocument.destroy();
+  }
+}
+
+async function renderSharedViewerDocument(documentMeta, loadToken){
   const panel = $("sharedDocumentViewerPanel");
   if(!panel) return;
   panel.innerHTML = "";
@@ -3129,16 +3215,14 @@ function renderSharedViewerDocument(documentMeta){
   }
 
   if(mimeType === "application/pdf"){
-    const frame = document.createElement("iframe");
-    frame.src = `${documentMeta.signedUrl}#page=1&view=FitH`;
-    frame.title = documentMeta.title || "מסמך PDF";
-    frame.loading = "lazy";
-    attachViewerFrameDebug(frame, {
-      storagePath: documentMeta.storage_path,
-      signedUrl: documentMeta.signedUrl,
-      mimeType
-    });
-    panel.appendChild(frame);
+    try {
+      await renderSharedPdfDocument(documentMeta, loadToken);
+    } catch(error){
+      if(loadToken !== sharedViewerLoadToken) return;
+      console.error("shared_pdf_preview_failed", error);
+      renderSharedPdfFallback(documentMeta);
+      setStatus($("sharedDocumentViewerStatus"), "לא ניתן להציג את ה-PDF בתוך האפליקציה. ניתן לפתוח אותו בחלון נפרד.", "error");
+    }
     return;
   }
 
@@ -3185,11 +3269,13 @@ async function loadSharedViewerDocument(index){
     const signedUrl = await createSignedUrlForStoragePath(storagePath, 300);
     if(loadToken !== sharedViewerLoadToken) return false;
     let previewUrl = signedUrl;
+    let previewBlob = null;
     if(mimeType === "application/pdf"){
       const pdfBlob = await fetchBlobFromSignedUrl(signedUrl);
       if(loadToken !== sharedViewerLoadToken) return false;
       currentSharedViewerObjectUrl = URL.createObjectURL(new Blob([pdfBlob], {type:"application/pdf"}));
       previewUrl = currentSharedViewerObjectUrl;
+      previewBlob = pdfBlob;
     }
     currentSharedViewerDocument = {
       ...documentMeta,
@@ -3197,9 +3283,11 @@ async function loadSharedViewerDocument(index){
       mime_type: mimeType,
       original_filename: String(documentMeta?.original_filename || "document").trim() || "document",
       title: documentTitle,
-      signedUrl: previewUrl
+      signedUrl: previewUrl,
+      previewBlob
     };
-    renderSharedViewerDocument(currentSharedViewerDocument);
+    await renderSharedViewerDocument(currentSharedViewerDocument, loadToken);
+    if(loadToken !== sharedViewerLoadToken) return false;
     updateSharedViewerNavigation();
     return true;
   } catch(error){
@@ -7190,7 +7278,80 @@ function getCurrentReportIdentity(){
   };
 }
 
+function measureReportTextWidth(value, {bold = false} = {}){
+  const canvas = measureReportTextWidth.canvas || (measureReportTextWidth.canvas = document.createElement("canvas"));
+  const context = canvas.getContext("2d");
+  if(!context) return String(value ?? "").length * 8;
+  context.font = `${bold ? "700" : "400"} 14px Arial, 'Noto Sans Hebrew', Rubik, sans-serif`;
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .reduce((maxWidth, line) => Math.max(maxWidth, context.measureText(line).width), 0);
+}
+
+function allocateReportColumnWidths(headers, rows, availableWidth){
+  const safeHeaders = Array.isArray(headers) ? headers : [];
+  if(!safeHeaders.length) return [];
+
+  const minimumWidth = Math.min(86, availableWidth / safeHeaders.length);
+  const maximumWidth = safeHeaders.length === 1
+    ? availableWidth
+    : Math.min(
+        availableWidth * 0.65,
+        Math.max(280, (availableWidth / safeHeaders.length) * 1.4)
+      );
+  const demands = safeHeaders.map((header, columnIndex) => {
+    const cellWidths = (Array.isArray(rows) ? rows : [])
+      .map(row => measureReportTextWidth(Array.isArray(row) ? row[columnIndex] : ""))
+      .sort((left, right) => left - right);
+    const averageWidth = cellWidths.length
+      ? cellWidths.reduce((sum, width) => sum + width, 0) / cellWidths.length
+      : 0;
+    const percentileWidth = cellWidths.length
+      ? cellWidths[Math.min(cellWidths.length - 1, Math.floor(cellWidths.length * 0.8))]
+      : 0;
+    const headerWidth = measureReportTextWidth(header, {bold:true});
+    return Math.max(headerWidth, (percentileWidth * 0.7) + (averageWidth * 0.3)) + 22;
+  });
+
+  const widths = new Array(safeHeaders.length).fill(minimumWidth);
+  let remainingWidth = Math.max(0, availableWidth - (minimumWidth * safeHeaders.length));
+  let activeColumns = demands.map((_, index) => index);
+
+  while(remainingWidth > 0.1 && activeColumns.length){
+    const totalDemand = activeColumns.reduce((sum, index) => sum + Math.max(1, demands[index]), 0);
+    let allocatedWidth = 0;
+    const nextActiveColumns = [];
+
+    activeColumns.forEach(index => {
+      const proportionalShare = remainingWidth * (Math.max(1, demands[index]) / totalDemand);
+      const capacity = maximumWidth - widths[index];
+      const addition = Math.min(capacity, proportionalShare);
+      widths[index] += addition;
+      allocatedWidth += addition;
+      if((capacity - addition) > 0.1) nextActiveColumns.push(index);
+    });
+
+    if(allocatedWidth <= 0.1) break;
+    remainingWidth -= allocatedWidth;
+    activeColumns = nextActiveColumns;
+  }
+
+  if(remainingWidth > 0.1){
+    const addition = remainingWidth / widths.length;
+    widths.forEach((width, index) => {
+      widths[index] = width + addition;
+    });
+  }
+
+  return widths.map(width => Math.round(width * 100) / 100);
+}
+
 function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, rowStartIndex, reportMeta}){
+  const columnWidths = Array.isArray(reportMeta?.columnWidths) ? reportMeta.columnWidths : [];
+  const columnMarkup = [
+    '<col style="width:56px">',
+    ...columnWidths.map(width => `<col style="width:${Number(width) || 0}px">`)
+  ].join("");
   const headerCells = (Array.isArray(headers) ? headers : [])
     .map(value => `<th>${escapeHtml(value)}</th>`)
     .join("");
@@ -7233,9 +7394,10 @@ function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, r
         <strong>מיון:</strong> ${escapeHtml(reportMeta?.sortDescription || "סדר המסך")}
       </div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;direction:rtl;">
+        <colgroup>${columnMarkup}</colgroup>
         <thead>
           <tr>
-            <th style="width:56px;">#</th>
+            <th>#</th>
             ${headerCells}
           </tr>
         </thead>
@@ -7244,7 +7406,7 @@ function createReportPageMarkup({title, headers, rows, pageNumber, totalPages, r
         </tbody>
       </table>
       <style>
-        th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:14px;line-height:1.35;word-break:break-word}
+        th,td{border:1px solid #dbe3ec;padding:8px;text-align:right;vertical-align:top;font-size:14px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;word-break:normal;overflow:hidden}
         th{background:#eef3f8;color:#102c4e;font-weight:700}
         tbody tr:nth-child(even){background:#f9fbfe}
         td.idx,th:first-child{text-align:center;white-space:nowrap}
@@ -7300,7 +7462,8 @@ async function createTablePdfBlob({title, headers, rows, filters = [], sortDescr
   const reportMeta = {
     ...getCurrentReportIdentity(),
     filters,
-    sortDescription
+    sortDescription,
+    columnWidths: allocateReportColumnWidths(headers, safeRows, 932)
   };
 
   for(let pageIndex = 0; pageIndex < totalPages; pageIndex += 1){

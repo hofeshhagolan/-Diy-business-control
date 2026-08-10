@@ -204,10 +204,12 @@ th{background:#eef3f8;color:var(--brand)}
 .viewer-overflow-button{min-width:36px;min-height:36px;border:0;border-radius:999px;background:transparent;color:#fff;font-size:1.35rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;z-index:1}
 .viewer-overflow-button:hover,.viewer-overflow-button:focus-visible{background:rgba(255,255,255,.14);outline:none}
 .shared-document-viewer{width:min(96vw,1100px);height:min(94vh,900px)}
-.shared-document-viewer-body{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0;height:calc(100% - 58px)}
+.shared-document-viewer-body{display:grid;grid-template-rows:minmax(0,1fr) auto auto;min-height:0;height:calc(100% - 58px)}
 .shared-document-viewer-panel{min-height:0;height:100%;border-radius:6px}
 .shared-document-viewer-panel img{width:100%;height:100%;max-height:none;object-fit:contain;background:#fff}
 .shared-document-viewer-panel iframe{width:100%;height:100%;min-height:0;border:0;background:#fff}
+.shared-document-viewer-navigation{display:flex;align-items:center;justify-content:center;gap:16px;min-height:48px}
+.shared-document-viewer-navigation span{min-width:72px;text-align:center;color:var(--muted);font-weight:700}
 
 #zTable .income-table{min-width:0;table-layout:fixed}
 #zTable .income-table th,

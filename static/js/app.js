@@ -30,6 +30,10 @@ let pendingZSuccessToastMessage = "";
 let currentZReportEditId = "";
 let currentZIncomeSource = "z_report";
 let currentSharedViewerDocument = null;
+let currentSharedViewerDocuments = [];
+let currentSharedViewerIndex = -1;
+let currentSharedViewerTitle = "מסמך";
+let currentSharedViewerObjectUrl = "";
 let sharedViewerOpener = null;
 let sharedViewerLoadToken = 0;
 let companyDocumentRows = [];
@@ -837,8 +841,7 @@ function getActiveExpenseReportFilters(){
 }
 
 function getReportSortDescription(definition, state){
-  const direction = state?.direction === "asc" ? "עולה" : "יורד";
-  return `${definition?.label || "ברירת מחדל"} (${direction})`;
+  return definition?.label || "ברירת מחדל";
 }
 
 function syncIncomeHeaderActions(){
@@ -3142,43 +3145,62 @@ function renderSharedViewerDocument(documentMeta){
   renderSharedViewerState("סוג הקובץ אינו נתמך", true);
 }
 
-async function openSharedDocumentViewer({documentMeta, title = "מסמך", statusElement = null, opener = null} = {}){
-  const storagePath = String(documentMeta?.storage_path || "").trim();
-  if(!storagePath){
-    if(statusElement) setStatus(statusElement, "לא נמצא קובץ", "error");
-    else showToast("לא נמצא קובץ", "error");
-    return false;
-  }
+function clearSharedViewerObjectUrl(){
+  if(!currentSharedViewerObjectUrl) return;
+  URL.revokeObjectURL(currentSharedViewerObjectUrl);
+  currentSharedViewerObjectUrl = "";
+}
 
+function updateSharedViewerNavigation(){
+  const total = currentSharedViewerDocuments.length;
+  const navigation = $("sharedDocumentViewerNavigation");
+  const previous = $("sharedDocumentViewerPrevious");
+  const next = $("sharedDocumentViewerNext");
+  const position = $("sharedDocumentViewerPosition");
+  const hasMultiple = total > 1;
+  navigation?.classList.toggle("hidden", !hasMultiple);
+  if(previous) previous.disabled = !hasMultiple || currentSharedViewerIndex <= 0;
+  if(next) next.disabled = !hasMultiple || currentSharedViewerIndex >= total - 1;
+  if(position) position.textContent = hasMultiple ? `${currentSharedViewerIndex + 1} מתוך ${total}` : "";
+}
+
+async function loadSharedViewerDocument(index){
+  const documentMeta = currentSharedViewerDocuments[index];
+  if(!documentMeta) return false;
+  const storagePath = String(documentMeta.storage_path || "").trim();
   const mimeType = resolveStoredDocumentMimeType(documentMeta);
-  if(!mimeType.startsWith("image/") && mimeType !== "application/pdf"){
-    if(statusElement) setStatus(statusElement, "סוג הקובץ אינו נתמך", "error");
-    else showToast("סוג הקובץ אינו נתמך", "error");
-    return false;
-  }
-
-  if(statusElement) setStatus(statusElement, "", "");
-  const dialog = $("sharedDocumentViewerDialog");
-  if(!dialog) return false;
   const loadToken = ++sharedViewerLoadToken;
-  sharedViewerOpener = opener instanceof HTMLElement ? opener : null;
+  currentSharedViewerIndex = index;
   currentSharedViewerDocument = null;
-  if($("sharedDocumentViewerTitle")) $("sharedDocumentViewerTitle").textContent = title;
+  clearSharedViewerObjectUrl();
+  const documentTitle = currentSharedViewerDocuments.length > 1
+    ? String(documentMeta.original_filename || currentSharedViewerTitle).trim() || currentSharedViewerTitle
+    : currentSharedViewerTitle;
+  if($("sharedDocumentViewerTitle")) $("sharedDocumentViewerTitle").textContent = documentTitle;
   renderSharedViewerState("טוען מסמך...");
-  dialog.showModal();
+  setStatus($("sharedDocumentViewerStatus"), "", "");
+  updateSharedViewerNavigation();
 
   try {
     const signedUrl = await createSignedUrlForStoragePath(storagePath, 300);
     if(loadToken !== sharedViewerLoadToken) return false;
+    let previewUrl = signedUrl;
+    if(mimeType === "application/pdf"){
+      const pdfBlob = await fetchBlobFromSignedUrl(signedUrl);
+      if(loadToken !== sharedViewerLoadToken) return false;
+      currentSharedViewerObjectUrl = URL.createObjectURL(new Blob([pdfBlob], {type:"application/pdf"}));
+      previewUrl = currentSharedViewerObjectUrl;
+    }
     currentSharedViewerDocument = {
       ...documentMeta,
       storage_path: storagePath,
       mime_type: mimeType,
       original_filename: String(documentMeta?.original_filename || "document").trim() || "document",
-      title,
-      signedUrl
+      title: documentTitle,
+      signedUrl: previewUrl
     };
     renderSharedViewerDocument(currentSharedViewerDocument);
+    updateSharedViewerNavigation();
     return true;
   } catch(error){
     if(loadToken !== sharedViewerLoadToken) return false;
@@ -3188,9 +3210,45 @@ async function openSharedDocumentViewer({documentMeta, title = "מסמך", statu
   }
 }
 
+async function openSharedDocumentViewer({documentMeta, documents = null, initialIndex = 0, title = "מסמך", statusElement = null, opener = null} = {}){
+  const sourceDocuments = Array.isArray(documents) ? documents : [documentMeta];
+  const safeDocuments = sourceDocuments.filter(item => String(item?.storage_path || "").trim());
+  if(!safeDocuments.length){
+    if(statusElement) setStatus(statusElement, "לא נמצא קובץ", "error");
+    else showToast("לא נמצא קובץ", "error");
+    return false;
+  }
+  const selectedIndex = Math.min(Math.max(Number(initialIndex) || 0, 0), safeDocuments.length - 1);
+  const selectedMimeType = resolveStoredDocumentMimeType(safeDocuments[selectedIndex]);
+  if(!selectedMimeType.startsWith("image/") && selectedMimeType !== "application/pdf"){
+    if(statusElement) setStatus(statusElement, "סוג הקובץ אינו נתמך", "error");
+    else showToast("סוג הקובץ אינו נתמך", "error");
+    return false;
+  }
+
+  if(statusElement) setStatus(statusElement, "", "");
+  const dialog = $("sharedDocumentViewerDialog");
+  if(!dialog) return false;
+  currentSharedViewerDocuments = safeDocuments;
+  currentSharedViewerTitle = title;
+  sharedViewerOpener = opener instanceof HTMLElement ? opener : null;
+  dialog.showModal();
+  return loadSharedViewerDocument(selectedIndex);
+}
+
+function navigateSharedViewer(offset){
+  const nextIndex = currentSharedViewerIndex + offset;
+  if(nextIndex < 0 || nextIndex >= currentSharedViewerDocuments.length) return;
+  void loadSharedViewerDocument(nextIndex);
+}
+
 function closeSharedDocumentViewer({restoreFocus = true} = {}){
   sharedViewerLoadToken += 1;
+  clearSharedViewerObjectUrl();
   currentSharedViewerDocument = null;
+  currentSharedViewerDocuments = [];
+  currentSharedViewerIndex = -1;
+  updateSharedViewerNavigation();
   const dialog = $("sharedDocumentViewerDialog");
   if(dialog?.open) dialog.close();
   if(restoreFocus && sharedViewerOpener && !sharedViewerOpener.disabled) sharedViewerOpener.focus();
@@ -7801,6 +7859,8 @@ function renderExpenseDetailsDocuments(documents){
       const documentMeta = currentExpenseDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
       void openSharedDocumentViewer({
         documentMeta,
+        documents: currentExpenseDetailsDocuments,
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
         title: documentMeta?.original_filename || "מסמך הוצאה",
         statusElement: $("expenseStatus"),
         opener: button
@@ -7876,6 +7936,8 @@ function renderExpenseDocumentEditList(){
       const documentMeta = currentExpenseDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
       void openSharedDocumentViewer({
         documentMeta,
+        documents: currentExpenseDetailsDocuments,
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
         title: documentMeta?.original_filename || "מסמך הוצאה",
         statusElement: $("expenseStatus"),
         opener: button
@@ -8410,6 +8472,8 @@ function renderIncomeDetailsDocuments(documents){
       const documentMeta = currentIncomeDetailsDocuments[Number.isFinite(requestedIndex) ? requestedIndex : 0];
       void openSharedDocumentViewer({
         documentMeta,
+        documents: currentIncomeDetailsDocuments,
+        initialIndex: Number.isFinite(requestedIndex) ? requestedIndex : 0,
         title: documentMeta?.original_filename || "מסמך הכנסה",
         statusElement: $("zStatus"),
         opener: button
@@ -9762,6 +9826,8 @@ $("sharedViewerPrintAction")?.addEventListener("click", () => {
 });
 
 $("sharedDocumentViewerClose")?.addEventListener("click", () => closeSharedDocumentViewer());
+$("sharedDocumentViewerPrevious")?.addEventListener("click", () => navigateSharedViewer(-1));
+$("sharedDocumentViewerNext")?.addEventListener("click", () => navigateSharedViewer(1));
 $("sharedDocumentViewerDialog")?.addEventListener("cancel", event => {
   event.preventDefault();
   closeSharedDocumentViewer();

@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260810-1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260810-2">
 </head>
 <body>
 
@@ -761,6 +761,11 @@
     <div id="sharedDocumentViewerPanel" class="review-document-panel shared-document-viewer-panel">
       <p class="review-document-state">אין מסמך להצגה.</p>
     </div>
+    <div id="sharedDocumentViewerNavigation" class="shared-document-viewer-navigation hidden" aria-label="ניווט בין מסמכים">
+      <button id="sharedDocumentViewerPrevious" type="button" class="review-item-nav-arrow" aria-label="המסמך הקודם" title="המסמך הקודם">→</button>
+      <span id="sharedDocumentViewerPosition" aria-live="polite" aria-atomic="true"></span>
+      <button id="sharedDocumentViewerNext" type="button" class="review-item-nav-arrow" aria-label="המסמך הבא" title="המסמך הבא">←</button>
+    </div>
     <div id="sharedDocumentViewerStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
 </dialog>
@@ -862,6 +867,6 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260810-1"></script>
+<script src="/static/js/app.js?v=20260810-2"></script>
 </body>
 </html>

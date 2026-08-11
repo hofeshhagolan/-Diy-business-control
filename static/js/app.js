@@ -43,6 +43,7 @@ let companyDocumentDraggedId = "";
 let currentCompanyDocumentEditTarget = null;
 let companyDocumentEditorOpener = null;
 let toastHideTimer = null;
+let projectRows = [];
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
@@ -69,6 +70,7 @@ const DEFAULT_EXPENSE_FILTER_STATE = Object.freeze({
   supplier:"",
   accountingTypeId:"",
   paymentSourceId:"",
+  projectId:"",
   documentDateFrom:"",
   documentDateTo:""
 });
@@ -84,7 +86,8 @@ const EXPENSE_SORT_FIELD_DEFINITIONS = Object.freeze([
   {key:"amount", label:"סכום", hint:"מיון מספרי"},
   {key:"supplier", label:"ספק", hint:"מיון אלפביתי"},
   {key:"accounting_type", label:"סוג חשבונאי", hint:"מיון אלפביתי"},
-  {key:"payment_source", label:"מקור תשלום", hint:"מיון אלפביתי"}
+  {key:"payment_source", label:"מקור תשלום", hint:"מיון אלפביתי"},
+  {key:"project", label:"פרויקט", hint:"מיון אלפביתי"}
 ]);
 const INCOME_FILTER_SOURCE_OPTIONS = Object.freeze([
   {value:"", label:"הכל"},
@@ -101,7 +104,7 @@ const INCOME_DIALOG_MODES = Object.freeze({
 const ACTIVE_VIEW_KEY = "activeView";
 const VIEW_HISTORY_STATE_KEY = "appView";
 const ROOT_VIEW_ID = "homeView";
-const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","companyDocumentsView","teamView","alView"];
+const AVAILABLE_VIEWS = ["homeView","expensesView","incomeView","financeView","companyDocumentsView","informationRepositoryView","projectsView","projectCardView","teamView","alView"];
 const DEFAULT_COMPANY_DOCUMENTS = Object.freeze([
   {key:"certificate_of_incorporation", label:"תעודת התאגדות"},
   {key:"withholding_tax_certificate", label:"אישור ניכוי מס במקור"},
@@ -180,6 +183,7 @@ const hideLoading = () => $("loadingScreen")?.classList.add("hidden");
 const getSavedViewId = () => {
   try {
     const viewId = sessionStorage.getItem(ACTIVE_VIEW_KEY);
+    if(viewId === "projectCardView") return "projectsView";
     return AVAILABLE_VIEWS.includes(viewId) ? viewId : null;
   } catch {
     return null;
@@ -188,7 +192,8 @@ const getSavedViewId = () => {
 
 const saveActiveViewId = viewId => {
   if(!AVAILABLE_VIEWS.includes(viewId)) return;
-  try { sessionStorage.setItem(ACTIVE_VIEW_KEY, viewId); } catch {}
+  const persistedViewId = viewId === "projectCardView" ? "projectsView" : viewId;
+  try { sessionStorage.setItem(ACTIVE_VIEW_KEY, persistedViewId); } catch {}
 };
 
 const clearSavedViewId = () => {
@@ -477,6 +482,8 @@ function normalizeExpenseReportRow(row){
     accountingTypeName: String(row?.accounting_types?.name || "").trim(),
     paymentSourceIdValue: String(row?.payment_source_id || "").trim(),
     paymentSourceName: String(row?.payment_sources?.name || "").trim(),
+    projectIdValue: String(row?.project_id || row?.projects?.id || "").trim(),
+    projectName: String(row?.projects?.name || "").trim(),
     documentsCount: Array.isArray(row?.expense_documents) ? row.expense_documents.length : 0,
     raw: row
   };
@@ -556,6 +563,8 @@ function getExpenseSortValue(row, fieldKey){
       return row.accountingTypeName || "";
     case "payment_source":
       return row.paymentSourceName || "";
+    case "project":
+      return row.projectName || "";
     default:
       return row.documentDateTime || row.grossValue || row.supplierName || row.accountingTypeName || row.paymentSourceName || "";
   }
@@ -583,6 +592,7 @@ function matchesExpenseFilters(row){
   if(!supplierMatchesSearch(row.supplierName || "", filters.supplier || "")) return false;
   if(filters.accountingTypeId && row.accountingTypeIdValue !== filters.accountingTypeId) return false;
   if(filters.paymentSourceId && row.paymentSourceIdValue !== filters.paymentSourceId) return false;
+  if(filters.projectId && row.projectIdValue !== filters.projectId) return false;
   if(filters.documentDateFrom && row.documentDate && row.documentDate < filters.documentDateFrom) return false;
   if(filters.documentDateTo && row.documentDate && row.documentDate > filters.documentDateTo) return false;
   return true;
@@ -593,6 +603,7 @@ function hasActiveExpenseFilters(){
     String(expenseFilterState.supplier || "").trim()
     || expenseFilterState.accountingTypeId
     || expenseFilterState.paymentSourceId
+    || expenseFilterState.projectId
     || expenseFilterState.documentDateFrom
     || expenseFilterState.documentDateTo
   );
@@ -613,6 +624,7 @@ function applyExpenseFiltersToQuery(query, filters = expenseFilterState){
   let nextQuery = query;
   if(filters.accountingTypeId) nextQuery = nextQuery.eq("accounting_type_id", filters.accountingTypeId);
   if(filters.paymentSourceId) nextQuery = nextQuery.eq("payment_source_id", filters.paymentSourceId);
+  if(filters.projectId) nextQuery = nextQuery.eq("project_id", filters.projectId);
   if(filters.documentDateFrom) nextQuery = nextQuery.gte("document_date", filters.documentDateFrom);
   if(filters.documentDateTo) nextQuery = nextQuery.lte("document_date", filters.documentDateTo);
   return nextQuery;
@@ -636,6 +648,10 @@ function applyExpenseSortToQuery(query, sortState = expenseSortState){
     case "payment_source":
       return query
         .order("name", {foreignTable:"payment_sources", ascending, nullsFirst:false})
+        .order("id", {ascending, nullsFirst:false});
+    case "project":
+      return query
+        .order("name", {foreignTable:"projects", ascending, nullsFirst:false})
         .order("id", {ascending, nullsFirst:false});
     case "document_date":
     default:
@@ -662,6 +678,8 @@ async function fetchAllExpensesReportRows(){
         accounting_types(name),
         payment_source_id,
         payment_sources(name),
+        project_id,
+        projects(id,name),
         expense_documents(id,storage_path,document_type,page_number)
       `)
       .eq("user_id",userId)));
@@ -719,7 +737,7 @@ async function collectExpensesInfoReport(){
   return {
     title: "דוח הוצאות",
     filenameBase: `expenses-report-${today()}`,
-    headers: ["תאריך", "סכום", "חיוב / זיכוי", "ספק", "סוג חשבונאי", "מקור תשלום", "מסמכים"],
+    headers: ["תאריך", "סכום", "חיוב / זיכוי", "ספק", "סוג חשבונאי", "מקור תשלום", "פרויקט", "מסמכים"],
     filters: getActiveExpenseReportFilters(),
     sortDescription: getReportSortDescription(getExpenseSortDefinition(expenseSortState.field), expenseSortState),
     rows: rows.map(row => [
@@ -729,6 +747,7 @@ async function collectExpensesInfoReport(){
       row.supplierName || "",
       row.accountingTypeName || "",
       row.paymentSourceName || "",
+      row.projectName || "",
       String(row.documentsCount || 0)
     ])
   };
@@ -777,9 +796,7 @@ function getIncomeProjectLabel(projectId){
   const safeProjectId = String(projectId || "").trim();
   if(!safeProjectId) return "הכל";
 
-  const projectSelect = $("zProject");
-  const option = Array.from(projectSelect?.options || []).find(item => item.value === safeProjectId);
-  return option?.textContent?.trim() || "פרויקט";
+  return getProjectById(safeProjectId)?.name || "פרויקט";
 }
 
 function getSelectOptionLabel(selectId, value, fallback = "הכל"){
@@ -808,6 +825,8 @@ function getExpenseFilterSummaryText(key, value){
       return getSelectOptionLabel("expenseAccountingType", value, "הכל");
     case "paymentSourceId":
       return getSelectOptionLabel("expensePaymentSource", value, "הכל");
+    case "projectId":
+      return getIncomeProjectLabel(value);
     default:
       return value;
   }
@@ -833,6 +852,7 @@ function getActiveExpenseReportFilters(){
     supplier: "ספק",
     accountingTypeId: "סוג חשבונאי",
     paymentSourceId: "מקור תשלום",
+    projectId: "פרויקט",
     documentDateFrom: "תאריך מסמך מ",
     documentDateTo: "תאריך מסמך עד"
   };
@@ -952,6 +972,7 @@ function renderExpenseFilterChips(){
     ["supplier", String(expenseFilterState.supplier || "").trim()],
     ["accountingTypeId", expenseFilterState.accountingTypeId],
     ["paymentSourceId", expenseFilterState.paymentSourceId],
+    ["projectId", expenseFilterState.projectId],
     ["documentDateFrom", expenseFilterState.documentDateFrom],
     ["documentDateTo", expenseFilterState.documentDateTo]
   ];
@@ -963,6 +984,7 @@ function renderExpenseFilterChips(){
         supplier: "ספק",
         accountingTypeId: "סוג חשבונאי",
         paymentSourceId: "מקור תשלום",
+        projectId: "פרויקט",
         documentDateFrom: "תאריך מסמך מ",
         documentDateTo: "תאריך מסמך עד"
       };
@@ -1058,13 +1080,10 @@ function syncIncomeFilterDialogFromState(nextDraft = null){
 
   const projectSelect = $("incomeFilterProject");
   if(projectSelect){
-    const sourceSelect = $("zProject");
-    const projectOptions = Array.from(sourceSelect?.options || []);
-    projectSelect.innerHTML = projectOptions.length
-      ? projectOptions.map(option => `
-        <option value="${String(option.value || "").replace(/"/g, "&quot;")}">${String(option.textContent || "").replace(/"/g, "&quot;")}</option>
-      `).join("")
-      : '<option value="">כל הפרויקטים</option>';
+    populateProjectSelect(projectSelect, {
+      mode: "filter",
+      selectedProjectId: incomeFilterDraft.projectId
+    });
     projectSelect.value = incomeFilterDraft.projectId || "";
   }
 
@@ -1095,6 +1114,11 @@ function syncExpenseFilterDialogFromState(nextDraft = null){
       .join("") || '<option value="">הכל</option>';
     paymentSourceSelect.value = expenseFilterDraft.paymentSourceId || "";
   }
+
+  populateProjectSelect($("expenseFilterProject"), {
+    mode: "filter",
+    selectedProjectId: expenseFilterDraft.projectId
+  });
 
   if($("expenseFilterSupplier")) $("expenseFilterSupplier").value = expenseFilterDraft.supplier || "";
   if($("expenseFilterDateFrom")) $("expenseFilterDateFrom").value = expenseFilterDraft.documentDateFrom || "";
@@ -3818,7 +3842,10 @@ function populateZDialogFromReport(report){
   $("zTime").value = safeReport.report_time || currentTime();
   $("zTotal").value = safeReport.total_income_ils == null ? "" : Number(safeReport.total_income_ils || 0).toFixed(2);
   $("zIncomeType").value = normalizeIncomeType(safeReport.income_type);
-  $("zProject").value = safeReport.project_id || "";
+  populateProjectSelect($("zProject"), {
+    mode: "assignment",
+    selectedProjectId: safeReport.project_id
+  });
   $("zPaymentMethod").value = safeReport.payment_method_id || "";
   $("zReferenceNumber").value = safeReport.reference_number || "";
   $("zNotes").value = safeReport.notes || "";
@@ -6770,8 +6797,6 @@ async function loadLookups(){
   const lookups = [
     ["accounting_types","expenseAccountingType"],
     ["categories","expenseCategory"],
-    ["projects","expenseProject"],
-    ["projects","zProject"],
     ["payment_sources","expensePaymentSource"],
     ["payment_methods","expensePaymentMethod"],
     ["payment_methods","zPaymentMethod"]
@@ -6794,16 +6819,61 @@ async function loadLookups(){
     $(id).innerHTML = '<option value="">ללא בחירה</option>' + items.map(x => `<option value="${x.id}">${x.name}</option>`).join("");
   }
 
+  await loadProjectsLookup();
+
   const {data:settings} = await sb.from("business_settings")
     .select("*")
     .eq("user_id",userId)
     .maybeSingle();
 
   if(settings){
-    $("expenseProject").value = settings.default_project_id || "";
-    $("zProject").value = settings.default_project_id || "";
     $("expenseAccountingType").value = settings.default_accounting_type_id || "";
   }
+}
+
+function getProjectById(projectId){
+  const safeProjectId = String(projectId || "").trim();
+  return projectRows.find(project => String(project?.id || "") === safeProjectId) || null;
+}
+
+function populateProjectSelect(select, {mode = "assignment", selectedProjectId = ""} = {}){
+  if(!select) return;
+  const selectedId = String(selectedProjectId || "").trim();
+  const selectedProject = getProjectById(selectedId);
+  const availableProjects = mode === "filter"
+    ? projectRows
+    : projectRows.filter(project => project.is_active || project.id === selectedId);
+  const emptyLabel = mode === "filter" ? "כל הפרויקטים" : "בחרי פרויקט";
+
+  select.innerHTML = `<option value="">${emptyLabel}</option>` + availableProjects.map(project => {
+    const inactiveLabel = project.is_active ? "" : " (לא פעיל)";
+    return `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${inactiveLabel}</option>`;
+  }).join("");
+  select.value = selectedProject ? selectedId : "";
+}
+
+function syncProjectAssignmentSelects({expenseProjectId = "", incomeProjectId = ""} = {}){
+  populateProjectSelect($("expenseProject"), {
+    mode: "assignment",
+    selectedProjectId: expenseProjectId
+  });
+  populateProjectSelect($("zProject"), {
+    mode: "assignment",
+    selectedProjectId: incomeProjectId
+  });
+}
+
+async function loadProjectsLookup(){
+  const {data, error} = await sb.from("projects")
+    .select("id,user_id,name,description,notes,is_default,is_general,is_active,sort_order,profile_storage_path,profile_original_filename,profile_mime_type,created_at,updated_at")
+    .eq("user_id", userId)
+    .order("sort_order", {ascending:true})
+    .order("name", {ascending:true});
+
+  if(error) throw error;
+  projectRows = Array.isArray(data) ? data : [];
+  syncProjectAssignmentSelects();
+  if(typeof renderProjectsList === "function") renderProjectsList();
 }
 
 async function loadDashboard(){
@@ -7505,7 +7575,8 @@ async function runInformationScreenAction({menu, actionType}){
   const collectors = {
     collectHomeOverviewInfoReport,
     collectIncomeInfoReport,
-    collectExpensesInfoReport
+    collectExpensesInfoReport,
+    collectProjectCardInfoReport
   };
   const collector = collectors[collectorName];
   if(typeof collector !== "function") return;
@@ -7944,7 +8015,10 @@ function populateExpenseFormFromExistingExpense(expenseRecord){
   $("expenseDebitCredit").value = debitCreditValue;
   $("expenseAccountingType").value = expenseRecord.accounting_type_id || "";
   $("expenseCategory").value = expenseRecord.category_id || "";
-  $("expenseProject").value = expenseRecord.project_id || "";
+  populateProjectSelect($("expenseProject"), {
+    mode: "assignment",
+    selectedProjectId: expenseRecord.project_id
+  });
   $("expensePaymentSource").value = expenseRecord.payment_source_id || "";
   $("expensePaymentMethod").value = expenseRecord.payment_method_id || "";
   $("expenseDescription").value = expenseRecord.description || "";
@@ -8319,6 +8393,8 @@ async function loadExpenses(){
       accounting_types(name),
       payment_source_id,
       payment_sources(name),
+      project_id,
+      projects(id,name),
       expense_documents(id,storage_path,document_type,page_number)
     `)
     .eq("user_id",userId)))
@@ -8358,6 +8434,7 @@ function renderExpensesList(){
           <th scope="col">ספק</th>
           <th scope="col">סוג חשבונאי</th>
           <th scope="col">מקור תשלום</th>
+          <th scope="col">פרויקט</th>
         </tr>
       </thead>
       <tbody>
@@ -8387,6 +8464,7 @@ function renderExpensesList(){
             <td>${row.supplierName || ""}</td>
             <td>${row.accountingTypeName || ""}</td>
             <td>${row.paymentSourceName || ""}</td>
+            <td>${row.projectName || ""}</td>
           </tr>
         `;
         }).join("")}
@@ -8916,6 +8994,7 @@ function openNewIncomeDialog({source = Z_REPORT_INCOME_SOURCE} = {}){
   currentIncomeDetailsOpener = null;
   currentZIncomeSource = normalizeIncomeSource(source);
   $("zForm")?.reset();
+  populateProjectSelect($("zProject"), {mode: "assignment"});
   $("zDate").value = today();
   $("zTime").value = currentTime();
   $("zIncomeType").value = Z_INCOME_TYPE_DEFAULT;
@@ -9171,6 +9250,10 @@ $("expenseFilterPaymentSource")?.addEventListener("change", event => {
   expenseFilterDraft.paymentSourceId = event.target.value || "";
 });
 
+$("expenseFilterProject")?.addEventListener("change", event => {
+  expenseFilterDraft.projectId = event.target.value || "";
+});
+
 $("expenseFilterDateFrom")?.addEventListener("change", event => {
   expenseFilterDraft.documentDateFrom = event.target.value || "";
 });
@@ -9345,6 +9428,7 @@ function resetExpenseDialogState(){
   $("multiCameraInput").value = "";
   $("browseInput").value = "";
   clearExpenseInvoiceDerivedFields();
+  populateProjectSelect($("expenseProject"), {mode: "assignment"});
   if($("expenseDebitCredit")) $("expenseDebitCredit").value = "חיוב";
   renderSelectedFiles();
   setExpenseDialogPrimaryState(EXPENSE_DIALOG_PRIMARY_STATES.UPLOAD);
@@ -10014,6 +10098,7 @@ $("expenseAssetFollowupDismissButton")?.addEventListener("click", () => {
 
 function validateExpenseFormBeforeSave(){
   const accountingTypeField = $("expenseAccountingType");
+  const projectField = $("expenseProject");
   const dateField = $("expenseDate");
   const supplierField = $("expenseSupplier");
   const grossField = $("expenseGross");
@@ -10021,6 +10106,13 @@ function validateExpenseFormBeforeSave(){
   if(!accountingTypeField.value){
     setFieldInvalid(accountingTypeField, "סוג חשבונאי הוא שדה חובה");
     accountingTypeField.focus();
+    setStatus($("expenseStatus"), "", "");
+    return null;
+  }
+
+  if(!projectField.value){
+    setFieldInvalid(projectField, "פרויקט הוא שדה חובה");
+    projectField.focus();
     setStatus($("expenseStatus"), "", "");
     return null;
   }

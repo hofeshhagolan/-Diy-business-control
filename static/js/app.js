@@ -3202,7 +3202,6 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {
   pages.className = "shared-document-pdf-pages";
   panel.appendChild(pages);
   let pageNavigation = null;
-  let pagePosition = null;
   let previousButton = null;
   let nextButton = null;
   const canvases = [];
@@ -3210,7 +3209,6 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {
   const showPage = pageIndex => {
     const activeIndex = Math.min(Math.max(0, pageIndex), canvases.length - 1);
     canvases.forEach((canvas, index) => canvas.classList.toggle("hidden", index !== activeIndex));
-    if(pagePosition) pagePosition.textContent = `עמוד ${activeIndex + 1} מתוך ${canvases.length}`;
     if(previousButton) previousButton.disabled = activeIndex <= 0;
     if(nextButton) nextButton.disabled = activeIndex >= canvases.length - 1;
     if(pageNavigation) pageNavigation.dataset.pageIndex = String(activeIndex);
@@ -3221,19 +3219,18 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {
     pageNavigation.className = "shared-document-pdf-navigation";
     previousButton = document.createElement("button");
     previousButton.type = "button";
-    previousButton.className = "secondary icon-only";
+    previousButton.className = "secondary icon-only pdf-page-previous";
     previousButton.textContent = "→";
     previousButton.setAttribute("aria-label", "העמוד הקודם");
-    pagePosition = document.createElement("span");
-    pagePosition.setAttribute("aria-live", "polite");
     nextButton = document.createElement("button");
     nextButton.type = "button";
-    nextButton.className = "secondary icon-only";
+    nextButton.className = "secondary icon-only pdf-page-next";
     nextButton.textContent = "←";
     nextButton.setAttribute("aria-label", "העמוד הבא");
     previousButton.addEventListener("click", () => showPage(Number(pageNavigation.dataset.pageIndex || 0) - 1));
     nextButton.addEventListener("click", () => showPage(Number(pageNavigation.dataset.pageIndex || 0) + 1));
-    pageNavigation.append(previousButton, pagePosition, nextButton);
+    pageNavigation.append(previousButton, nextButton);
+    panel.appendChild(pageNavigation);
     if(typeof onOpenFullscreen === "function"){
       const fullscreenButton = document.createElement("button");
       fullscreenButton.type = "button";
@@ -3241,9 +3238,8 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {
       fullscreenButton.textContent = "⛶";
       fullscreenButton.setAttribute("aria-label", "פתחי את המסמך במסך מלא");
       fullscreenButton.addEventListener("click", event => onOpenFullscreen(event.currentTarget));
-      pageNavigation.appendChild(fullscreenButton);
+      panel.appendChild(fullscreenButton);
     }
-    panel.appendChild(pageNavigation);
   }
 
   try {
@@ -3270,7 +3266,10 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {
       canvases.push(canvas);
       await page.render({canvasContext:context, viewport}).promise;
     }
-    if(paginate) showPage(0);
+    if(paginate){
+      showPage(0);
+      pageNavigation?.classList.toggle("hidden", canvases.length <= 1);
+    }
     return true;
   } finally {
     await pdfDocument.destroy();
@@ -6111,7 +6110,7 @@ async function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   }
 
   const remainingRows = expenseReviewRows.filter(row => row.scanItemId !== savedScanItemId);
-  const nextRow = remainingRows[savedIndex] || null;
+  const nextRow = remainingRows[savedIndex] || remainingRows[savedIndex - 1] || null;
 
   expenseReviewRows = remainingRows;
 
@@ -6339,8 +6338,8 @@ async function reconcileExpenseReviewRowsAfterSave(batchId){
   }
 
   activeExpenseReviewContext = null;
-  hideExpenseReviewContext();
   renderExpenseReviewList(reconciledRows);
+  await openExpenseReviewItem(reconciledRows[0]);
 }
 
 async function loadExpenseReviewItemData(row, loadToken){
@@ -10586,14 +10585,13 @@ $("expenseForm").onsubmit = async event => {
       return;
     }
 
-    let openedNextExpenseReviewItem = false;
     if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
       event.target.reset();
       selectedFiles = [];
       clearLocalFileObjectUrls();
 
       try {
-        openedNextExpenseReviewItem = await removeSavedExpenseReviewItemAndOpenNext(
+        await removeSavedExpenseReviewItemAndOpenNext(
           reviewContextSnapshot.scanItemId
         );
       } catch(uiError){
@@ -10605,9 +10603,9 @@ $("expenseForm").onsubmit = async event => {
       } catch(syncError){
         console.error(syncError);
       }
-    }
-
-    if(openedNextExpenseReviewItem){
+      if(currentExpenseDialogPrimaryState === EXPENSE_DIALOG_PRIMARY_STATES.PENDING_REVIEW_LIST){
+        setStatus($("expenseStatus"), "החשבונית נשמרה", "ok");
+      }
       return;
     }
 

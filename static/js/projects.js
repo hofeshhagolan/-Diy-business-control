@@ -217,7 +217,6 @@ function renderProjectCard(){
   const statusBadge = $("projectCardStatusBadge");
   statusBadge.textContent = project.is_active ? "פעיל" : "לא פעיל";
   statusBadge.classList.toggle("is-active", Boolean(project.is_active));
-  $("projectIdentityStatusValue").textContent = project.is_active ? "פעיל" : "לא פעיל";
   const isDefault = project.id === defaultProjectId;
   $("projectCardDefaultBadge").classList.toggle("hidden", !isDefault);
   $("projectSetDefaultButton").classList.toggle(

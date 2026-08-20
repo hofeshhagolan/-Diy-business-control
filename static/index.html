@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260820-4">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260820-5">
 </head>
 <body>
 
@@ -316,10 +316,6 @@
           <div id="projectCardProfile" class="project-profile project-profile-large" aria-hidden="true">פ</div>
           <div>
             <h2 id="projectCardName">פרויקט</h2>
-            <div class="project-card-badges">
-              <span id="projectCardStatusBadge" class="project-status-badge"></span>
-              <span id="projectCardDefaultBadge" class="project-status-badge is-default hidden">ברירת מחדל</span>
-            </div>
           </div>
         </div>
         <div class="row-actions action-menu-anchor" aria-label="פעולות פרויקט">
@@ -339,7 +335,10 @@
         <div class="project-identity-status">
           <div>
             <h3>מצב הפרויקט</h3>
-            <p id="projectIdentityStatusValue">-</p>
+            <div class="project-status-badges">
+              <span id="projectCardStatusBadge" class="project-status-badge"></span>
+              <span id="projectCardDefaultBadge" class="project-status-badge is-default hidden">ברירת מחדל</span>
+            </div>
           </div>
           <button id="projectSetDefaultButton" type="button" class="secondary">הגדירי כברירת מחדל</button>
         </div>
@@ -1045,7 +1044,7 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260820-4"></script>
-<script src="/static/js/projects.js?v=20260820-4"></script>
+<script src="/static/js/app.js?v=20260820-5"></script>
+<script src="/static/js/projects.js?v=20260820-5"></script>
 </body>
 </html>

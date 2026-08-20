@@ -48,7 +48,6 @@ let projectRows = [];
 let defaultProjectId = "";
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
-const extractedPreviewSignedUrlCache = new Map();
 const incomeTypeSuggestions = new Map();
 const expenseSupplierSuggestions = new Map();
 const VIEWER_PDF_DEBUG = true;
@@ -3147,14 +3146,14 @@ async function ensurePdfJs(){
 
   pdfJsLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.src = "/static/vendor/pdfjs/pdf.min.js?v=3.11.174";
     script.async = true;
     script.onload = () => {
       if(!window.pdfjsLib){
         reject(new Error("טעינת תצוגת PDF נכשלה"));
         return;
       }
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdfjs/pdf.worker.min.js?v=3.11.174";
       resolve(window.pdfjsLib);
     };
     script.onerror = () => reject(new Error("טעינת תצוגת PDF נכשלה"));
@@ -3182,7 +3181,11 @@ function renderSharedPdfFallback(documentMeta){
   panel.appendChild(fallback);
 }
 
-async function renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent = () => true} = {}){
+async function renderPdfBlobIntoPanel(panel, previewBlob, {
+  isCurrent = () => true,
+  paginate = false,
+  onOpenFullscreen = null
+} = {}){
   if(!panel || !(previewBlob instanceof Blob)) return false;
   const pdfjsLib = await ensurePdfJs();
   if(!isCurrent()) return false;
@@ -3198,6 +3201,50 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent = () => tru
   const pages = document.createElement("div");
   pages.className = "shared-document-pdf-pages";
   panel.appendChild(pages);
+  let pageNavigation = null;
+  let pagePosition = null;
+  let previousButton = null;
+  let nextButton = null;
+  const canvases = [];
+
+  const showPage = pageIndex => {
+    const activeIndex = Math.min(Math.max(0, pageIndex), canvases.length - 1);
+    canvases.forEach((canvas, index) => canvas.classList.toggle("hidden", index !== activeIndex));
+    if(pagePosition) pagePosition.textContent = `עמוד ${activeIndex + 1} מתוך ${canvases.length}`;
+    if(previousButton) previousButton.disabled = activeIndex <= 0;
+    if(nextButton) nextButton.disabled = activeIndex >= canvases.length - 1;
+    if(pageNavigation) pageNavigation.dataset.pageIndex = String(activeIndex);
+  };
+
+  if(paginate){
+    pageNavigation = document.createElement("div");
+    pageNavigation.className = "shared-document-pdf-navigation";
+    previousButton = document.createElement("button");
+    previousButton.type = "button";
+    previousButton.className = "secondary icon-only";
+    previousButton.textContent = "→";
+    previousButton.setAttribute("aria-label", "העמוד הקודם");
+    pagePosition = document.createElement("span");
+    pagePosition.setAttribute("aria-live", "polite");
+    nextButton = document.createElement("button");
+    nextButton.type = "button";
+    nextButton.className = "secondary icon-only";
+    nextButton.textContent = "←";
+    nextButton.setAttribute("aria-label", "העמוד הבא");
+    previousButton.addEventListener("click", () => showPage(Number(pageNavigation.dataset.pageIndex || 0) - 1));
+    nextButton.addEventListener("click", () => showPage(Number(pageNavigation.dataset.pageIndex || 0) + 1));
+    pageNavigation.append(previousButton, pagePosition, nextButton);
+    if(typeof onOpenFullscreen === "function"){
+      const fullscreenButton = document.createElement("button");
+      fullscreenButton.type = "button";
+      fullscreenButton.className = "secondary icon-only pdf-fullscreen-button";
+      fullscreenButton.textContent = "⛶";
+      fullscreenButton.setAttribute("aria-label", "פתחי את המסמך במסך מלא");
+      fullscreenButton.addEventListener("click", event => onOpenFullscreen(event.currentTarget));
+      pageNavigation.appendChild(fullscreenButton);
+    }
+    panel.appendChild(pageNavigation);
+  }
 
   try {
     for(let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1){
@@ -3218,9 +3265,12 @@ async function renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent = () => tru
       canvas.style.width = `${Math.ceil(viewport.width / outputScale)}px`;
       canvas.style.height = `${Math.ceil(viewport.height / outputScale)}px`;
       canvas.setAttribute("aria-label", `עמוד ${pageNumber} מתוך ${pdfDocument.numPages}`);
+      canvas.classList.toggle("hidden", paginate && pageNumber !== 1);
       pages.appendChild(canvas);
+      canvases.push(canvas);
       await page.render({canvasContext:context, viewport}).promise;
     }
+    if(paginate) showPage(0);
     return true;
   } finally {
     await pdfDocument.destroy();
@@ -5195,25 +5245,52 @@ function openExpenseExtractedPreviewFullscreen(opener){
   openExpenseReviewFullscreen();
 }
 
-function prepareExpenseExtractedPreviewFullscreenDocument({src, mimeType}){
+function prepareExpenseExtractedPreviewFullscreenDocument({src, mimeType, previewBlob = null, isObjectUrl = false}){
   if(!src || !mimeType) return;
-  setCurrentExpenseReviewDocument({signedUrl: src, mimeType});
+  setCurrentExpenseReviewDocument({signedUrl:src, mimeType, previewBlob, isObjectUrl});
   clearExpenseReviewPageSelection();
 }
 
-function renderExpenseExtractedPreviewFile({src, mimeType}){
+async function detectPreviewMimeType({declaredMimeType = "", blob = null, storagePath = ""} = {}){
+  const declared = String(declaredMimeType || "").trim().toLowerCase();
+  const blobType = String(blob?.type || "").trim().toLowerCase();
+  if(blob instanceof Blob){
+    try {
+      const signature = await blob.slice(0, 5).text();
+      if(signature === "%PDF-") return "application/pdf";
+    } catch(error){
+      console.error("document_mime_detection_failed", error);
+    }
+  }
+  if(blobType === "application/pdf") return blobType;
+  if(/\.pdf(?:$|[?#])/i.test(String(storagePath || ""))) return "application/pdf";
+  if(declared.startsWith("image/") || declared === "application/pdf") return declared;
+  if(blobType.startsWith("image/")) return blobType;
+  return declared || blobType || "application/octet-stream";
+}
+
+async function renderExpenseExtractedPreviewFile({src, mimeType, previewBlob = null, isObjectUrl = false, isCurrent = () => true}){
   const section = $("expenseExtractedPreview");
   const panel = $("expenseExtractedPreviewPanel");
-  if(!section || !panel || !src) return;
+  if(!section || !panel || !src) return false;
 
   section.classList.remove("hidden");
   panel.innerHTML = "";
-  panel.classList.remove("preview-openable", "preview-overlay-openable");
+  panel.classList.remove("preview-openable", "preview-overlay-openable", "expense-review-pdf-panel");
+  panel.removeAttribute("tabindex");
+  panel.removeAttribute("role");
+  panel.removeAttribute("aria-label");
+  panel.onclick = null;
+  panel.onkeydown = null;
 
-  const normalizedMimeType = String(mimeType || "").toLowerCase();
+  const resolvedBlob = previewBlob instanceof Blob ? previewBlob : await fetchBlobFromSignedUrl(src);
+  const normalizedMimeType = await detectPreviewMimeType({declaredMimeType:mimeType, blob:resolvedBlob});
+  if(!isCurrent()) return false;
   prepareExpenseExtractedPreviewFullscreenDocument({
     src,
-    mimeType: normalizedMimeType || "application/octet-stream"
+    mimeType:normalizedMimeType,
+    previewBlob:resolvedBlob,
+    isObjectUrl
   });
 
   if(normalizedMimeType.startsWith("image/")){
@@ -5234,30 +5311,22 @@ function renderExpenseExtractedPreviewFile({src, mimeType}){
       openExpenseExtractedPreviewFullscreen(image);
     });
     panel.appendChild(image);
-    return;
+    return true;
   }
 
-  panel.classList.add("preview-overlay-openable");
-  const frame = document.createElement("iframe");
-  frame.src = src;
-  frame.title = "מסמך חשבונית";
-  frame.loading = "lazy";
-  panel.appendChild(frame);
+  if(normalizedMimeType === "application/pdf"){
+    panel.classList.add("expense-review-pdf-panel");
+    const rendered = await renderPdfBlobIntoPanel(panel, resolvedBlob, {
+      isCurrent,
+      paginate:true,
+      onOpenFullscreen:openExpenseExtractedPreviewFullscreen
+    });
+    if(!rendered || !isCurrent()) return false;
+    return true;
+  }
 
-  const openOverlay = document.createElement("button");
-  openOverlay.type = "button";
-  openOverlay.className = "review-document-overlay-trigger";
-  openOverlay.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
-  openOverlay.setAttribute("title", "פתחי במסך מלא");
-  openOverlay.addEventListener("click", () => {
-    openExpenseExtractedPreviewFullscreen(openOverlay);
-  });
-  openOverlay.addEventListener("keydown", event => {
-    if(event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    openExpenseExtractedPreviewFullscreen(openOverlay);
-  });
-  panel.appendChild(openOverlay);
+  renderExpenseExtractedPreviewState({message:"סוג המסמך אינו נתמך.", isError:true});
+  return false;
 }
 
 function renderExpenseExtractedPreviewFromLocalFiles(files){
@@ -5268,9 +5337,13 @@ function renderExpenseExtractedPreviewFromLocalFiles(files){
   const localUrl = getLocalFileObjectUrl(preferredFile);
   if(!localUrl) return false;
 
-  renderExpenseExtractedPreviewFile({
+  void renderExpenseExtractedPreviewFile({
     src: localUrl,
-    mimeType: preferredFile.type || "application/octet-stream"
+    mimeType:preferredFile.type || "application/octet-stream",
+    previewBlob:preferredFile
+  }).catch(error => {
+    console.error("local_invoice_preview_failed", error);
+    renderExpenseExtractedPreviewState({message:"לא ניתן להציג את מסמך החשבונית.", isError:true});
   });
   return true;
 }
@@ -5282,29 +5355,6 @@ function getSingleItemFirstPageForPreview(rpcInput){
   return pages
     .slice()
     .sort((a,b) => Number(a?.global_page_index || 0) - Number(b?.global_page_index || 0))[0] || null;
-}
-
-async function getSignedUrlForExtractedPreview(storagePath){
-  const now = Date.now();
-  const cached = extractedPreviewSignedUrlCache.get(storagePath);
-  if(cached && cached.expiresAt > (now + 2000)){
-    return cached.signedUrl;
-  }
-
-  const {data:signed, error:signError} = await sb.storage
-    .from("invoice-documents")
-    .createSignedUrl(storagePath, 60);
-
-  if(signError || !signed?.signedUrl){
-    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
-  }
-
-  extractedPreviewSignedUrlCache.set(storagePath, {
-    signedUrl: signed.signedUrl,
-    expiresAt: now + 55000
-  });
-
-  return signed.signedUrl;
 }
 
 async function renderExpenseExtractedPreviewFromPersistedPage(page){
@@ -5325,10 +5375,23 @@ async function renderExpenseExtractedPreviewFromPersistedPage(page){
   );
 
   try {
-    const signedUrl = await getSignedUrlForExtractedPreview(storagePath);
+    const signedUrl = await createSignedUrlForStoragePath(storagePath, 300);
+    const documentBlob = await fetchBlobFromSignedUrl(signedUrl);
     if(!isCurrentLoad()) return;
-
-    renderExpenseExtractedPreviewFile({src:signedUrl, mimeType});
+    const resolvedMimeType = await detectPreviewMimeType({declaredMimeType:mimeType, blob:documentBlob, storagePath});
+    if(!isCurrentLoad()) return;
+    const previewBlob = new Blob([documentBlob], {type:resolvedMimeType});
+    const previewUrl = URL.createObjectURL(previewBlob);
+    const rendered = await renderExpenseExtractedPreviewFile({
+      src:previewUrl,
+      mimeType:resolvedMimeType,
+      previewBlob,
+      isObjectUrl:true,
+      isCurrent:isCurrentLoad
+    });
+    if(!rendered && currentExpenseReviewObjectUrl !== previewUrl){
+      URL.revokeObjectURL(previewUrl);
+    }
   } catch(error){
     if(!isCurrentLoad()) return;
     console.error(error);
@@ -5395,22 +5458,15 @@ async function renderExpenseReviewDocumentFile({signedUrl, mimeType, storagePath
   if(String(mimeType || "").toLowerCase() === "application/pdf" && previewBlob instanceof Blob){
     panel.classList.add("expense-review-pdf-panel");
     try {
-      const rendered = await renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent});
+      const rendered = await renderPdfBlobIntoPanel(panel, previewBlob, {
+        isCurrent,
+        paginate:true,
+        onOpenFullscreen:opener => {
+          expenseReviewFullscreenOpener = opener;
+          openExpenseReviewFullscreen();
+        }
+      });
       if(!rendered || !isCurrent()) return false;
-      panel.classList.add("preview-openable");
-      panel.tabIndex = 0;
-      panel.setAttribute("role", "button");
-      panel.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
-      panel.onclick = () => {
-        expenseReviewFullscreenOpener = panel;
-        openExpenseReviewFullscreen();
-      };
-      panel.onkeydown = event => {
-        if(event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        expenseReviewFullscreenOpener = panel;
-        openExpenseReviewFullscreen();
-      };
       return true;
     } catch(error){
       if(!isCurrent()) return false;
@@ -5502,15 +5558,20 @@ async function renderExpenseReviewPageAtIndex(pageIndex){
     return;
   }
 
-  const mimeType = String(requestedPage.mime_type || documentBlob.type || "application/octet-stream").toLowerCase();
-  const previewUrl = URL.createObjectURL(new Blob([documentBlob], {type:mimeType}));
+  const mimeType = await detectPreviewMimeType({
+    declaredMimeType:requestedPage.mime_type,
+    blob:documentBlob,
+    storagePath:requestedPage.storage_path
+  });
+  const previewBlob = new Blob([documentBlob], {type:mimeType});
+  const previewUrl = URL.createObjectURL(previewBlob);
 
   await renderExpenseReviewDocumentFile({
     signedUrl: previewUrl,
     mimeType,
     storagePath:requestedPage.storage_path,
     isObjectUrl:true,
-    previewBlob:documentBlob,
+    previewBlob,
     isCurrent:() => pages === currentExpenseReviewPages
       && itemId === (activeExpenseReviewContext?.scanItemId || null)
       && requestedIndex === currentExpenseReviewPageIndex
@@ -6895,10 +6956,32 @@ function getProjectById(projectId){
   return projectRows.find(project => String(project?.id || "") === safeProjectId) || null;
 }
 
+function getInitialAssignmentProjectId(requestedProjectId = ""){
+  const requestedProject = getProjectById(requestedProjectId);
+  if(requestedProject?.is_active) return requestedProject.id;
+
+  const defaultProject = getProjectById(defaultProjectId);
+  if(defaultProject?.is_active) return defaultProject.id;
+
+  const generalProject = projectRows.find(project => project.is_general && project.is_active);
+  return generalProject?.id || "";
+}
+
+function getProjectWriteErrorMessage(error, fallback){
+  const message = String(error?.message || "").trim();
+  if(message === "Project not found for transaction owner"){
+    return "הפרויקט שנבחר אינו זמין לחשבון זה. בחרי פרויקט פעיל ונסי שוב.";
+  }
+  if(message === "Inactive projects cannot receive new transaction assignments"){
+    return "לא ניתן לשייך פעולה חדשה לפרויקט לא פעיל. בחרי פרויקט פעיל ונסי שוב.";
+  }
+  return message || fallback;
+}
+
 function populateProjectSelect(select, {mode = "assignment", selectedProjectId = ""} = {}){
   if(!select) return;
   const requestedId = String(selectedProjectId || "").trim();
-  const selectedId = requestedId || (mode === "assignment" ? defaultProjectId : "");
+  const selectedId = mode === "assignment" ? getInitialAssignmentProjectId(requestedId) : requestedId;
   const selectedProject = getProjectById(selectedId);
   const availableProjects = mode === "filter"
     ? projectRows
@@ -7103,9 +7186,9 @@ async function ensurePdfLib(){
 }
 
 async function fetchBlobFromSignedUrl(signedUrl){
-  const response = await fetch(signedUrl);
+  const response = await fetch(signedUrl, {cache:"no-store"});
   if(!response.ok){
-    throw new Error("שגיאה בטעינת המסמך לצורך יצוא");
+    throw new Error(`לא ניתן לטעון את המסמך המוגן (${response.status}).`);
   }
   return response.blob();
 }
@@ -9475,7 +9558,6 @@ function resetExpenseDialogState(){
   selectedFiles = [];
   resetExpenseDocumentEditState();
   clearLocalFileObjectUrls();
-  extractedPreviewSignedUrlCache.clear();
   expenseExtractedPreviewLoadToken += 1;
   resetScanOperationId();
   clearPendingGroupingAnalysisResult();
@@ -10330,6 +10412,15 @@ $("expenseForm").onsubmit = async event => {
       net_ils:signedAmounts.net,
       vat_ils:signedAmounts.vat
     });
+    const resolvedProjectId = getInitialAssignmentProjectId(payload.project_id);
+    if(!resolvedProjectId){
+      setStatus($("expenseStatus"), "לא נמצא פרויקט פעיל לשיוך ההוצאה. צרי או הפעילי פרויקט ונסי שוב.", "error");
+      return;
+    }
+    if(resolvedProjectId !== payload.project_id){
+      payload.project_id = resolvedProjectId;
+      populateProjectSelect($("expenseProject"), {mode:"assignment", selectedProjectId:resolvedProjectId});
+    }
 
     const duplicateWarning = await checkExpenseDuplicateWarning({
       supplierName,
@@ -10385,7 +10476,7 @@ $("expenseForm").onsubmit = async event => {
       );
 
       if(updateError){
-        setStatus($("expenseStatus"), updateError.message || "שגיאה בעדכון ההוצאה", "error");
+        setStatus($("expenseStatus"), getProjectWriteErrorMessage(updateError, "שגיאה בעדכון ההוצאה"), "error");
         return;
       }
 
@@ -10426,7 +10517,7 @@ $("expenseForm").onsubmit = async event => {
         const duplicateSave = saveError.code === "23505";
         setStatus(
           $("expenseStatus"),
-          duplicateSave ? "החשבונית הזו כבר נשמרה." : (saveError.message || "שגיאה בשמירת החשבונית"),
+          duplicateSave ? "החשבונית הזו כבר נשמרה." : getProjectWriteErrorMessage(saveError, "שגיאה בשמירת החשבונית"),
           "error"
         );
         return;

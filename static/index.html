@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260820-3">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260820-4">
 </head>
 <body>
 
@@ -337,7 +337,10 @@
       <div id="projectCardStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       <section class="project-card-section project-card-information" aria-label="מידע על הפרויקט">
         <div class="project-identity-status">
-          <span>מצב הפרויקט</span>
+          <div>
+            <h3>מצב הפרויקט</h3>
+            <p id="projectIdentityStatusValue">-</p>
+          </div>
           <button id="projectSetDefaultButton" type="button" class="secondary">הגדירי כברירת מחדל</button>
         </div>
         <div><span>תיאור</span><p id="projectCardDescription">-</p></div>
@@ -345,9 +348,9 @@
       </section>
 
       <section class="project-summary" aria-label="סיכום פיננסי">
-        <button id="projectIncomeSummary" type="button" class="project-summary-item income"><span>הכנסות</span><strong id="projectCardIncomeTotal">₪0.00</strong></button>
-        <button id="projectExpenseSummary" type="button" class="project-summary-item expense"><span>הוצאות</span><strong id="projectCardExpenseTotal">₪0.00</strong></button>
-        <div class="project-summary-item"><span>רווח / הפסד</span><strong id="projectCardProfitTotal">₪0.00</strong></div>
+        <button id="projectIncomeSummary" type="button" class="project-summary-item income"><h3>הכנסות</h3><strong id="projectCardIncomeTotal">₪0.00</strong></button>
+        <button id="projectExpenseSummary" type="button" class="project-summary-item expense"><h3>הוצאות</h3><strong id="projectCardExpenseTotal">₪0.00</strong></button>
+        <div class="project-summary-item"><h3>רווח / הפסד</h3><strong id="projectCardProfitTotal">₪0.00</strong></div>
       </section>
 
       <section class="project-related" aria-label="מידע מקושר">
@@ -1042,7 +1045,7 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260820-3"></script>
-<script src="/static/js/projects.js?v=20260820-3"></script>
+<script src="/static/js/app.js?v=20260820-4"></script>
+<script src="/static/js/projects.js?v=20260820-4"></script>
 </body>
 </html>

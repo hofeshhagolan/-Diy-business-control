@@ -12,6 +12,8 @@ let removeCurrentProjectProfile = false;
 let projectEditorPreviewUrl = "";
 let pendingProjectDocumentFile = null;
 let pendingProjectDocumentReplacementId = "";
+let projectDocumentsOriginViewId = "";
+let projectDocumentsOriginProjectId = "";
 let projectDeleteInFlight = false;
 
 function normalizeProjectSearchValue(value){
@@ -215,6 +217,7 @@ function renderProjectCard(){
   const statusBadge = $("projectCardStatusBadge");
   statusBadge.textContent = project.is_active ? "פעיל" : "לא פעיל";
   statusBadge.classList.toggle("is-active", Boolean(project.is_active));
+  $("projectIdentityStatusValue").textContent = project.is_active ? "פעיל" : "לא פעיל";
   const isDefault = project.id === defaultProjectId;
   $("projectCardDefaultBadge").classList.toggle("hidden", !isDefault);
   $("projectSetDefaultButton").classList.toggle(
@@ -674,6 +677,8 @@ async function deleteProjectDocument(documentId){
 
 function openProjectDocumentsManager(){
   if(!currentProjectCard) return;
+  projectDocumentsOriginViewId = document.querySelector(".view.active")?.id || "";
+  projectDocumentsOriginProjectId = currentProjectId;
   clearPendingProjectDocument();
   $("projectDocumentsDialogTitle").textContent = `מסמכי ${currentProjectCard.name}`;
   setStatus($("projectDocumentsStatus"), "", "");
@@ -930,6 +935,15 @@ $("projectEditorDialog")?.addEventListener("close", () => {
   clearProjectEditorPreviewUrl();
   selectedProjectProfileFile = null;
   removeCurrentProjectProfile = false;
+});
+$("projectDocumentsDialog")?.addEventListener("close", () => {
+  const originViewId = projectDocumentsOriginViewId;
+  const originProjectId = projectDocumentsOriginProjectId;
+  projectDocumentsOriginViewId = "";
+  projectDocumentsOriginProjectId = "";
+  if(originViewId === "projectCardView" && originProjectId && currentProjectId === originProjectId){
+    activateView(originViewId, {historyMode:"replace", resetScroll:false});
+  }
 });
 
 $("projectDocumentAddButton")?.addEventListener("click", () => openFileInputPicker($("projectDocumentAddInput"), {resetValue:true}));

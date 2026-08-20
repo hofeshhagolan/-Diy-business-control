@@ -110,47 +110,19 @@ function renderProjectRelatedRows(){
   const documentHost = $("projectCardDocumentsList");
   if(!incomeHost || !expenseHost || !documentHost) return;
 
-  const incomeRows = currentProjectIncomeRows.filter(row => projectRelatedMatches([
-    row.income_type,
-    row.report_date,
-    row.report_time,
-    row.notes,
-    row.reference_number,
-    row.total_income_ils
-  ]));
-  const expenseRows = currentProjectExpenseRows.filter(row => projectRelatedMatches([
-    row.supplier_name_snapshot,
-    row.document_date,
-    row.document_number,
-    row.description,
-    row.notes,
-    row.gross_ils
-  ]));
   const documentRows = currentProjectDocumentRows.filter(row => projectRelatedMatches([
     row.display_name,
     row.original_filename,
     row.mime_type
   ]));
 
-  incomeHost.innerHTML = incomeRows.length ? incomeRows.map(row => `
-    <button type="button" class="project-related-row" data-project-income-id="${escapeHtml(row.id)}">
-      <span class="project-related-row-main">
-        <strong>${escapeHtml(normalizeIncomeType(row.income_type))}</strong>
-        <small>${escapeHtml(row.report_date || "ללא תאריך")}</small>
-      </span>
-      <strong>${money(row.total_income_ils || 0)}</strong>
-    </button>
-  `).join("") : '<p class="project-related-empty">אין הכנסות התואמות לחיפוש.</p>';
+  incomeHost.innerHTML = currentProjectIncomeRows.length
+    ? '<button type="button" class="secondary project-related-navigation" data-project-income-navigation>הכנסות לפרויקט</button>'
+    : '<p class="project-related-empty">אין הכנסות לפרויקט</p>';
 
-  expenseHost.innerHTML = expenseRows.length ? expenseRows.map(row => `
-    <button type="button" class="project-related-row" data-project-expense-id="${escapeHtml(row.id)}">
-      <span class="project-related-row-main">
-        <strong>${escapeHtml(row.supplier_name_snapshot || row.description || "הוצאה")}</strong>
-        <small>${escapeHtml(row.document_date || "ללא תאריך")}</small>
-      </span>
-      <strong>${moneyAbs(row.gross_ils || 0)}</strong>
-    </button>
-  `).join("") : '<p class="project-related-empty">אין הוצאות התואמות לחיפוש.</p>';
+  expenseHost.innerHTML = currentProjectExpenseRows.length
+    ? '<button type="button" class="secondary project-related-navigation" data-project-expense-navigation>הוצאות לפרויקט</button>'
+    : '<p class="project-related-empty">אין הוצאות לפרויקט</p>';
 
   documentHost.innerHTML = documentRows.length ? documentRows.map((row, index) => `
     <button type="button" class="project-related-row" data-project-document-id="${escapeHtml(row.id)}">
@@ -160,13 +132,13 @@ function renderProjectRelatedRows(){
       </span>
       <span aria-hidden="true">›</span>
     </button>
-  `).join("") : '<p class="project-related-empty">אין מסמכי פרויקט התואמים לחיפוש.</p>';
+  `).join("") : `<p class="project-related-empty">${currentProjectDocumentRows.length ? "לא נמצאו מסמכי פרויקט התואמים לחיפוש." : "לא הועלו מסמכי פרויקט"}</p>`;
 
-  incomeHost.querySelectorAll("[data-project-income-id]").forEach(button => {
-    button.addEventListener("click", () => void openIncomeDetailsDialog(button.dataset.projectIncomeId, button));
+  incomeHost.querySelector("[data-project-income-navigation]")?.addEventListener("click", () => {
+    void openCurrentProjectIncomeView();
   });
-  expenseHost.querySelectorAll("[data-project-expense-id]").forEach(button => {
-    button.addEventListener("click", () => void openExpenseDetailsDialog(button.dataset.projectExpenseId, button));
+  expenseHost.querySelector("[data-project-expense-navigation]")?.addEventListener("click", () => {
+    void openCurrentProjectExpenseView();
   });
   documentHost.querySelectorAll("[data-project-document-id]").forEach(button => {
     button.addEventListener("click", () => {
@@ -184,6 +156,26 @@ function renderProjectRelatedRows(){
   });
 }
 
+async function openCurrentProjectIncomeView(){
+  if(!currentProjectId) return;
+  incomeFilterState = {...DEFAULT_INCOME_FILTER_STATE, projectId:currentProjectId};
+  incomeFilterDraft = {...incomeFilterState};
+  syncIncomeFilterDialogFromState();
+  renderIncomeFilterChips();
+  await loadZReports();
+  activateView("incomeView");
+}
+
+async function openCurrentProjectExpenseView(){
+  if(!currentProjectId) return;
+  expenseFilterState = {...DEFAULT_EXPENSE_FILTER_STATE, projectId:currentProjectId};
+  expenseFilterDraft = {...expenseFilterState};
+  syncExpenseFilterDialogFromState();
+  renderExpenseFilterChips();
+  await loadExpenses();
+  activateView("expensesView");
+}
+
 function renderProjectCard(){
   const project = currentProjectCard;
   if(!project) return;
@@ -193,7 +185,13 @@ function renderProjectCard(){
   const statusBadge = $("projectCardStatusBadge");
   statusBadge.textContent = project.is_active ? "פעיל" : "לא פעיל";
   statusBadge.classList.toggle("is-active", Boolean(project.is_active));
-  $("projectCardDeleteButton").disabled = Boolean(project.is_general);
+  const isDefault = project.id === defaultProjectId;
+  $("projectCardDefaultBadge").classList.toggle("hidden", !isDefault);
+  $("projectSetDefaultButton").classList.toggle(
+    "hidden",
+    isDefault || project.is_general || !project.is_active
+  );
+  $("projectCardDeleteButton").disabled = false;
   $("projectCardDeleteButton").title = project.is_general ? "לא ניתן למחוק את הפרויקט כללי" : "מחיקת פרויקט";
   $("projectDocumentsZipButton").disabled = currentProjectDocumentRows.length === 0;
 
@@ -204,6 +202,36 @@ function renderProjectCard(){
   $("projectCardProfitTotal").textContent = money(incomeTotal - expenseTotal);
   void renderProjectProfileImage($("projectCardProfile"), project);
   renderProjectRelatedRows();
+}
+
+async function setCurrentProjectAsDefault(){
+  const project = currentProjectCard;
+  if(!project || project.is_general || !project.is_active || project.id === defaultProjectId) return;
+  if(!window.confirm(`להגדיר את ${project.name} כפרויקט ברירת המחדל?`)) return;
+
+  const button = $("projectSetDefaultButton");
+  button.disabled = true;
+  setStatus($("projectCardStatus"), "מעדכנת את פרויקט ברירת המחדל...", "");
+  try {
+    const {data, error} = await sb.from("business_settings")
+      .update({default_project_id:project.id})
+      .eq("user_id", userId)
+      .select("default_project_id")
+      .maybeSingle();
+    if(error) throw error;
+    if(data?.default_project_id !== project.id){
+      throw new Error("לא נמצאה הגדרת עסק לעדכון");
+    }
+
+    defaultProjectId = project.id;
+    renderProjectCard();
+    setStatus($("projectCardStatus"), "הפרויקט הוגדר כברירת מחדל", "ok");
+  } catch(error){
+    console.error(error);
+    setStatus($("projectCardStatus"), error?.message || "שגיאה בעדכון פרויקט ברירת המחדל", "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function fetchAllProjectRelatedRows(buildQuery){
@@ -266,6 +294,7 @@ async function openProjectCard(projectId){
     currentProjectDocumentRows = data.documents;
     projectCardSearchTerm = "";
     if($("projectCardSearchInput")) $("projectCardSearchInput").value = "";
+    setStatus($("projectDocumentsZipStatus"), "", "");
     renderProjectCard();
     setStatus($("projectCardStatus"), "", "");
     activateView("projectCardView");
@@ -285,12 +314,18 @@ function renderProjectEditorProfilePreview(){
   const preview = $("projectEditorProfilePreview");
   if(!preview) return;
   clearProjectEditorPreviewUrl();
+  const project = getProjectById(currentProjectEditorId);
+  const hasProfileImage = Boolean(
+    selectedProjectProfileFile
+    || (!removeCurrentProjectProfile && project?.profile_storage_path)
+  );
+  $("projectEditorProfileBrowseButton").textContent = hasProfileImage ? "החליפי תמונה" : "בחרי תמונה";
+  $("projectEditorProfileRemoveButton").classList.toggle("hidden", !hasProfileImage);
   if(selectedProjectProfileFile){
     projectEditorPreviewUrl = URL.createObjectURL(selectedProjectProfileFile);
     preview.innerHTML = `<img src="${projectEditorPreviewUrl}" alt="תמונה חדשה לפרויקט">`;
     return;
   }
-  const project = getProjectById(currentProjectEditorId);
   if(removeCurrentProjectProfile || !project?.profile_storage_path){
     preview.innerHTML = "";
     preview.textContent = getProjectFallbackLetter(project);
@@ -638,7 +673,7 @@ async function downloadCurrentProjectDocumentsZip(){
   if(!currentProjectCard || !currentProjectDocumentRows.length) return;
   const button = $("projectDocumentsZipButton");
   button.disabled = true;
-  setStatus($("projectCardStatus"), "יוצרת קובץ ZIP...", "");
+  setStatus($("projectDocumentsZipStatus"), "יוצרת קובץ ZIP...", "");
   try {
     const JSZip = await ensureProjectZipLibrary();
     const zip = new JSZip();
@@ -651,10 +686,10 @@ async function downloadCurrentProjectDocumentsZip(){
     const zipBlob = await zip.generateAsync({type:"blob", compression:"DEFLATE"});
     if(!zipBlob.size) throw new Error("יצירת קובץ ZIP נכשלה");
     downloadBlob(zipBlob, `project-${sanitizeStorageFilename(currentProjectCard.name)}-documents.zip`);
-    setStatus($("projectCardStatus"), "קובץ ה-ZIP הורד", "ok");
+    setStatus($("projectDocumentsZipStatus"), "קובץ ה-ZIP הורד", "ok");
   } catch(error){
     console.error(error);
-    setStatus($("projectCardStatus"), error?.message || "הורדת קובץ ZIP נכשלה", "error");
+    setStatus($("projectDocumentsZipStatus"), error?.message || "הורדת קובץ ZIP נכשלה", "error");
   } finally {
     button.disabled = currentProjectDocumentRows.length === 0;
   }
@@ -688,8 +723,12 @@ function getProjectDeletionBlockedMessage(result){
 }
 
 function openProjectDeleteDialog(){
-  if(!currentProjectCard || currentProjectCard.is_general) return;
-  $("projectDeleteSummary").textContent = "מחיקה קבועה אפשרית רק לפרויקט שנוצר בטעות ואינו מקושר לשום פעילות או תוכן.";
+  if(!currentProjectCard) return;
+  if(currentProjectCard.is_general){
+    showToast("הפרויקט כללי מוגן ולא ניתן למחיקה.", "warning");
+    return;
+  }
+  $("projectDeleteSummary").textContent = "מחיקה אפשרית רק לפרויקט שאינו מקושר לשום פעילות או תוכן.";
   $("projectDeleteDefaultField").classList.add("hidden");
   $("projectDeleteDefaultProject").innerHTML = "";
   $("projectDeleteConfirmButton").classList.remove("hidden");
@@ -763,7 +802,7 @@ document.querySelectorAll("[data-entity-view]").forEach(card => {
 });
 
 document.querySelectorAll("[data-unavailable-entity]").forEach(card => {
-  card.addEventListener("click", () => showToast(`${card.dataset.unavailableEntity} עדיין לא זמין`, "warning"));
+  card.addEventListener("click", () => showToast(`${card.dataset.unavailableEntity}: זמין בהמשך`, "warning"));
 });
 
 $("projectsSearchInput")?.addEventListener("input", event => {
@@ -779,8 +818,16 @@ document.querySelectorAll("[data-project-status-filter]").forEach(button => {
 });
 
 $("projectCreateButton")?.addEventListener("click", () => openProjectEditor());
-$("projectCardEditButton")?.addEventListener("click", () => openProjectEditor(currentProjectId));
+$("projectCardEditButton")?.addEventListener("click", () => {
+  if(currentProjectCard?.is_general){
+    openProjectEditor(currentProjectId);
+    setStatus($("projectEditorStatus"), "השם והמצב הפעיל של הפרויקט כללי מוגנים ואינם ניתנים לשינוי.", "");
+    return;
+  }
+  openProjectEditor(currentProjectId);
+});
 $("projectCardDeleteButton")?.addEventListener("click", openProjectDeleteDialog);
+$("projectSetDefaultButton")?.addEventListener("click", () => void setCurrentProjectAsDefault());
 $("projectCardSearchInput")?.addEventListener("input", event => {
   projectCardSearchTerm = event.target.value || "";
   renderProjectRelatedRows();

@@ -44,6 +44,7 @@ let currentCompanyDocumentEditTarget = null;
 let companyDocumentEditorOpener = null;
 let toastHideTimer = null;
 let projectRows = [];
+let defaultProjectId = "";
 const fileSha256Cache = new WeakMap();
 const localFileObjectUrls = new Map();
 const extractedPreviewSignedUrlCache = new Map();
@@ -453,7 +454,7 @@ async function fetchAllIncomeReportRows(){
   const rows = [];
   for(let from = 0; ; from += pageSize){
     const query = applyIncomeSortToQuery(applyIncomeFiltersToQuery(sb.from("daily_z_reports")
-      .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
+      .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects!daily_z_reports_user_project_fkey(id,name),payment_methods(id,name),z_report_documents(id)")
       .eq("user_id",userId)));
     const {data, error} = await query.range(from, from + pageSize - 1);
     if(error) throw error;
@@ -679,7 +680,7 @@ async function fetchAllExpensesReportRows(){
         payment_source_id,
         payment_sources(name),
         project_id,
-        projects(id,name),
+        projects!expenses_user_project_fkey(id,name),
         expense_documents(id,storage_path,document_type,page_number)
       `)
       .eq("user_id",userId)));
@@ -5985,7 +5986,7 @@ function returnToExpenseReviewList(){
   renderExpenseReviewList(expenseReviewRows);
 }
 
-function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
+async function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   const savedIndex = expenseReviewRows.findIndex(row => row.scanItemId === savedScanItemId);
   if(savedIndex < 0){
     throw new Error("לא נמצאה החשבונית שנשמרה ברשימת הבדיקה");
@@ -6003,11 +6004,12 @@ function removeSavedExpenseReviewItemAndOpenNext(savedScanItemId){
   if(!nextRow){
     hideExpenseReviewContext();
     renderExpenseReviewList(remainingRows);
-    return;
+    return false;
   }
 
   renderExpenseReviewList(remainingRows);
-  openExpenseReviewItem(nextRow);
+  await openExpenseReviewItem(nextRow);
+  return true;
 }
 
 async function openNextPendingInvoice({
@@ -6864,14 +6866,22 @@ function syncProjectAssignmentSelects({expenseProjectId = "", incomeProjectId = 
 }
 
 async function loadProjectsLookup(){
-  const {data, error} = await sb.from("projects")
-    .select("id,user_id,name,description,notes,is_default,is_general,is_active,sort_order,profile_storage_path,profile_original_filename,profile_mime_type,created_at,updated_at")
-    .eq("user_id", userId)
-    .order("sort_order", {ascending:true})
-    .order("name", {ascending:true});
+  const [{data, error}, {data:settings, error:settingsError}] = await Promise.all([
+    sb.from("projects")
+      .select("id,user_id,name,description,notes,is_default,is_general,is_active,sort_order,profile_storage_path,profile_original_filename,profile_mime_type,created_at,updated_at")
+      .eq("user_id", userId)
+      .order("sort_order", {ascending:true})
+      .order("name", {ascending:true}),
+    sb.from("business_settings")
+      .select("default_project_id")
+      .eq("user_id", userId)
+      .maybeSingle()
+  ]);
 
   if(error) throw error;
+  if(settingsError) throw settingsError;
   projectRows = Array.isArray(data) ? data : [];
+  defaultProjectId = String(settings?.default_project_id || "").trim();
   syncProjectAssignmentSelects();
   if(typeof renderProjectsList === "function") renderProjectsList();
 }
@@ -8283,7 +8293,7 @@ async function getExpenseRecordForDetails(expenseId){
       *,
       accounting_types(name),
       categories(name),
-      projects(name),
+      projects!expenses_user_project_fkey(name),
       payment_sources(name),
       payment_methods(name)
     `)
@@ -8394,7 +8404,7 @@ async function loadExpenses(){
       payment_source_id,
       payment_sources(name),
       project_id,
-      projects(id,name),
+      projects!expenses_user_project_fkey(id,name),
       expense_documents(id,storage_path,document_type,page_number)
     `)
     .eq("user_id",userId)))
@@ -8632,7 +8642,7 @@ async function getIncomeRecordForDetails(zReportId){
   if(!safeReportId) return null;
 
   const {data, error} = await sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,project_id,payment_method_id,reference_number,projects(id,name),payment_methods(id,name)")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,project_id,payment_method_id,reference_number,projects!daily_z_reports_user_project_fkey(id,name),payment_methods(id,name)")
     .eq("user_id", userId)
     .eq("id", safeReportId)
     .maybeSingle();
@@ -8841,7 +8851,7 @@ function startEditingZReport(button){
 
 async function loadZReports(){
   let query = applyIncomeFiltersToQuery(sb.from("daily_z_reports")
-    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects(id,name),payment_methods(id,name),z_report_documents(id)")
+    .select("id,created_at,report_date,report_time,total_income_ils,income_type,notes,is_from_z_report,payment_method_id,reference_number,projects!daily_z_reports_user_project_fkey(id,name),payment_methods(id,name),z_report_documents(id)")
     .eq("user_id",userId));
 
   const {data,error} = await applyIncomeSortToQuery(query)
@@ -10427,9 +10437,16 @@ $("expenseForm").onsubmit = async event => {
       return;
     }
 
+    let openedNextExpenseReviewItem = false;
     if(reviewContextSnapshot?.scanItemId && reviewContextSnapshot?.batchId){
+      event.target.reset();
+      selectedFiles = [];
+      clearLocalFileObjectUrls();
+
       try {
-        removeSavedExpenseReviewItemAndOpenNext(reviewContextSnapshot.scanItemId);
+        openedNextExpenseReviewItem = await removeSavedExpenseReviewItemAndOpenNext(
+          reviewContextSnapshot.scanItemId
+        );
       } catch(uiError){
         console.error(uiError);
       }
@@ -10439,6 +10456,10 @@ $("expenseForm").onsubmit = async event => {
       } catch(syncError){
         console.error(syncError);
       }
+    }
+
+    if(openedNextExpenseReviewItem){
+      return;
     }
 
     event.target.reset();

@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260811-1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260820-1">
 </head>
 <body>
 
@@ -272,24 +272,20 @@
       <h2>מאגר מידע</h2>
       <div class="entity-hub-grid" aria-label="ישויות עסקיות">
         <button type="button" class="entity-hub-card entity-hub-card-active" data-entity-view="projectsView">
-          <span class="entity-hub-icon" aria-hidden="true">פ</span>
           <strong>פרויקטים</strong>
           <small>פעילויות ותחומי העסק</small>
         </button>
         <button type="button" class="entity-hub-card entity-hub-card-future" data-unavailable-entity="ספקים" aria-disabled="true">
-          <span class="entity-hub-icon" aria-hidden="true">ס</span>
           <strong>ספקים</strong>
-          <small>עדיין לא זמין</small>
+          <small>זמין בהמשך</small>
         </button>
         <button type="button" class="entity-hub-card entity-hub-card-future" data-unavailable-entity="נכסים" aria-disabled="true">
-          <span class="entity-hub-icon" aria-hidden="true">נ</span>
           <strong>נכסים</strong>
-          <small>עדיין לא זמין</small>
+          <small>זמין בהמשך</small>
         </button>
         <button type="button" class="entity-hub-card entity-hub-card-future" data-unavailable-entity="עובדים" aria-disabled="true">
-          <span class="entity-hub-icon" aria-hidden="true">ע</span>
           <strong>עובדים</strong>
-          <small>עדיין לא זמין</small>
+          <small>זמין בהמשך</small>
         </button>
       </div>
     </section>
@@ -320,7 +316,10 @@
           <div id="projectCardProfile" class="project-profile project-profile-large" aria-hidden="true">פ</div>
           <div>
             <h2 id="projectCardName">פרויקט</h2>
-            <span id="projectCardStatusBadge" class="project-status-badge"></span>
+            <div class="project-card-badges">
+              <span id="projectCardStatusBadge" class="project-status-badge"></span>
+              <span id="projectCardDefaultBadge" class="project-status-badge is-default hidden">ברירת מחדל</span>
+            </div>
           </div>
         </div>
         <div class="row-actions action-menu-anchor" aria-label="פעולות פרויקט">
@@ -339,6 +338,7 @@
       <section class="project-card-section project-card-information" aria-label="מידע על הפרויקט">
         <div><span>תיאור</span><p id="projectCardDescription">-</p></div>
         <div><span>הערות</span><p id="projectCardNotes">-</p></div>
+        <div class="project-default-action"><button id="projectSetDefaultButton" type="button" class="secondary">הגדר כברירת מחדל</button></div>
       </section>
 
       <section class="project-summary" aria-label="סיכום פיננסי">
@@ -350,11 +350,10 @@
       <section class="project-related" aria-label="מידע מקושר">
         <div class="project-related-head">
           <h3>מידע בפרויקט</h3>
-          <button id="projectDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
         </div>
         <label class="projects-search" for="projectCardSearchInput">
           <span class="sr-only">חיפוש במידע הפרויקט</span>
-          <input id="projectCardSearchInput" type="search" placeholder="חיפוש בהכנסות, הוצאות ומסמכים" autocomplete="off">
+          <input id="projectCardSearchInput" type="search" placeholder="חיפוש במסמכי הפרויקט" autocomplete="off">
         </label>
         <section class="project-related-section" aria-labelledby="projectIncomeHeading">
           <h4 id="projectIncomeHeading">הכנסות</h4>
@@ -367,8 +366,12 @@
         <section class="project-related-section" aria-labelledby="projectDocumentsHeading">
           <div class="project-related-section-head">
             <h4 id="projectDocumentsHeading">מסמכי פרויקט</h4>
-            <button id="projectDocumentsZipButton" type="button" class="secondary" disabled>הורד ZIP</button>
+            <div class="project-document-section-actions">
+              <button id="projectDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
+              <button id="projectDocumentsZipButton" type="button" class="secondary" disabled>הורד מסמכי פרויקט (ZIP)</button>
+            </div>
           </div>
+          <div id="projectDocumentsZipStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
           <div id="projectCardDocumentsList" class="project-related-list"></div>
         </section>
       </section>
@@ -394,8 +397,6 @@
 
   <nav class="bottom-nav">
     <button class="active" data-view="homeView"><span class="icon">🏠</span>בית</button>
-    <button data-view="expensesView"><span class="icon">📄</span>הוצאות</button>
-    <button data-view="incomeView"><span class="icon">💰</span>הכנסות</button>
     <button data-view="financeView"><span class="icon">💼</span>פיננסים</button>
     <button data-view="informationRepositoryView"><span class="icon">▦</span>מאגר מידע</button>
     <button data-view="alView"><span class="icon">🤖</span>AL</button>
@@ -867,9 +868,9 @@
     <section class="wide project-profile-editor" aria-label="תמונת פרופיל">
       <div id="projectEditorProfilePreview" class="project-profile project-profile-large" aria-hidden="true">פ</div>
       <div class="project-profile-editor-actions">
-        <button id="projectEditorProfileBrowseButton" type="button" class="secondary">בחירת תמונה</button>
+        <button id="projectEditorProfileBrowseButton" type="button" class="secondary">בחרי תמונה</button>
         <button id="projectEditorProfileRemoveButton" type="button" class="secondary">הסרת תמונה</button>
-        <input id="projectEditorProfileInput" type="file" accept="image/*">
+        <input id="projectEditorProfileInput" class="hidden" type="file" accept="image/*" tabindex="-1">
       </div>
     </section>
     <div id="projectEditorStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -1032,7 +1033,7 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260811-1"></script>
-<script src="/static/js/projects.js?v=20260811-1"></script>
+<script src="/static/js/app.js?v=20260820-1"></script>
+<script src="/static/js/projects.js?v=20260820-1"></script>
 </body>
 </html>

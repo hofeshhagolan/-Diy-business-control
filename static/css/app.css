@@ -171,15 +171,13 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .company-documents-manage-empty{margin:0;color:var(--muted);padding:12px;border:1px dashed var(--line);border-radius:12px;background:#fff}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 .entity-hub-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.entity-hub-card{min-height:150px;padding:18px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);display:grid;justify-items:start;align-content:start;gap:8px;text-align:right;box-shadow:var(--shadow)}
+.entity-hub-card{min-height:112px;padding:18px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);display:grid;justify-items:start;align-content:center;gap:8px;text-align:right;box-shadow:var(--shadow)}
 .entity-hub-card strong{font-size:1.08rem;color:var(--brand)}
 .entity-hub-card small{color:var(--muted)}
 .entity-hub-card-active{cursor:pointer;border-color:#b7cae1;background:linear-gradient(180deg,#fff 0%,#f7fbff 100%)}
 .entity-hub-card-active:hover{border-color:#8caac7;background:#f5faff}
 .entity-hub-card-future{box-shadow:none;background:#f7f9fc;color:#7a8796;cursor:not-allowed}
 .entity-hub-card-future strong{color:#667585}
-.entity-hub-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:#eaf2fa;color:var(--brand);font-size:1.1rem;font-weight:900}
-.entity-hub-card-future .entity-hub-icon{background:#e8edf2;color:#718091}
 .projects-tools{display:grid;gap:10px;margin-bottom:14px}
 .projects-search{position:relative;margin:0}
 .projects-search input{min-height:44px;font-weight:400}
@@ -200,10 +198,13 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-card-header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
 .project-card-identity{display:flex;align-items:center;gap:14px;min-width:0}
 .project-card-identity h2{margin:0 0 7px;overflow-wrap:anywhere}
+.project-card-badges{display:flex;gap:6px;flex-wrap:wrap}
 .project-card-section,.project-related{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
 .project-card-information{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .project-card-information span{color:var(--muted);font-size:.86rem;font-weight:700}
 .project-card-information p{margin:6px 0 0;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.project-default-action{grid-column:1/-1}
+.project-status-badge.is-default{background:#fff4d6;color:#725000}
 .project-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
 .project-summary-item{min-height:92px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff;display:grid;align-content:center;gap:8px}
 .project-summary-item span{color:var(--muted);font-size:.86rem}
@@ -217,7 +218,9 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-related-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .project-related-section-head h4{margin:0}
 .project-related-section-head button{padding:8px 11px;flex:0 0 auto}
+.project-document-section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .project-related-list{display:grid;gap:7px}
+.project-related-navigation{width:100%;min-height:48px;text-align:right}
 .project-related-row{width:100%;min-height:52px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;text-align:right;color:var(--text)}
 button.project-related-row{cursor:pointer}
 button.project-related-row:hover{background:#f8fbff;border-color:#b7cae1}
@@ -301,7 +304,7 @@ th{background:#eef3f8;color:var(--brand)}
 #zTable .income-table td:nth-child(7){width:78px;text-align:center}
 #zTable .income-table .doc-indicator{padding:4px 6px;gap:4px;font-size:.74rem}
 #zTable .income-table .doc-indicator-icon{font-size:.82rem}
-.bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
+.bottom-nav{position:fixed;right:0;left:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);background:#fff;padding:6px 6px max(6px,env(safe-area-inset-bottom))}
 .bottom-nav button{border:0;background:transparent;color:var(--muted);padding:7px 2px;font-size:.78rem}
 .bottom-nav button.active{color:var(--brand);font-weight:800}
 .bottom-nav .icon{display:block;font-size:1.25rem}

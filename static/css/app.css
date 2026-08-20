@@ -188,6 +188,7 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-list-row{width:100%;min-height:76px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:12px;text-align:right;color:var(--text);cursor:pointer}
 .project-list-row:hover{border-color:#a9bfd4;background:#f8fbff}
 .project-list-main{min-width:0;display:grid;gap:4px}
+.project-list-title{min-width:0;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .project-list-main strong{color:var(--brand);font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-list-main small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-profile{width:52px;height:52px;overflow:hidden;border:1px solid #c7d6e5;border-radius:50%;background:#eaf2fa;color:var(--brand);display:grid;place-items:center;font-weight:900;flex:0 0 auto}
@@ -203,10 +204,13 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-card-information{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .project-card-information span{color:var(--muted);font-size:.86rem;font-weight:700}
 .project-card-information p{margin:6px 0 0;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
-.project-default-action{grid-column:1/-1}
+.project-identity-status{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.project-identity-status button{flex:0 0 auto}
 .project-status-badge.is-default{background:#fff4d6;color:#725000}
 .project-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
-.project-summary-item{min-height:92px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff;display:grid;align-content:center;gap:8px}
+.project-summary-item{min-height:92px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff;display:grid;align-content:center;gap:8px;text-align:right;color:inherit;font:inherit}
+button.project-summary-item{cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+button.project-summary-item:hover,button.project-summary-item:focus-visible{border-color:var(--brand);box-shadow:0 4px 14px rgba(13,75,68,.12);transform:translateY(-1px)}
 .project-summary-item span{color:var(--muted);font-size:.86rem}
 .project-summary-item strong{font-size:1.18rem;color:var(--brand)}
 .project-summary-item.income strong{color:var(--good)}
@@ -215,10 +219,14 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-related-head h3{margin:0;color:var(--brand)}
 .project-related-section{margin-top:18px}
 .project-related-section h4{margin:0 0 8px;color:var(--brand)}
-.project-related-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-.project-related-section-head h4{margin:0}
-.project-related-section-head button{padding:8px 11px;flex:0 0 auto}
-.project-document-section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.project-related-section>h4{margin:0 0 8px}
+.project-document-section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.project-document-section-actions button{padding:8px 11px}
+.information-notice{padding:12px 14px;border:1px solid #d6b64c;border-radius:8px;background:#fff8d9;color:#5f4b00;font-weight:700;line-height:1.5}
+.project-document-pending{display:grid;gap:10px;padding:12px;margin:12px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc}
+.project-document-pending p{margin:0;color:var(--muted);overflow-wrap:anywhere}
+.project-document-pending label{display:grid;gap:6px;font-weight:700}
+.project-document-pending-actions{display:flex;gap:8px;flex-wrap:wrap}
 .project-related-list{display:grid;gap:7px}
 .project-related-navigation{width:100%;min-height:48px;text-align:right}
 .project-related-row{width:100%;min-height:52px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;text-align:right;color:var(--text)}

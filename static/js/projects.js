@@ -10,6 +10,7 @@ let currentProjectEditorId = "";
 let selectedProjectProfileFile = null;
 let removeCurrentProjectProfile = false;
 let projectEditorPreviewUrl = "";
+let pendingProjectDocumentFile = null;
 let pendingProjectDocumentReplacementId = "";
 let projectDeleteInFlight = false;
 
@@ -79,7 +80,7 @@ function renderProjectsList(){
     <button type="button" class="project-list-row" data-project-open-id="${escapeHtml(project.id)}" aria-label="פתיחת כרטיס ${escapeHtml(project.name)}">
       <span class="project-profile" data-project-list-profile="${escapeHtml(project.id)}" aria-hidden="true">${escapeHtml(getProjectFallbackLetter(project))}</span>
       <span class="project-list-main">
-        <strong>${escapeHtml(project.name)}</strong>
+        <span class="project-list-title"><strong>${escapeHtml(project.name)}</strong>${project.id === defaultProjectId ? '<span class="project-status-badge is-default">ברירת מחדל</span>' : ""}</span>
         <small>${escapeHtml(project.description || project.notes || "ללא תיאור")}</small>
       </span>
       <span class="project-status-badge ${project.is_active ? "is-active" : ""}">${project.is_active ? "פעיל" : "לא פעיל"}</span>
@@ -110,19 +111,51 @@ function renderProjectRelatedRows(){
   const documentHost = $("projectCardDocumentsList");
   if(!incomeHost || !expenseHost || !documentHost) return;
 
+  const incomeRows = currentProjectIncomeRows.filter(row => projectRelatedMatches([
+    row.report_date,
+    row.report_time,
+    row.income_type,
+    row.notes,
+    row.reference_number,
+    row.total_income_ils
+  ]));
+  const expenseRows = currentProjectExpenseRows.filter(row => projectRelatedMatches([
+    row.document_date,
+    row.supplier_name_snapshot,
+    row.document_number,
+    row.description,
+    row.notes,
+    row.gross_ils
+  ]));
   const documentRows = currentProjectDocumentRows.filter(row => projectRelatedMatches([
     row.display_name,
     row.original_filename,
     row.mime_type
   ]));
 
-  incomeHost.innerHTML = currentProjectIncomeRows.length
-    ? '<button type="button" class="secondary project-related-navigation" data-project-income-navigation>הכנסות לפרויקט</button>'
-    : '<p class="project-related-empty">אין הכנסות לפרויקט</p>';
+  incomeHost.innerHTML = incomeRows.length
+    ? incomeRows.map(row => `
+        <div class="project-related-row">
+          <span class="project-related-row-main">
+            <strong>${escapeHtml(normalizeIncomeType(row.income_type) || "הכנסה")}</strong>
+            <small>${escapeHtml([row.report_date, row.reference_number].filter(Boolean).join(" · "))}</small>
+          </span>
+          <strong>${escapeHtml(money(row.total_income_ils || 0))}</strong>
+        </div>
+      `).join("")
+    : `<p class="project-related-empty">${currentProjectIncomeRows.length ? "לא נמצאו הכנסות התואמות לחיפוש." : "אין הכנסות לפרויקט"}</p>`;
 
-  expenseHost.innerHTML = currentProjectExpenseRows.length
-    ? '<button type="button" class="secondary project-related-navigation" data-project-expense-navigation>הוצאות לפרויקט</button>'
-    : '<p class="project-related-empty">אין הוצאות לפרויקט</p>';
+  expenseHost.innerHTML = expenseRows.length
+    ? expenseRows.map(row => `
+        <div class="project-related-row">
+          <span class="project-related-row-main">
+            <strong>${escapeHtml(row.supplier_name_snapshot || row.description || "הוצאה")}</strong>
+            <small>${escapeHtml([row.document_date, row.document_number].filter(Boolean).join(" · "))}</small>
+          </span>
+          <strong>${escapeHtml(moneyAbs(row.gross_ils || 0))}</strong>
+        </div>
+      `).join("")
+    : `<p class="project-related-empty">${currentProjectExpenseRows.length ? "לא נמצאו הוצאות התואמות לחיפוש." : "אין הוצאות לפרויקט"}</p>`;
 
   documentHost.innerHTML = documentRows.length ? documentRows.map((row, index) => `
     <button type="button" class="project-related-row" data-project-document-id="${escapeHtml(row.id)}">
@@ -134,12 +167,6 @@ function renderProjectRelatedRows(){
     </button>
   `).join("") : `<p class="project-related-empty">${currentProjectDocumentRows.length ? "לא נמצאו מסמכי פרויקט התואמים לחיפוש." : "לא הועלו מסמכי פרויקט"}</p>`;
 
-  incomeHost.querySelector("[data-project-income-navigation]")?.addEventListener("click", () => {
-    void openCurrentProjectIncomeView();
-  });
-  expenseHost.querySelector("[data-project-expense-navigation]")?.addEventListener("click", () => {
-    void openCurrentProjectExpenseView();
-  });
   documentHost.querySelectorAll("[data-project-document-id]").forEach(button => {
     button.addEventListener("click", () => {
       const documentIndex = currentProjectDocumentRows.findIndex(row => row.id === button.dataset.projectDocumentId);
@@ -346,6 +373,7 @@ function openProjectEditor(projectId = ""){
   $("projectEditorActive").checked = project ? Boolean(project.is_active) : true;
   $("projectEditorName").disabled = Boolean(project?.is_general);
   $("projectEditorActive").disabled = Boolean(project?.is_general);
+  $("projectGeneralProtectionNotice").classList.toggle("hidden", !project?.is_general);
   $("projectEditorProfileInput").value = "";
   setStatus($("projectEditorStatus"), "", "");
   renderProjectEditorProfilePreview();
@@ -500,13 +528,13 @@ function buildProjectDocumentStoragePath(projectId, file){
   return `${userId}/projects/${projectId}/documents/${generateClientSideUuid()}-${sanitizeStorageFilename(file?.name || "document")}`;
 }
 
-function getProjectDocumentMetadata(file, storagePath, order = 0){
+function getProjectDocumentMetadata(file, storagePath, order = 0, displayName = ""){
   const mimeType = resolveCompanyDocumentMimeType(file);
   if(!(mimeType === "application/pdf" || mimeType.startsWith("image/"))){
     throw new Error("ניתן להעלות רק תמונות או PDF למסמכי פרויקט");
   }
   return {
-    display_name:file.name || "מסמך",
+    display_name:String(displayName || "").trim() || file.name || "מסמך",
     storage_path:storagePath,
     original_filename:file.name || "document",
     mime_type:mimeType,
@@ -524,35 +552,70 @@ async function refreshCurrentProjectCardData(){
   renderProjectDocumentsManageList();
 }
 
-async function addProjectDocuments(files){
-  const safeFiles = Array.from(files || []);
-  if(!safeFiles.length || !currentProjectId) return;
-  const uploadedPaths = [];
-  setStatus($("projectDocumentsStatus"), "מעלה מסמכים...", "");
+function clearPendingProjectDocument(){
+  pendingProjectDocumentFile = null;
+  $("projectDocumentPendingForm").classList.add("hidden");
+  $("projectDocumentPendingFilename").textContent = "";
+  $("projectDocumentTitleInput").value = "";
+  $("projectDocumentAddInput").value = "";
+}
+
+function stageProjectDocument(file){
+  if(!file) return;
   try {
-    const additions = [];
-    for(const [index, file] of safeFiles.entries()){
-      const storagePath = buildProjectDocumentStoragePath(currentProjectId, file);
-      const metadata = getProjectDocumentMetadata(file, storagePath, currentProjectDocumentRows.length + index);
-      const upload = await sb.storage.from("invoice-documents").upload(storagePath, file, {contentType:metadata.mime_type, upsert:false});
-      if(upload.error) throw upload.error;
-      uploadedPaths.push(storagePath);
-      additions.push(metadata);
-    }
+    getProjectDocumentMetadata(file, "pending");
+  } catch(error){
+    setStatus($("projectDocumentsStatus"), error?.message || "סוג המסמך אינו נתמך", "error");
+    return;
+  }
+  pendingProjectDocumentFile = file;
+  $("projectDocumentPendingFilename").textContent = `שם הקובץ המקורי: ${file.name || "מסמך"}`;
+  $("projectDocumentTitleInput").value = "";
+  $("projectDocumentPendingForm").classList.remove("hidden");
+  setStatus($("projectDocumentsStatus"), "הזיני כותרת ואשרי כדי לשמור את המסמך.", "");
+  $("projectDocumentTitleInput").focus();
+}
+
+async function confirmProjectDocument(event){
+  event.preventDefault();
+  const file = pendingProjectDocumentFile;
+  const displayName = String($("projectDocumentTitleInput").value || "").trim();
+  if(!file || !currentProjectId){
+    setStatus($("projectDocumentsStatus"), "בחרי קובץ לפני השמירה.", "error");
+    return;
+  }
+  if(!displayName){
+    setFieldInvalid($("projectDocumentTitleInput"), "יש להזין כותרת למסמך");
+    $("projectDocumentTitleInput").focus();
+    return;
+  }
+  const uploadedPaths = [];
+  const controls = Array.from($("projectDocumentPendingForm").querySelectorAll("button,input"));
+  setInformationActionBusy(controls, true);
+  setStatus($("projectDocumentsStatus"), "מעלה מסמך...", "");
+  try {
+    const storagePath = buildProjectDocumentStoragePath(currentProjectId, file);
+    const metadata = getProjectDocumentMetadata(file, storagePath, currentProjectDocumentRows.length, displayName);
+    const upload = await sb.storage.from("invoice-documents").upload(storagePath, file, {contentType:metadata.mime_type, upsert:false});
+    if(upload.error) throw upload.error;
+    uploadedPaths.push(storagePath);
 
     const {error} = await sb.rpc("update_project_documents_atomic", {
       p_project_id:currentProjectId,
       p_replacements:[],
-      p_additions:additions,
+      p_additions:[metadata],
       p_deleted_document_ids:[]
     });
     if(error) throw error;
     await refreshCurrentProjectCardData();
-    setStatus($("projectDocumentsStatus"), "המסמכים נוספו", "ok");
+    clearPendingProjectDocument();
+    setStatus($("projectDocumentsStatus"), "המסמך נוסף", "ok");
   } catch(error){
     console.error(error);
     await cleanupProjectStoragePaths(uploadedPaths);
-    setStatus($("projectDocumentsStatus"), error?.message || "שגיאה בהוספת המסמכים", "error");
+    setStatus($("projectDocumentsStatus"), error?.message || "שגיאה בהוספת המסמך", "error");
+  } finally {
+    setInformationActionBusy(controls, false);
   }
 }
 
@@ -561,7 +624,7 @@ async function replaceProjectDocument(documentId, file){
   if(!row || !file) return;
   const storagePath = buildProjectDocumentStoragePath(currentProjectId, file);
   try {
-    const metadata = getProjectDocumentMetadata(file, storagePath, row.document_order);
+    const metadata = getProjectDocumentMetadata(file, storagePath, row.document_order, row.display_name);
     setStatus($("projectDocumentsStatus"), "מחליפה מסמך...", "");
     const upload = await sb.storage.from("invoice-documents").upload(storagePath, file, {contentType:metadata.mime_type, upsert:false});
     if(upload.error) throw upload.error;
@@ -608,6 +671,7 @@ async function deleteProjectDocument(documentId){
 
 function openProjectDocumentsManager(){
   if(!currentProjectCard) return;
+  clearPendingProjectDocument();
   $("projectDocumentsDialogTitle").textContent = `מסמכי ${currentProjectCard.name}`;
   setStatus($("projectDocumentsStatus"), "", "");
   renderProjectDocumentsManageList();
@@ -732,7 +796,7 @@ function openProjectDeleteDialog(){
   $("projectDeleteDefaultField").classList.add("hidden");
   $("projectDeleteDefaultProject").innerHTML = "";
   $("projectDeleteConfirmButton").classList.remove("hidden");
-  $("projectDeleteConfirmButton").textContent = "מחיקת הפרויקט";
+  $("projectDeleteConfirmButton").textContent = "מחקי את הפרויקט";
   setStatus($("projectDeleteStatus"), "", "");
   $("projectDeleteDialog")?.showModal();
 }
@@ -769,7 +833,7 @@ async function executeProjectDeletion(){
         $("projectDeleteDefaultProject").value = "";
         $("projectDeleteDefaultField").classList.remove("hidden");
         $("projectDeleteConfirmButton").classList.remove("hidden");
-        $("projectDeleteConfirmButton").textContent = "החלפת ברירת מחדל ומחיקה";
+        $("projectDeleteConfirmButton").textContent = "החליפי ברירת מחדל ומחקי";
         setStatus($("projectDeleteStatus"), "יש לבחור פרויקט פעיל אחר כברירת המחדל החדשה. הפרויקט כללי זמין לבחירה.", "");
         return;
       }
@@ -834,6 +898,8 @@ $("projectCardSearchInput")?.addEventListener("input", event => {
 });
 $("projectDocumentsManageButton")?.addEventListener("click", openProjectDocumentsManager);
 $("projectDocumentsZipButton")?.addEventListener("click", () => void downloadCurrentProjectDocumentsZip());
+$("projectIncomeSummary")?.addEventListener("click", () => void openCurrentProjectIncomeView());
+$("projectExpenseSummary")?.addEventListener("click", () => void openCurrentProjectExpenseView());
 
 $("projectEditorProfileBrowseButton")?.addEventListener("click", () => openFileInputPicker($("projectEditorProfileInput"), {resetValue:true}));
 $("projectEditorProfileInput")?.addEventListener("change", event => {
@@ -856,9 +922,10 @@ $("projectEditorDialog")?.addEventListener("close", () => {
 
 $("projectDocumentAddButton")?.addEventListener("click", () => openFileInputPicker($("projectDocumentAddInput"), {resetValue:true}));
 $("projectDocumentAddInput")?.addEventListener("change", event => {
-  void addProjectDocuments(event.target.files);
-  event.target.value = "";
+  stageProjectDocument(event.target.files?.[0] || null);
 });
+$("projectDocumentPendingForm")?.addEventListener("submit", event => void confirmProjectDocument(event));
+$("projectDocumentCancelButton")?.addEventListener("click", clearPendingProjectDocument);
 $("projectDocumentReplaceInput")?.addEventListener("change", event => {
   const file = event.target.files?.[0] || null;
   const documentId = pendingProjectDocumentReplacementId;

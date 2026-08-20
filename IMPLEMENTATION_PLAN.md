@@ -1187,6 +1187,10 @@
    - הגדרות
    - עזרה
    - יציאה
+   - Future Settings requirement (deferred; not part of the current Task 42 reject fixes):
+   - Implement one centralized User Settings screen for user-configurable experience preferences.
+   - Include a grammatical-gender / form-of-address preference with Female and Male options.
+   - Adapt user-facing messages and action labels to the selected preference; until implemented, use feminine Hebrew consistently.
    - Show/activate only destinations that have a real implemented screen at the time of integration.
    - Reuse existing navigation/history behavior and preserve true Back behavior.
    - Constraints:

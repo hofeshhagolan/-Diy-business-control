@@ -12,6 +12,7 @@ let expenseReviewLoadToken = 0;
 let expenseReviewRows = [];
 let pendingExpenseEntryRows = [];
 let currentExpenseReviewDocument = null;
+let currentExpenseReviewObjectUrl = "";
 let expenseReviewFullscreenOpener = null;
 let currentFullscreenImageState = null;
 let currentExpenseReviewPages = [];
@@ -943,7 +944,7 @@ function renderIncomeFilterChips(){
 
   chipHost.innerHTML = `
     <div class="income-filter-chip-list">${chips.join("")}</div>
-    <button type="button" id="incomeFilterClearAll" class="secondary income-filter-clear-all">נקה הכל</button>
+    <button type="button" id="incomeFilterClearAll" class="secondary income-filter-clear-all">נקי הכל</button>
   `;
   chipHost.classList.remove("hidden");
 
@@ -1010,7 +1011,7 @@ function renderExpenseFilterChips(){
 
   chipHost.innerHTML = `
     <div class="income-filter-chip-list">${chips.join("")}</div>
-    <button type="button" id="expenseFilterClearAll" class="secondary income-filter-clear-all">נקה הכל</button>
+    <button type="button" id="expenseFilterClearAll" class="secondary income-filter-clear-all">נקי הכל</button>
   `;
   chipHost.classList.remove("hidden");
 
@@ -3288,7 +3289,7 @@ async function loadSharedViewerDocument(index){
     ? String(documentMeta.original_filename || currentSharedViewerTitle).trim() || currentSharedViewerTitle
     : currentSharedViewerTitle;
   if($("sharedDocumentViewerTitle")) $("sharedDocumentViewerTitle").textContent = documentTitle;
-  renderSharedViewerState("טוען מסמך...");
+  renderSharedViewerState("טוענת מסמך...");
   setStatus($("sharedDocumentViewerStatus"), "", "");
   updateSharedViewerNavigation();
 
@@ -4671,7 +4672,7 @@ async function renderManualGroupingPagePreview(page){
 
   const loading = document.createElement("p");
   loading.className = "review-document-state";
-  loading.textContent = "טוען את עמוד ה-PDF שנבחר...";
+  loading.textContent = "טוענת את עמוד ה-PDF שנבחר...";
   preview.appendChild(loading);
 
   try {
@@ -5311,7 +5312,7 @@ async function renderExpenseExtractedPreviewFromPersistedPage(page){
 
   expenseExtractedPreviewLoadToken += 1;
   const loadToken = expenseExtractedPreviewLoadToken;
-  renderExpenseExtractedPreviewState({message:"טוען מסמך חשבונית..."});
+  renderExpenseExtractedPreviewState({message:"טוענת מסמך חשבונית..."});
 
   const isCurrentLoad = () => (
     loadToken === expenseExtractedPreviewLoadToken
@@ -5345,11 +5346,11 @@ function renderExpenseReviewDocumentState({message = "", isError = false} = {}){
   panel.appendChild(text);
 }
 
-function renderExpenseReviewDocumentFile({signedUrl, mimeType}){
+function renderExpenseReviewDocumentFile({signedUrl, mimeType, storagePath = "", isObjectUrl = false}){
   const panel = $("expenseReviewDocument");
   if(!panel) return;
 
-  setCurrentExpenseReviewDocument({signedUrl, mimeType});
+  setCurrentExpenseReviewDocument({signedUrl, mimeType, storagePath, isObjectUrl});
   panel.innerHTML = "";
   panel.classList.remove("preview-openable", "preview-overlay-openable");
 
@@ -5468,21 +5469,21 @@ async function renderExpenseReviewPageAtIndex(pageIndex){
     resetFullscreenImageState();
   }
 
-  const {data:signed, error:signError} = await sb.storage
-    .from("invoice-documents")
-    .createSignedUrl(requestedPage.storage_path, 60);
+  const signedUrl = await createSignedUrlForStoragePath(requestedPage.storage_path, 300);
+  const documentBlob = await fetchBlobFromSignedUrl(signedUrl);
 
   if(pages !== currentExpenseReviewPages || itemId !== (activeExpenseReviewContext?.scanItemId || null) || requestedIndex !== currentExpenseReviewPageIndex){
     return;
   }
 
-  if(signError || !signed?.signedUrl){
-    throw new Error(signError?.message || "שגיאה בטעינת מסמך החשבונית");
-  }
+  const mimeType = String(requestedPage.mime_type || documentBlob.type || "application/octet-stream").toLowerCase();
+  const previewUrl = URL.createObjectURL(new Blob([documentBlob], {type:mimeType}));
 
   renderExpenseReviewDocumentFile({
-    signedUrl: signed.signedUrl,
-    mimeType: requestedPage.mime_type
+    signedUrl: previewUrl,
+    mimeType,
+    storagePath:requestedPage.storage_path,
+    isObjectUrl:true
   });
 
   if($("expenseReviewFullscreenDialog")?.open){
@@ -5820,11 +5821,24 @@ function renderExpenseReviewFullscreenDocument(){
   content.appendChild(frame);
 }
 
+function clearCurrentExpenseReviewObjectUrl(nextObjectUrl = ""){
+  if(currentExpenseReviewObjectUrl && currentExpenseReviewObjectUrl !== nextObjectUrl){
+    URL.revokeObjectURL(currentExpenseReviewObjectUrl);
+  }
+  currentExpenseReviewObjectUrl = nextObjectUrl;
+}
+
 function setCurrentExpenseReviewDocument(documentFile){
   const hasValidDocument = Boolean(documentFile?.signedUrl && documentFile?.mimeType);
+  const nextObjectUrl = hasValidDocument && documentFile.isObjectUrl ? documentFile.signedUrl : "";
+  clearCurrentExpenseReviewObjectUrl(nextObjectUrl);
 
   currentExpenseReviewDocument = hasValidDocument
-    ? {signedUrl: documentFile.signedUrl, mimeType: documentFile.mimeType}
+    ? {
+        signedUrl: documentFile.signedUrl,
+        mimeType: documentFile.mimeType,
+        storagePath:String(documentFile.storagePath || "").trim()
+      }
     : null;
 
   if(!hasValidDocument){
@@ -6313,7 +6327,7 @@ async function openExpenseReviewItem(row){
 
   clearExpenseReviewPageSelection();
   clearExpenseInvoiceDerivedFields();
-  renderExpenseReviewDocumentState({message:"טוען מסמך חשבונית..."});
+  renderExpenseReviewDocumentState({message:"טוענת מסמך חשבונית..."});
 
   try {
     await loadExpenseReviewItemData(targetRow, loadToken);
@@ -9298,7 +9312,7 @@ function renderSelectedFiles(){
           <div class="file-preview-card pdf">
             <div class="file-preview-icon">PDF</div>
           </div>
-          <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
+          <button type="button" class="file-remove" data-index="${index}" aria-label="הסירי קובץ">✕</button>
         </div>`;
     }
 
@@ -9308,7 +9322,7 @@ function renderSelectedFiles(){
         <div class="file-preview-card image">
           <img src="${previewUrl}" alt="${fileName}">
         </div>
-        <button type="button" class="file-remove" data-index="${index}" aria-label="הסר קובץ">✕</button>
+        <button type="button" class="file-remove" data-index="${index}" aria-label="הסירי קובץ">✕</button>
       </div>`;
   }).join("");
 

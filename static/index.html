@@ -11,13 +11,13 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260820-1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260820-2">
 </head>
 <body>
 
 <section id="loadingScreen" class="loading hidden">
   <div class="loading-wrap">
-    <strong role="status" aria-live="polite" aria-atomic="true">טוען...</strong>
+    <strong role="status" aria-live="polite" aria-atomic="true">טוענת...</strong>
     <div class="loading-spinner" aria-hidden="true"></div>
   </div>
 </section>
@@ -46,7 +46,7 @@
       <form id="signupForm" class="stack hidden" role="tabpanel" aria-labelledby="signupTab">
         <label>מייל<input name="email" id="signupEmail" type="email" autocomplete="email" required></label>
         <label>סיסמה<input name="password" id="signupPassword" type="password" autocomplete="new-password" minlength="8" required></label>
-        <button class="primary">יצירת חשבון</button>
+        <button class="primary">צרי חשבון</button>
         <div id="signupStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       </form>
     </div>
@@ -92,7 +92,7 @@
             data-info-actions-purpose="summary"
             data-info-actions-collector="collectHomeOverviewInfoReport">
             <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-            <button type="button" role="menuitem" data-info-action="export">ייצא</button>
+            <button type="button" role="menuitem" data-info-action="export">ייצאי</button>
             <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
           </div>
         </div>
@@ -166,7 +166,7 @@
               data-info-actions-purpose="report"
               data-info-actions-collector="collectExpensesInfoReport">
               <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-              <button type="button" role="menuitem" data-info-action="export">ייצא</button>
+              <button type="button" role="menuitem" data-info-action="export">ייצאי</button>
               <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
             </div>
           </div>
@@ -212,7 +212,7 @@
               data-info-actions-purpose="report"
               data-info-actions-collector="collectIncomeInfoReport">
               <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-              <button type="button" role="menuitem" data-info-action="export">ייצא</button>
+              <button type="button" role="menuitem" data-info-action="export">ייצאי</button>
               <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
             </div>
           </div>
@@ -328,7 +328,7 @@
           <button id="projectCardMenuButton" class="row-action" type="button" data-action-menu-button="projectCardMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="projectCardMenu" aria-label="פעולות מידע" title="שיתוף / ייצוא / הדפסה">⋮</button>
           <div id="projectCardMenu" class="action-menu hidden" role="menu" aria-label="פעולות כרטיס פרויקט" data-info-actions-menu data-info-actions-scope="project-card" data-info-actions-purpose="summary" data-info-actions-collector="collectProjectCardInfoReport">
             <button type="button" role="menuitem" data-info-action="share">שיתוף</button>
-            <button type="button" role="menuitem" data-info-action="export">ייצא</button>
+            <button type="button" role="menuitem" data-info-action="export">ייצאי</button>
             <button type="button" role="menuitem" data-info-action="print">הדפסה</button>
           </div>
         </div>
@@ -336,14 +336,17 @@
 
       <div id="projectCardStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
       <section class="project-card-section project-card-information" aria-label="מידע על הפרויקט">
+        <div class="project-identity-status">
+          <span>מצב הפרויקט</span>
+          <button id="projectSetDefaultButton" type="button" class="secondary">הגדירי כברירת מחדל</button>
+        </div>
         <div><span>תיאור</span><p id="projectCardDescription">-</p></div>
         <div><span>הערות</span><p id="projectCardNotes">-</p></div>
-        <div class="project-default-action"><button id="projectSetDefaultButton" type="button" class="secondary">הגדר כברירת מחדל</button></div>
       </section>
 
       <section class="project-summary" aria-label="סיכום פיננסי">
-        <div class="project-summary-item income"><span>הכנסות</span><strong id="projectCardIncomeTotal">₪0.00</strong></div>
-        <div class="project-summary-item expense"><span>הוצאות</span><strong id="projectCardExpenseTotal">₪0.00</strong></div>
+        <button id="projectIncomeSummary" type="button" class="project-summary-item income"><span>הכנסות</span><strong id="projectCardIncomeTotal">₪0.00</strong></button>
+        <button id="projectExpenseSummary" type="button" class="project-summary-item expense"><span>הוצאות</span><strong id="projectCardExpenseTotal">₪0.00</strong></button>
         <div class="project-summary-item"><span>רווח / הפסד</span><strong id="projectCardProfitTotal">₪0.00</strong></div>
       </section>
 
@@ -353,7 +356,7 @@
         </div>
         <label class="projects-search" for="projectCardSearchInput">
           <span class="sr-only">חיפוש במידע הפרויקט</span>
-          <input id="projectCardSearchInput" type="search" placeholder="חיפוש במסמכי הפרויקט" autocomplete="off">
+          <input id="projectCardSearchInput" type="search" placeholder="חיפוש בהכנסות, בהוצאות ובמסמכי הפרויקט" autocomplete="off">
         </label>
         <section class="project-related-section" aria-labelledby="projectIncomeHeading">
           <h4 id="projectIncomeHeading">הכנסות</h4>
@@ -364,12 +367,10 @@
           <div id="projectCardExpenseList" class="project-related-list"></div>
         </section>
         <section class="project-related-section" aria-labelledby="projectDocumentsHeading">
-          <div class="project-related-section-head">
-            <h4 id="projectDocumentsHeading">מסמכי פרויקט</h4>
-            <div class="project-document-section-actions">
-              <button id="projectDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
-              <button id="projectDocumentsZipButton" type="button" class="secondary" disabled>הורד מסמכי פרויקט (ZIP)</button>
-            </div>
+          <h4 id="projectDocumentsHeading">מסמכי פרויקט</h4>
+          <div class="project-document-section-actions">
+            <button id="projectDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
+            <button id="projectDocumentsZipButton" type="button" class="secondary" disabled>הורידי מסמכי פרויקט (ZIP)</button>
           </div>
           <div id="projectDocumentsZipStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
           <div id="projectCardDocumentsList" class="project-related-list"></div>
@@ -424,7 +425,7 @@
       </button>
       <div id="expenseDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הוצאה">
         <button id="expenseDetailsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="expenseDetailsExportPdfAction" type="button" role="menuitem">ייצא</button>
+        <button id="expenseDetailsExportPdfAction" type="button" role="menuitem">ייצאי</button>
         <button id="expenseDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
@@ -432,8 +433,8 @@
   </div>
   <div class="modal-body">
     <div class="file-actions">
-      <button id="singleCameraButton" class="secondary" type="button">צילום חשבונית</button>
-      <button id="multiCameraButton" class="secondary" type="button">צילום מס' מסמכים</button>
+      <button id="singleCameraButton" class="secondary" type="button">צלמי חשבונית</button>
+      <button id="multiCameraButton" class="secondary" type="button">צלמי מסמכים</button>
       <button id="browseButton" class="secondary" type="button">עיון</button>
       <input id="singleCameraInput" type="file" accept="image/*" capture="environment">
       <input id="multiCameraInput" type="file" accept="image/*" capture="environment" multiple>
@@ -572,7 +573,7 @@
       <section id="expenseEditDocuments" class="expense-edit-documents wide hidden" aria-label="ניהול מסמכי הוצאה">
         <div class="expense-edit-documents-head">
           <h3>מסמכים</h3>
-          <button id="expenseEditDocumentAddButton" type="button" class="secondary">הוספת מסמך</button>
+          <button id="expenseEditDocumentAddButton" type="button" class="secondary">הוסיפי מסמך</button>
         </div>
         <p id="expenseEditDocumentsEmpty" class="expense-details-sub">אין מסמכים מצורפים</p>
         <div id="expenseEditDocumentsList" class="expense-edit-documents-list hidden"></div>
@@ -589,7 +590,7 @@
       <button id="expenseReviewNavPrev" type="button" class="review-item-nav-arrow" aria-label="חשבונית קודמת" title="חשבונית קודמת">→</button>
       <p id="expenseReviewPosition" class="review-item-nav-position" aria-live="polite" aria-atomic="true"></p>
       <button id="expenseReviewNavNext" type="button" class="review-item-nav-arrow" aria-label="חשבונית הבאה" title="חשבונית הבאה">←</button>
-      <button id="expenseReviewDiscardButton" type="button" class="review-item-nav-back review-item-nav-danger">השלך חשבונית</button>
+      <button id="expenseReviewDiscardButton" type="button" class="review-item-nav-back review-item-nav-danger">השליכי חשבונית</button>
       <button id="expenseReviewBackToList" type="button" class="review-item-nav-back">חזרה לרשימה</button>
     </div>
   </div>
@@ -603,7 +604,7 @@
   <div class="modal-body">
     <p class="expense-asset-question">האם ליצור נכס מהוצאה זו?</p>
     <div class="asset-followup-actions">
-      <button id="expenseAssetFollowupCreateButton" type="button" class="secondary">צור כרטיס נכס</button>
+      <button id="expenseAssetFollowupCreateButton" type="button" class="secondary">צרי כרטיס נכס</button>
       <button id="expenseAssetFollowupDismissButton" type="button" class="secondary">לא, תודה</button>
       <p class="expense-details-sub">זמין בהמשך</p>
     </div>
@@ -635,7 +636,7 @@
       <button id="incomeDetailsShareMenuButton" class="row-action" type="button" data-action-menu-button="incomeDetailsShareMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="incomeDetailsShareMenu" aria-label="פעולות שיתוף, ייצוא והדפסה" title="שיתוף / ייצוא / הדפסה">⋮</button>
       <div id="incomeDetailsShareMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסך פרטי הכנסה">
         <button id="incomeDetailsShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="incomeDetailsExportPdfAction" type="button" role="menuitem">ייצא</button>
+        <button id="incomeDetailsExportPdfAction" type="button" role="menuitem">ייצאי</button>
         <button id="incomeDetailsPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
@@ -725,7 +726,7 @@
       </div>
     </section>
     <div class="dialog-actions income-dialog-actions">
-      <button type="submit" class="primary">החל מיון</button>
+      <button type="submit" class="primary">החילי מיון</button>
     </div>
   </form>
 </dialog>
@@ -769,8 +770,8 @@
       </div>
     </section>
     <div class="dialog-actions income-dialog-actions">
-      <button id="expenseFilterClearButton" type="button" class="secondary">נקה הכל</button>
-      <button type="submit" class="primary">החל סינון</button>
+      <button id="expenseFilterClearButton" type="button" class="secondary">נקי הכל</button>
+      <button type="submit" class="primary">החילי סינון</button>
     </div>
   </form>
 </dialog>
@@ -793,7 +794,7 @@
       </div>
     </section>
     <div class="dialog-actions income-dialog-actions">
-      <button type="submit" class="primary">החל מיון</button>
+      <button type="submit" class="primary">החילי מיון</button>
     </div>
   </form>
 </dialog>
@@ -847,8 +848,8 @@
       </div>
     </section>
     <div class="dialog-actions income-dialog-actions">
-      <button id="incomeFilterClearButton" type="button" class="secondary">נקה הכל</button>
-      <button type="submit" class="primary">החל סינון</button>
+      <button id="incomeFilterClearButton" type="button" class="secondary">נקי הכל</button>
+      <button type="submit" class="primary">החילי סינון</button>
     </div>
   </form>
 </dialog>
@@ -861,6 +862,9 @@
     <button data-close type="button" aria-label="סגירת עריכת פרויקט">✕</button>
   </div>
   <form id="projectEditorForm" class="modal-body form-grid">
+    <div id="projectGeneralProtectionNotice" class="information-notice wide hidden" role="status">
+      השם והמצב הפעיל של הפרויקט כללי מוגנים ואינם ניתנים לשינוי.
+    </div>
     <label class="wide">שם<input id="projectEditorName" maxlength="160" required></label>
     <label class="wide">תיאור<textarea id="projectEditorDescription" maxlength="2000"></textarea></label>
     <label class="wide">הערות<textarea id="projectEditorNotes" maxlength="4000"></textarea></label>
@@ -869,12 +873,12 @@
       <div id="projectEditorProfilePreview" class="project-profile project-profile-large" aria-hidden="true">פ</div>
       <div class="project-profile-editor-actions">
         <button id="projectEditorProfileBrowseButton" type="button" class="secondary">בחרי תמונה</button>
-        <button id="projectEditorProfileRemoveButton" type="button" class="secondary">הסרת תמונה</button>
+        <button id="projectEditorProfileRemoveButton" type="button" class="secondary">הסירי תמונה</button>
         <input id="projectEditorProfileInput" class="hidden" type="file" accept="image/*" tabindex="-1">
       </div>
     </section>
     <div id="projectEditorStatus" class="status wide" role="status" aria-live="polite" aria-atomic="true"></div>
-    <button id="projectEditorSubmit" type="submit" class="primary wide">שמירת פרויקט</button>
+    <button id="projectEditorSubmit" type="submit" class="primary wide">שמרי פרויקט</button>
   </form>
 </dialog>
 
@@ -885,10 +889,18 @@
   </div>
   <div class="modal-body">
     <div class="file-actions">
-      <button id="projectDocumentAddButton" type="button" class="secondary">הוספת מסמכים</button>
-      <input id="projectDocumentAddInput" type="file" accept="image/*,application/pdf" multiple>
-      <input id="projectDocumentReplaceInput" type="file" accept="image/*,application/pdf">
+      <button id="projectDocumentAddButton" type="button" class="secondary">הוסיפי מסמך</button>
+      <input id="projectDocumentAddInput" class="hidden" type="file" accept="image/*,application/pdf" tabindex="-1">
+      <input id="projectDocumentReplaceInput" class="hidden" type="file" accept="image/*,application/pdf" tabindex="-1">
     </div>
+    <form id="projectDocumentPendingForm" class="project-document-pending hidden">
+      <p id="projectDocumentPendingFilename"></p>
+      <label>כותרת המסמך<input id="projectDocumentTitleInput" maxlength="240" required></label>
+      <div class="project-document-pending-actions">
+        <button id="projectDocumentConfirmButton" type="submit" class="primary">שמרי מסמך</button>
+        <button id="projectDocumentCancelButton" type="button" class="secondary">ביטול</button>
+      </div>
+    </form>
     <div id="projectDocumentsManageList" class="project-documents-manage-list"></div>
     <div id="projectDocumentsStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
@@ -904,7 +916,7 @@
     <label id="projectDeleteDefaultField" class="hidden">פרויקט ברירת מחדל חדש
       <select id="projectDeleteDefaultProject"></select>
     </label>
-    <button id="projectDeleteConfirmButton" type="button" class="primary">מחיקת הפרויקט</button>
+    <button id="projectDeleteConfirmButton" type="button" class="primary">מחקי את הפרויקט</button>
     <button id="projectDeleteCancelButton" type="button" class="secondary">ביטול</button>
     <div id="projectDeleteStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
@@ -918,7 +930,7 @@
       <button id="sharedViewerActionsButton" type="button" class="viewer-overflow-button" data-action-menu-button="sharedViewerActionsMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="sharedViewerActionsMenu" aria-label="פעולות שיתוף, ייצוא והדפסה">⋮</button>
       <div id="sharedViewerActionsMenu" class="action-menu hidden" role="menu" aria-label="פעולות מסמך">
         <button id="sharedViewerShareAction" type="button" role="menuitem">שיתוף</button>
-        <button id="sharedViewerExportAction" type="button" role="menuitem">ייצא</button>
+        <button id="sharedViewerExportAction" type="button" role="menuitem">ייצאי</button>
         <button id="sharedViewerPrintAction" type="button" role="menuitem">הדפסה</button>
       </div>
     </div>
@@ -1006,7 +1018,7 @@
       <div id="companyDocumentEditorSelectedFile" class="file-preview-empty hidden"></div>
       <div class="row-actions company-document-editor-actions">
         <button class="primary" type="submit">שמרי שינויים</button>
-        <button id="companyDocumentEditorDeleteButton" class="secondary company-document-editor-delete-button" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑 מחק מסמך</button>
+        <button id="companyDocumentEditorDeleteButton" class="secondary company-document-editor-delete-button" type="button" aria-label="מחיקת מסמך" title="מחיקת מסמך">🗑 מחקי מסמך</button>
       </div>
       <div id="companyDocumentEditorStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </form>
@@ -1033,7 +1045,7 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260820-1"></script>
-<script src="/static/js/projects.js?v=20260820-1"></script>
+<script src="/static/js/app.js?v=20260820-2"></script>
+<script src="/static/js/projects.js?v=20260820-2"></script>
 </body>
 </html>

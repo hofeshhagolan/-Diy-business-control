@@ -489,8 +489,6 @@ dialog::backdrop{background:#07182a99}
 @media(max-width:760px){
   .entity-hub-grid{grid-template-columns:1fr}
   .entity-hub-card{min-height:112px}
-  .project-card-header{align-items:flex-start}
-  .project-card-identity{align-items:flex-start}
   .project-profile-large{width:72px;height:72px}
   .project-card-information{grid-template-columns:1fr}
   .project-summary{grid-template-columns:1fr}

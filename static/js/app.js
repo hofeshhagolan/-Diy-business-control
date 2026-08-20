@@ -3182,15 +3182,14 @@ function renderSharedPdfFallback(documentMeta){
   panel.appendChild(fallback);
 }
 
-async function renderSharedPdfDocument(documentMeta, loadToken){
-  const panel = $("sharedDocumentViewerPanel");
-  if(!panel || !(documentMeta.previewBlob instanceof Blob)) return false;
+async function renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent = () => true} = {}){
+  if(!panel || !(previewBlob instanceof Blob)) return false;
   const pdfjsLib = await ensurePdfJs();
-  if(loadToken !== sharedViewerLoadToken) return false;
-  const bytes = new Uint8Array(await documentMeta.previewBlob.arrayBuffer());
+  if(!isCurrent()) return false;
+  const bytes = new Uint8Array(await previewBlob.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({data:bytes});
   const pdfDocument = await loadingTask.promise;
-  if(loadToken !== sharedViewerLoadToken){
+  if(!isCurrent()){
     await pdfDocument.destroy();
     return false;
   }
@@ -3202,7 +3201,7 @@ async function renderSharedPdfDocument(documentMeta, loadToken){
 
   try {
     for(let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1){
-      if(loadToken !== sharedViewerLoadToken) return false;
+      if(!isCurrent()) return false;
       const page = await pdfDocument.getPage(pageNumber);
       const baseViewport = page.getViewport({scale:1});
       const availableWidth = Math.max(280, panel.clientWidth - 24);
@@ -3226,6 +3225,12 @@ async function renderSharedPdfDocument(documentMeta, loadToken){
   } finally {
     await pdfDocument.destroy();
   }
+}
+
+async function renderSharedPdfDocument(documentMeta, loadToken){
+  return renderPdfBlobIntoPanel($("sharedDocumentViewerPanel"), documentMeta.previewBlob, {
+    isCurrent:() => loadToken === sharedViewerLoadToken
+  });
 }
 
 async function renderSharedViewerDocument(documentMeta, loadToken){
@@ -5339,6 +5344,12 @@ function renderExpenseReviewDocumentState({message = "", isError = false} = {}){
   if(!panel) return;
 
   setCurrentExpenseReviewDocument(null);
+  panel.classList.remove("expense-review-pdf-panel");
+  panel.removeAttribute("tabindex");
+  panel.removeAttribute("role");
+  panel.removeAttribute("aria-label");
+  panel.onclick = null;
+  panel.onkeydown = null;
   panel.innerHTML = "";
   const text = document.createElement("p");
   text.className = isError ? "review-document-state error" : "review-document-state";
@@ -5346,13 +5357,18 @@ function renderExpenseReviewDocumentState({message = "", isError = false} = {}){
   panel.appendChild(text);
 }
 
-function renderExpenseReviewDocumentFile({signedUrl, mimeType, storagePath = "", isObjectUrl = false}){
+async function renderExpenseReviewDocumentFile({signedUrl, mimeType, storagePath = "", isObjectUrl = false, previewBlob = null, isCurrent = () => true}){
   const panel = $("expenseReviewDocument");
   if(!panel) return;
 
-  setCurrentExpenseReviewDocument({signedUrl, mimeType, storagePath, isObjectUrl});
+  setCurrentExpenseReviewDocument({signedUrl, mimeType, storagePath, isObjectUrl, previewBlob});
   panel.innerHTML = "";
-  panel.classList.remove("preview-openable", "preview-overlay-openable");
+  panel.classList.remove("preview-openable", "preview-overlay-openable", "expense-review-pdf-panel");
+  panel.removeAttribute("tabindex");
+  panel.removeAttribute("role");
+  panel.removeAttribute("aria-label");
+  panel.onclick = null;
+  panel.onkeydown = null;
 
   if(String(mimeType || "").toLowerCase().startsWith("image/")){
     panel.classList.add("preview-openable");
@@ -5373,32 +5389,42 @@ function renderExpenseReviewDocumentFile({signedUrl, mimeType, storagePath = "",
       openExpenseReviewFullscreen();
     });
     panel.appendChild(image);
-    return;
+    return true;
   }
 
-  const frame = document.createElement("iframe");
-  frame.src = signedUrl;
-  frame.title = "מסמך חשבונית נבחר";
-  frame.loading = "lazy";
-  panel.appendChild(frame);
+  if(String(mimeType || "").toLowerCase() === "application/pdf" && previewBlob instanceof Blob){
+    panel.classList.add("expense-review-pdf-panel");
+    try {
+      const rendered = await renderPdfBlobIntoPanel(panel, previewBlob, {isCurrent});
+      if(!rendered || !isCurrent()) return false;
+      panel.classList.add("preview-openable");
+      panel.tabIndex = 0;
+      panel.setAttribute("role", "button");
+      panel.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
+      panel.onclick = () => {
+        expenseReviewFullscreenOpener = panel;
+        openExpenseReviewFullscreen();
+      };
+      panel.onkeydown = event => {
+        if(event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        expenseReviewFullscreenOpener = panel;
+        openExpenseReviewFullscreen();
+      };
+      return true;
+    } catch(error){
+      if(!isCurrent()) return false;
+      console.error("expense_review_pdf_preview_failed", error);
+      renderExpenseReviewDocumentState({
+        message:"לא ניתן להציג את מסמך ה-PDF בתוך הבדיקה.",
+        isError:true
+      });
+      return false;
+    }
+  }
 
-  panel.classList.add("preview-overlay-openable");
-  const openOverlay = document.createElement("button");
-  openOverlay.type = "button";
-  openOverlay.className = "review-document-overlay-trigger";
-  openOverlay.setAttribute("aria-label", "פתחי את מסמך החשבונית בתצוגת מסך מלא");
-  openOverlay.setAttribute("title", "פתחי במסך מלא");
-  openOverlay.addEventListener("click", () => {
-    expenseReviewFullscreenOpener = openOverlay;
-    openExpenseReviewFullscreen();
-  });
-  openOverlay.addEventListener("keydown", event => {
-    if(event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    expenseReviewFullscreenOpener = openOverlay;
-    openExpenseReviewFullscreen();
-  });
-  panel.appendChild(openOverlay);
+  renderExpenseReviewDocumentState({message:"סוג המסמך אינו נתמך.", isError:true});
+  return false;
 }
 
 function clearExpenseReviewPageSelection(){
@@ -5479,11 +5505,15 @@ async function renderExpenseReviewPageAtIndex(pageIndex){
   const mimeType = String(requestedPage.mime_type || documentBlob.type || "application/octet-stream").toLowerCase();
   const previewUrl = URL.createObjectURL(new Blob([documentBlob], {type:mimeType}));
 
-  renderExpenseReviewDocumentFile({
+  await renderExpenseReviewDocumentFile({
     signedUrl: previewUrl,
     mimeType,
     storagePath:requestedPage.storage_path,
-    isObjectUrl:true
+    isObjectUrl:true,
+    previewBlob:documentBlob,
+    isCurrent:() => pages === currentExpenseReviewPages
+      && itemId === (activeExpenseReviewContext?.scanItemId || null)
+      && requestedIndex === currentExpenseReviewPageIndex
   });
 
   if($("expenseReviewFullscreenDialog")?.open){
@@ -5807,18 +5837,30 @@ function renderExpenseReviewFullscreenImage(){
   applyFullscreenImageTransform();
 }
 
-function renderExpenseReviewFullscreenDocument(){
+async function renderExpenseReviewFullscreenDocument(){
   const content = $("expenseReviewFullscreenContent");
   if(!content) return;
 
   content.classList.remove("image-mode");
   content.innerHTML = "";
-
-  const frame = document.createElement("iframe");
-  frame.src = currentExpenseReviewDocument?.signedUrl || "";
-  frame.title = "מסמך חשבונית במסך מלא";
-  frame.loading = "lazy";
-  content.appendChild(frame);
+  const documentFile = currentExpenseReviewDocument;
+  if(!(documentFile?.previewBlob instanceof Blob)){
+    const text = document.createElement("p");
+    text.className = "review-document-state error";
+    text.textContent = "לא ניתן להציג את מסמך ה-PDF.";
+    content.appendChild(text);
+    return;
+  }
+  try {
+    await renderPdfBlobIntoPanel(content, documentFile.previewBlob, {
+      isCurrent:() => currentExpenseReviewDocument === documentFile
+        && Boolean($("expenseReviewFullscreenDialog")?.open)
+    });
+  } catch(error){
+    console.error("expense_review_fullscreen_pdf_failed", error);
+    if(currentExpenseReviewDocument !== documentFile) return;
+    content.innerHTML = '<p class="review-document-state error">לא ניתן להציג את מסמך ה-PDF.</p>';
+  }
 }
 
 function clearCurrentExpenseReviewObjectUrl(nextObjectUrl = ""){
@@ -5837,7 +5879,8 @@ function setCurrentExpenseReviewDocument(documentFile){
     ? {
         signedUrl: documentFile.signedUrl,
         mimeType: documentFile.mimeType,
-        storagePath:String(documentFile.storagePath || "").trim()
+        storagePath:String(documentFile.storagePath || "").trim(),
+        previewBlob:documentFile.previewBlob instanceof Blob ? documentFile.previewBlob : null
       }
     : null;
 
@@ -5885,7 +5928,7 @@ function renderExpenseReviewFullscreenContent(){
   }
 
   setFullscreenImageControlsVisible(false);
-  renderExpenseReviewFullscreenDocument();
+  void renderExpenseReviewFullscreenDocument();
 }
 
 function openExpenseReviewFullscreen(){
@@ -6854,7 +6897,8 @@ function getProjectById(projectId){
 
 function populateProjectSelect(select, {mode = "assignment", selectedProjectId = ""} = {}){
   if(!select) return;
-  const selectedId = String(selectedProjectId || "").trim();
+  const requestedId = String(selectedProjectId || "").trim();
+  const selectedId = requestedId || (mode === "assignment" ? defaultProjectId : "");
   const selectedProject = getProjectById(selectedId);
   const availableProjects = mode === "filter"
     ? projectRows

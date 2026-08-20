@@ -80,10 +80,13 @@ function renderProjectsList(){
     <button type="button" class="project-list-row" data-project-open-id="${escapeHtml(project.id)}" aria-label="פתיחת כרטיס ${escapeHtml(project.name)}">
       <span class="project-profile" data-project-list-profile="${escapeHtml(project.id)}" aria-hidden="true">${escapeHtml(getProjectFallbackLetter(project))}</span>
       <span class="project-list-main">
-        <span class="project-list-title"><strong>${escapeHtml(project.name)}</strong>${project.id === defaultProjectId ? '<span class="project-status-badge is-default">ברירת מחדל</span>' : ""}</span>
+        <span class="project-list-title"><strong>${escapeHtml(project.name)}</strong></span>
         <small>${escapeHtml(project.description || project.notes || "ללא תיאור")}</small>
       </span>
-      <span class="project-status-badge ${project.is_active ? "is-active" : ""}">${project.is_active ? "פעיל" : "לא פעיל"}</span>
+      <span class="project-list-statuses">
+        <span class="project-status-badge ${project.is_active ? "is-active" : ""}">${project.is_active ? "פעיל" : "לא פעיל"}</span>
+        ${String(project.id) === String(defaultProjectId) ? '<span class="project-status-badge is-default">ברירת מחדל</span>' : ""}
+      </span>
     </button>
   `).join("");
 
@@ -135,24 +138,24 @@ function renderProjectRelatedRows(){
 
   incomeHost.innerHTML = incomeRows.length
     ? incomeRows.map(row => `
-        <div class="project-related-row">
+        <div class="project-related-row project-transaction-row">
           <span class="project-related-row-main">
-            <strong>${escapeHtml(normalizeIncomeType(row.income_type) || "הכנסה")}</strong>
-            <small>${escapeHtml([row.report_date, row.reference_number].filter(Boolean).join(" · "))}</small>
+            <span class="project-transaction-name">${escapeHtml(normalizeIncomeType(row.income_type) || "הכנסה")}</span>
+            <small class="project-transaction-meta">${escapeHtml([row.report_date, row.reference_number].filter(Boolean).join(" · "))}</small>
           </span>
-          <strong>${escapeHtml(money(row.total_income_ils || 0))}</strong>
+          <span class="project-transaction-amount">${escapeHtml(money(row.total_income_ils || 0))}</span>
         </div>
       `).join("")
     : `<p class="project-related-empty">${currentProjectIncomeRows.length ? "לא נמצאו הכנסות התואמות לחיפוש." : "אין הכנסות לפרויקט"}</p>`;
 
   expenseHost.innerHTML = expenseRows.length
     ? expenseRows.map(row => `
-        <div class="project-related-row">
+        <div class="project-related-row project-transaction-row">
           <span class="project-related-row-main">
-            <strong>${escapeHtml(row.supplier_name_snapshot || row.description || "הוצאה")}</strong>
-            <small>${escapeHtml([row.document_date, row.document_number].filter(Boolean).join(" · "))}</small>
+            <span class="project-transaction-name">${escapeHtml(row.supplier_name_snapshot || row.description || "הוצאה")}</span>
+            <small class="project-transaction-meta">${escapeHtml([row.document_date, row.document_number].filter(Boolean).join(" · "))}</small>
           </span>
-          <strong>${escapeHtml(moneyAbs(row.gross_ils || 0))}</strong>
+          <span class="project-transaction-amount">${escapeHtml(moneyAbs(row.gross_ils || 0))}</span>
         </div>
       `).join("")
     : `<p class="project-related-empty">${currentProjectExpenseRows.length ? "לא נמצאו הוצאות התואמות לחיפוש." : "אין הוצאות לפרויקט"}</p>`;
@@ -252,6 +255,7 @@ async function setCurrentProjectAsDefault(){
 
     defaultProjectId = project.id;
     renderProjectCard();
+    renderProjectsList();
     setStatus($("projectCardStatus"), "הפרויקט הוגדר כברירת מחדל", "ok");
   } catch(error){
     console.error(error);
@@ -371,9 +375,8 @@ function openProjectEditor(projectId = ""){
   $("projectEditorDescription").value = project?.description || "";
   $("projectEditorNotes").value = project?.notes || "";
   $("projectEditorActive").checked = project ? Boolean(project.is_active) : true;
-  $("projectEditorName").disabled = Boolean(project?.is_general);
-  $("projectEditorActive").disabled = Boolean(project?.is_general);
-  $("projectGeneralProtectionNotice").classList.toggle("hidden", !project?.is_general);
+  $("projectEditorName").disabled = false;
+  $("projectEditorActive").disabled = false;
   $("projectEditorProfileInput").value = "";
   setStatus($("projectEditorStatus"), "", "");
   renderProjectEditorProfilePreview();
@@ -883,11 +886,6 @@ document.querySelectorAll("[data-project-status-filter]").forEach(button => {
 
 $("projectCreateButton")?.addEventListener("click", () => openProjectEditor());
 $("projectCardEditButton")?.addEventListener("click", () => {
-  if(currentProjectCard?.is_general){
-    openProjectEditor(currentProjectId);
-    setStatus($("projectEditorStatus"), "השם והמצב הפעיל של הפרויקט כללי מוגנים ואינם ניתנים לשינוי.", "");
-    return;
-  }
   openProjectEditor(currentProjectId);
 });
 $("projectCardDeleteButton")?.addEventListener("click", openProjectDeleteDialog);
@@ -912,6 +910,20 @@ $("projectEditorProfileRemoveButton")?.addEventListener("click", () => {
   removeCurrentProjectProfile = true;
   $("projectEditorProfileInput").value = "";
   renderProjectEditorProfilePreview();
+});
+$("projectEditorName")?.addEventListener("input", () => {
+  const project = getProjectById(currentProjectEditorId);
+  if(!project?.is_general || $("projectEditorName").value === "כללי") return;
+  $("projectEditorName").value = "כללי";
+  setStatus($("projectEditorStatus"), "השם של הפרויקט כללי מוגן ואינו ניתן לשינוי.", "warning");
+  showToast("השם של הפרויקט כללי מוגן ואינו ניתן לשינוי.", "warning");
+});
+$("projectEditorActive")?.addEventListener("change", () => {
+  const project = getProjectById(currentProjectEditorId);
+  if(!project?.is_general) return;
+  $("projectEditorActive").checked = true;
+  setStatus($("projectEditorStatus"), "המצב הפעיל של הפרויקט כללי מוגן ואינו ניתן לשינוי.", "warning");
+  showToast("המצב הפעיל של הפרויקט כללי מוגן ואינו ניתן לשינוי.", "warning");
 });
 $("projectEditorForm")?.addEventListener("submit", event => void saveProjectEditor(event));
 $("projectEditorDialog")?.addEventListener("close", () => {

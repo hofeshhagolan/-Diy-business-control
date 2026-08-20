@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/static/icons/icon.svg">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260820-2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260820-3">
 </head>
 <body>
 
@@ -358,22 +358,22 @@
           <span class="sr-only">חיפוש במידע הפרויקט</span>
           <input id="projectCardSearchInput" type="search" placeholder="חיפוש בהכנסות, בהוצאות ובמסמכי הפרויקט" autocomplete="off">
         </label>
-        <section class="project-related-section" aria-labelledby="projectIncomeHeading">
-          <h4 id="projectIncomeHeading">הכנסות</h4>
-          <div id="projectCardIncomeList" class="project-related-list"></div>
-        </section>
-        <section class="project-related-section" aria-labelledby="projectExpensesHeading">
-          <h4 id="projectExpensesHeading">הוצאות</h4>
-          <div id="projectCardExpenseList" class="project-related-list"></div>
-        </section>
-        <section class="project-related-section" aria-labelledby="projectDocumentsHeading">
+        <section class="project-related-section project-documents-section" aria-labelledby="projectDocumentsHeading">
           <h4 id="projectDocumentsHeading">מסמכי פרויקט</h4>
+          <div id="projectCardDocumentsList" class="project-related-list"></div>
           <div class="project-document-section-actions">
             <button id="projectDocumentsManageButton" type="button" class="secondary">ניהול מסמכים</button>
             <button id="projectDocumentsZipButton" type="button" class="secondary" disabled>הורידי מסמכי פרויקט (ZIP)</button>
           </div>
           <div id="projectDocumentsZipStatus" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
-          <div id="projectCardDocumentsList" class="project-related-list"></div>
+        </section>
+        <section class="project-related-section project-transactions-section" aria-labelledby="projectIncomeHeading">
+          <h4 id="projectIncomeHeading">הכנסות</h4>
+          <div id="projectCardIncomeList" class="project-related-list"></div>
+        </section>
+        <section class="project-related-section project-transactions-section" aria-labelledby="projectExpensesHeading">
+          <h4 id="projectExpensesHeading">הוצאות</h4>
+          <div id="projectCardExpenseList" class="project-related-list"></div>
         </section>
       </section>
     </section>
@@ -862,9 +862,6 @@
     <button data-close type="button" aria-label="סגירת עריכת פרויקט">✕</button>
   </div>
   <form id="projectEditorForm" class="modal-body form-grid">
-    <div id="projectGeneralProtectionNotice" class="information-notice wide hidden" role="status">
-      השם והמצב הפעיל של הפרויקט כללי מוגנים ואינם ניתנים לשינוי.
-    </div>
     <label class="wide">שם<input id="projectEditorName" maxlength="160" required></label>
     <label class="wide">תיאור<textarea id="projectEditorDescription" maxlength="2000"></textarea></label>
     <label class="wide">הערות<textarea id="projectEditorNotes" maxlength="4000"></textarea></label>
@@ -1045,7 +1042,7 @@
 
 <div id="appToast" class="app-toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/static/js/app.js?v=20260820-2"></script>
-<script src="/static/js/projects.js?v=20260820-2"></script>
+<script src="/static/js/app.js?v=20260820-3"></script>
+<script src="/static/js/projects.js?v=20260820-3"></script>
 </body>
 </html>

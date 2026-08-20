@@ -189,6 +189,7 @@ h2{margin:4px 0 14px;color:var(--brand)}
 .project-list-row:hover{border-color:#a9bfd4;background:#f8fbff}
 .project-list-main{min-width:0;display:grid;gap:4px}
 .project-list-title{min-width:0;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.project-list-statuses{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
 .project-list-main strong{color:var(--brand);font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-list-main small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-profile{width:52px;height:52px;overflow:hidden;border:1px solid #c7d6e5;border-radius:50%;background:#eaf2fa;color:var(--brand);display:grid;place-items:center;font-weight:900;flex:0 0 auto}
@@ -218,9 +219,8 @@ button.project-summary-item:hover,button.project-summary-item:focus-visible{bord
 .project-related-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
 .project-related-head h3{margin:0;color:var(--brand)}
 .project-related-section{margin-top:18px}
-.project-related-section h4{margin:0 0 8px;color:var(--brand)}
-.project-related-section>h4{margin:0 0 8px}
-.project-document-section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.project-related-section h4{margin:0 0 10px;padding-bottom:7px;border-bottom:2px solid #c9d8e7;color:var(--brand);font-size:1.05rem;font-weight:900}
+.project-document-section-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
 .project-document-section-actions button{padding:8px 11px}
 .information-notice{padding:12px 14px;border:1px solid #d6b64c;border-radius:8px;background:#fff8d9;color:#5f4b00;font-weight:700;line-height:1.5}
 .project-document-pending{display:grid;gap:10px;padding:12px;margin:12px 0;border:1px solid var(--line);border-radius:8px;background:#f8fafc}
@@ -235,6 +235,11 @@ button.project-related-row:hover{background:#f8fbff;border-color:#b7cae1}
 .project-related-row-main{min-width:0;display:grid;gap:3px}
 .project-related-row-main strong,.project-related-row-main span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-related-row-main small{color:var(--muted)}
+.project-transaction-row{min-height:42px;padding:8px 10px;background:#fbfcfd;color:var(--muted);font-size:.9rem}
+.project-transaction-row .project-related-row-main{display:flex;align-items:baseline;gap:8px;overflow:hidden}
+.project-transaction-row .project-transaction-name{color:var(--text);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-transaction-row .project-transaction-meta{flex:0 0 auto;font-size:.8rem}
+.project-transaction-row .project-transaction-amount{color:var(--muted);font-size:.88rem;font-weight:600;white-space:nowrap}
 .project-related-empty{margin:0;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);background:#f8fafc}
 .project-active-toggle{display:flex;flex-direction:row;align-items:center;gap:9px}
 .project-active-toggle input{width:auto}
@@ -288,6 +293,8 @@ th{background:#eef3f8;color:var(--brand)}
 .shared-document-viewer-panel iframe{width:100%;height:100%;min-height:0;border:0;background:#fff}
 .shared-document-pdf-pages{width:100%;height:100%;overflow:auto;display:grid;justify-items:center;align-content:start;gap:12px;padding:12px;background:#dfe5ec}
 .shared-document-pdf-pages canvas{display:block;max-width:100%;height:auto!important;background:#fff;box-shadow:0 2px 8px rgba(16,44,78,.18)}
+.expense-review-pdf-panel{overflow:auto;align-items:flex-start;background:#dfe5ec}
+.expense-review-pdf-panel .shared-document-pdf-pages{min-height:100%;overflow:visible;padding:8px}
 .shared-document-pdf-fallback{display:grid;justify-items:center;gap:14px;padding:24px;text-align:center}
 .shared-document-pdf-fallback a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:8px 16px;text-decoration:none}
 .shared-document-viewer-navigation{display:flex;align-items:center;justify-content:center;gap:16px;min-height:48px}
